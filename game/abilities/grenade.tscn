@@ -1,0 +1,12 @@
+[gd_scene load_steps=3 format=3 uid="uid://bslimergrenade"]
+
+[ext_resource type="Script" path="res://abilities/grenade.gd" id="1_s"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/boss_orb.png" id="2_t"]
+
+[node name="Grenade" type="Node2D"]
+z_index = 75
+script = ExtResource("1_s")
+
+[node name="Sprite" type="Sprite2D" parent="."]
+scale = Vector2(0.6, 0.6)
+texture = ExtResource("2_t")

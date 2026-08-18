@@ -1,0 +1,912 @@
+/* Slimer - site styles.
+ *
+ * The palette is the game's own, lifted from game/ui/ui_theme.gd and
+ * project.godot's default_clear_color, so the page and the game look like the
+ * same object. System fonts only - no webfont request, nothing to block paint.
+ */
+
+:root {
+	--bg: #171f1a;
+	--clear: #293629;
+	--panel: #212b24;
+	--panel-hi: #304033;
+	--border: #5c8557;
+	--border-dim: #3d473d;
+	--text: #ebf5e6;
+	--dim: #9eb29e;
+	--gold: #ffd152;
+	--red: #eb5257;
+	--green: #7adb6b;
+	--blue: #6bb8ff;
+	--purple: #b27af5;
+
+	--e-green: #5ccc26;
+	--e-blue: #2999eb;
+	--e-red: #db293d;
+	--e-purple: #993dd9;
+	--e-yellow: #f2bf1f;
+	--e-orange: #f2731a;
+
+	--mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	--sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+
+	--wrap: 1120px;
+	--gap: clamp(1rem, 2.5vw, 2rem);
+	--radius: 10px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+	scroll-behavior: smooth;
+	/* The sticky nav must not cover the heading you just jumped to. */
+	scroll-padding-top: 5rem;
+}
+@media (prefers-reduced-motion: reduce) {
+	html { scroll-behavior: auto; }
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--sans);
+	font-size: clamp(1rem, 0.97rem + 0.15vw, 1.08rem);
+	line-height: 1.65;
+	-webkit-font-smoothing: antialiased;
+	overflow-x: hidden;
+}
+
+img, canvas { max-width: 100%; }
+a { color: var(--gold); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { color: #fff; }
+
+:focus-visible {
+	outline: 2px solid var(--gold);
+	outline-offset: 3px;
+	border-radius: 4px;
+}
+
+.wrap {
+	width: 100%;
+	max-width: var(--wrap);
+	margin-inline: auto;
+	padding-inline: clamp(1rem, 4vw, 2rem);
+}
+
+.skip-link {
+	position: absolute;
+	left: -9999px;
+	top: 0;
+	background: var(--gold);
+	color: #10160f;
+	padding: 0.6rem 1rem;
+	z-index: 100;
+	font-weight: 700;
+}
+.skip-link:focus { left: 0.5rem; top: 0.5rem; }
+
+/* -- headings --------------------------------------------------------------- */
+
+h1, h2, h3 { line-height: 1.15; margin: 0; text-wrap: balance; }
+
+h2 {
+	font-size: clamp(1.5rem, 1.1rem + 1.7vw, 2.35rem);
+	letter-spacing: -0.01em;
+}
+
+.eyebrow {
+	font-family: var(--mono);
+	font-size: 0.72rem;
+	letter-spacing: 0.19em;
+	text-transform: uppercase;
+	color: var(--gold);
+	margin: 0 0 0.7rem;
+}
+
+.lede {
+	font-size: clamp(1.05rem, 1rem + 0.4vw, 1.28rem);
+	color: #d3e3cf;
+	max-width: 62ch;
+	margin: 1rem 0 0;
+}
+
+.note {
+	font-family: var(--mono);
+	font-size: 0.8rem;
+	color: var(--dim);
+	line-height: 1.6;
+}
+
+section { padding-block: clamp(3.5rem, 7vw, 6.5rem); }
+section + section { border-top: 1px solid rgba(92, 133, 87, 0.18); }
+
+/* -- nav -------------------------------------------------------------------- */
+
+.nav {
+	position: sticky;
+	top: 0;
+	z-index: 50;
+	background: rgba(23, 31, 26, 0.86);
+	backdrop-filter: blur(12px);
+	border-bottom: 1px solid rgba(92, 133, 87, 0.22);
+}
+.nav-inner {
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+	min-height: 3.4rem;
+}
+.nav-brand {
+	font-family: var(--mono);
+	font-weight: 700;
+	letter-spacing: 0.16em;
+	color: var(--text);
+	text-decoration: none;
+	display: flex;
+	align-items: center;
+	gap: 0.55rem;
+	flex: none;
+}
+.nav-brand img { width: 26px; height: 26px; image-rendering: pixelated; }
+.nav-links {
+	display: flex;
+	gap: 0.15rem;
+	margin-left: auto;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+.nav-links::-webkit-scrollbar { display: none; }
+.nav-links a {
+	font-family: var(--mono);
+	font-size: 0.78rem;
+	color: var(--dim);
+	text-decoration: none;
+	padding: 0.4rem 0.6rem;
+	border-radius: 6px;
+	white-space: nowrap;
+}
+.nav-links a:hover, .nav-links a[aria-current="true"] {
+	color: var(--gold);
+	background: rgba(255, 209, 82, 0.08);
+}
+.nav-cta {
+	flex: none;
+	font-family: var(--mono);
+	font-size: 0.78rem;
+	font-weight: 700;
+	background: var(--gold);
+	color: #10160f;
+	text-decoration: none;
+	padding: 0.45rem 0.85rem;
+	border-radius: 6px;
+}
+.nav-cta:hover { background: #fff; color: #10160f; }
+@media (max-width: 900px) { .nav-links { display: none; } }
+
+/* -- hero ------------------------------------------------------------------- */
+
+.hero {
+	position: relative;
+	min-height: min(82vh, 720px);
+	display: grid;
+	align-items: center;
+	padding-block: clamp(3rem, 8vw, 6rem);
+	overflow: hidden;
+	border-top: 0;
+}
+.hero-gl {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	display: block;
+	object-fit: cover;
+}
+/* Keeps the title readable over a bright, busy forest, and doubles as the
+ * vignette the game itself draws. */
+.hero::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background:
+		linear-gradient(to right, rgba(10, 15, 13, 0.86) 0%, rgba(10, 15, 13, 0.5) 45%, rgba(10, 15, 13, 0.25) 100%),
+		radial-gradient(120% 85% at 30% 45%, rgba(10, 15, 13, 0.16) 0%, rgba(10, 15, 13, 0.72) 82%),
+		linear-gradient(to top, var(--bg) 2%, rgba(23, 31, 26, 0.1) 45%);
+	pointer-events: none;
+}
+/* Portrait has no room to put the text beside the scene, so darken the whole
+ * thing rather than relying on a left-hand column. */
+@media (max-width: 700px) {
+	.hero::after {
+		background:
+			linear-gradient(to bottom, rgba(10, 15, 13, 0.72) 0%, rgba(10, 15, 13, 0.82) 55%, var(--bg) 100%);
+	}
+}
+.hero-inner { position: relative; z-index: 2; }
+
+.title {
+	font-family: var(--mono);
+	font-size: clamp(3rem, 1.5rem + 9vw, 7.5rem);
+	font-weight: 700;
+	letter-spacing: -0.03em;
+	margin: 0;
+	text-shadow: 0 4px 26px rgba(8, 13, 8, 0.9);
+}
+.title span { color: var(--gold); }
+.tagline {
+	font-size: clamp(1.05rem, 1rem + 0.7vw, 1.5rem);
+	color: #dceed7;
+	max-width: 34ch;
+	margin: 0.7rem 0 0;
+	text-shadow: 0 2px 14px rgba(8, 13, 8, 0.9);
+}
+.hero-meta {
+	font-family: var(--mono);
+	font-size: 0.8rem;
+	color: var(--gold);
+	margin-top: 1.1rem;
+	letter-spacing: 0.04em;
+}
+
+.cta-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.7rem;
+	margin-top: 1.8rem;
+}
+.btn {
+	font-family: var(--mono);
+	font-size: 0.9rem;
+	font-weight: 700;
+	text-decoration: none;
+	padding: 0.8rem 1.4rem;
+	border-radius: 8px;
+	border: 1px solid transparent;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	cursor: pointer;
+	transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: var(--gold); color: #10160f; }
+.btn-primary:hover { background: #fff; color: #10160f; }
+.btn-ghost {
+	background: rgba(33, 43, 36, 0.72);
+	border-color: var(--border);
+	color: var(--text);
+}
+.btn-ghost:hover { border-color: var(--gold); color: var(--gold); }
+@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+
+/* -- generic panels and grids ---------------------------------------------- */
+
+.panel {
+	background: var(--panel);
+	border: 1px solid rgba(92, 133, 87, 0.3);
+	border-radius: var(--radius);
+	padding: clamp(1rem, 2.4vw, 1.6rem);
+}
+
+.grid { display: grid; gap: var(--gap); }
+.grid-2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.grid-3 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.grid-4 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+
+.split {
+	display: grid;
+	gap: var(--gap);
+	grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 900px) {
+	.split { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); align-items: center; }
+	.split.narrow-right { grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); }
+}
+
+/* -- stat strip ------------------------------------------------------------- */
+
+.stats {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(50%, 140px), 1fr));
+	gap: 1px;
+	background: rgba(92, 133, 87, 0.24);
+	border: 1px solid rgba(92, 133, 87, 0.24);
+	border-radius: var(--radius);
+	overflow: hidden;
+	margin-top: 2rem;
+}
+.stat { background: var(--panel); padding: 1rem 1.1rem; }
+.stat b {
+	display: block;
+	font-family: var(--mono);
+	font-size: 1.5rem;
+	color: var(--gold);
+	line-height: 1.1;
+}
+.stat span {
+	font-family: var(--mono);
+	font-size: 0.72rem;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--dim);
+}
+
+/* -- the loop -------------------------------------------------------------- */
+
+.loop {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	align-items: stretch;
+	margin-top: 2rem;
+	font-family: var(--mono);
+	font-size: 0.82rem;
+}
+.loop-step {
+	flex: 1 1 auto;
+	min-width: 92px;
+	background: var(--panel);
+	border: 1px solid rgba(92, 133, 87, 0.3);
+	border-radius: 8px;
+	padding: 0.7rem 0.8rem;
+	text-align: center;
+}
+.loop-step small {
+	display: block;
+	color: var(--dim);
+	font-size: 0.68rem;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+.loop-step.is-mini { border-color: rgba(255, 209, 82, 0.55); color: var(--gold); }
+.loop-step.is-major { border-color: rgba(235, 82, 87, 0.6); color: var(--red); }
+.loop-step.is-shop { border-color: rgba(107, 184, 255, 0.5); color: var(--blue); }
+.loop-step.is-loop {
+	border-style: dashed;
+	border-color: rgba(158, 178, 158, 0.5);
+	color: var(--dim);
+}
+
+/* -- roster ---------------------------------------------------------------- */
+
+.roster-stage { position: relative; margin-top: 2rem; }
+.roster-gl {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	display: block;
+	border-radius: var(--radius);
+}
+.roster-grid {
+	position: relative;
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr));
+	gap: 2px;
+	z-index: 2;
+}
+.enemy {
+	position: relative;
+	/* Tall enough that the sim gets a clear upper half above the stat block. */
+	min-height: 360px;
+	display: flex;
+	flex-direction: column;
+	justify-content: flex-end;
+	padding: 0.9rem;
+	border: 1px solid rgba(92, 133, 87, 0.28);
+	border-radius: var(--radius);
+	overflow: hidden;
+	/* The cards sit above the shared canvas, so this gradient is what lets the
+	 * sim show through. It must stay fully transparent across the whole band the
+	 * actors move in (see SIM_BAND in js/scenes/roster.js) and only turn opaque
+	 * behind the text. */
+	background: linear-gradient(to top,
+		rgba(16, 22, 17, 0.97) 0%,
+		rgba(16, 22, 17, 0.95) 34%,
+		rgba(16, 22, 17, 0.55) 50%,
+		rgba(16, 22, 17, 0) 60%);
+}
+.enemy header { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.enemy h3 {
+	font-family: var(--mono);
+	font-size: 1.05rem;
+	color: var(--tint, var(--text));
+}
+.enemy .tag {
+	font-family: var(--mono);
+	font-size: 0.68rem;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--dim);
+	border: 1px solid rgba(158, 178, 158, 0.35);
+	border-radius: 4px;
+	padding: 0.05rem 0.35rem;
+}
+.enemy .hint {
+	font-size: 0.85rem;
+	color: #cadec6;
+	margin: 0.4rem 0 0.6rem;
+}
+.enemy dl {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
+	gap: 0.35rem 0.6rem;
+	margin: 0;
+	font-family: var(--mono);
+	font-size: 0.72rem;
+}
+.enemy dt { color: var(--dim); font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.enemy dd { margin: 0; color: var(--text); }
+.enemy .unlock {
+	position: absolute;
+	top: 0.7rem;
+	right: 0.8rem;
+	font-family: var(--mono);
+	font-size: 0.68rem;
+	color: var(--tint, var(--gold));
+	background: rgba(16, 22, 17, 0.8);
+	border-radius: 4px;
+	padding: 0.1rem 0.4rem;
+}
+
+/* -- stage: a labelled WebGL panel ---------------------------------------- */
+
+.stage {
+	position: relative;
+	border: 1px solid rgba(92, 133, 87, 0.3);
+	border-radius: var(--radius);
+	overflow: hidden;
+	background: var(--clear);
+}
+.stage canvas { display: block; width: 100%; height: 100%; }
+.stage-caption {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem 1rem;
+	align-items: center;
+	padding: 0.7rem 0.9rem;
+	/* Solid at the text, fading upward - the caption can wrap to two lines and
+	 * must stay readable over a bright scene. */
+	background: linear-gradient(to top,
+		rgba(16, 22, 17, 0.96) 0%,
+		rgba(16, 22, 17, 0.9) 65%,
+		rgba(16, 22, 17, 0) 100%);
+	font-family: var(--mono);
+	font-size: 0.76rem;
+	color: var(--dim);
+}
+.stage-caption > b { flex: none; }
+.stage-caption > span { flex: 1 1 12rem; min-width: 0; }
+.stage-caption b { color: var(--gold); font-weight: 400; }
+.stage-btn {
+	margin-left: auto;
+	font-family: var(--mono);
+	font-size: 0.74rem;
+	background: rgba(255, 209, 82, 0.14);
+	border: 1px solid rgba(255, 209, 82, 0.5);
+	color: var(--gold);
+	border-radius: 6px;
+	padding: 0.3rem 0.7rem;
+	cursor: pointer;
+}
+.stage-btn:hover { background: var(--gold); color: #10160f; }
+.stage-tall { aspect-ratio: 16 / 10; }
+.stage-wide { aspect-ratio: 16 / 9; }
+@media (max-width: 620px) {
+	.stage-tall, .stage-wide { aspect-ratio: 4 / 3; }
+}
+
+/* -- bosses ---------------------------------------------------------------- */
+
+.boss {
+	display: grid;
+	grid-template-columns: 92px minmax(0, 1fr);
+	gap: 1rem;
+	align-items: start;
+}
+.boss img {
+	width: 92px;
+	image-rendering: pixelated;
+	filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+}
+.boss h3 { font-family: var(--mono); font-size: 1rem; }
+.boss .title-line { color: var(--gold); font-size: 0.82rem; font-style: italic; }
+.boss .kind {
+	font-family: var(--mono);
+	font-size: 0.64rem;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	border-radius: 4px;
+	padding: 0.08rem 0.4rem;
+	border: 1px solid currentColor;
+}
+.boss .kind.mini { color: var(--gold); }
+.boss .kind.major { color: var(--red); }
+.boss p { margin: 0.5rem 0 0.6rem; font-size: 0.9rem; }
+.phases { display: grid; gap: 0.25rem; font-family: var(--mono); font-size: 0.72rem; }
+.phases div { color: var(--dim); }
+.phases b { color: var(--text); font-weight: 400; }
+@media (max-width: 480px) {
+	.boss { grid-template-columns: 1fr; }
+	.boss img { width: 78px; }
+}
+
+/* -- abilities ------------------------------------------------------------- */
+
+.ability {
+	display: grid;
+	grid-template-columns: 40px minmax(0, 1fr);
+	gap: 0.8rem;
+	align-items: start;
+	background: var(--panel);
+	border: 1px solid rgba(92, 133, 87, 0.26);
+	border-radius: 8px;
+	padding: 0.85rem;
+}
+.ability.is-free { border-color: rgba(255, 209, 82, 0.5); }
+.ability img { width: 40px; height: 40px; image-rendering: pixelated; }
+.ability h3 {
+	font-family: var(--mono);
+	font-size: 0.94rem;
+	display: flex;
+	gap: 0.45rem;
+	align-items: baseline;
+	flex-wrap: wrap;
+}
+.ability .role {
+	font-family: var(--mono);
+	font-size: 0.62rem;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--dim);
+}
+.ability p { margin: 0.25rem 0 0.35rem; font-size: 0.86rem; color: #cddfc9; }
+.ability .nums { font-family: var(--mono); font-size: 0.7rem; color: var(--dim); }
+.ability .cost {
+	font-family: var(--mono);
+	font-size: 0.7rem;
+	color: var(--purple);
+}
+.ability .cost.free { color: var(--gold); }
+
+/* -- tables ---------------------------------------------------------------- */
+
+.table-scroll {
+	overflow-x: auto;
+	border: 1px solid rgba(92, 133, 87, 0.28);
+	border-radius: var(--radius);
+	margin-top: 1.6rem;
+}
+table { border-collapse: collapse; width: 100%; font-size: 0.84rem; min-width: 560px; }
+caption { text-align: left; padding: 0.8rem 1rem; color: var(--dim); font-size: 0.8rem; }
+th, td { text-align: left; padding: 0.55rem 0.9rem; border-bottom: 1px solid rgba(92, 133, 87, 0.16); }
+th {
+	font-family: var(--mono);
+	font-size: 0.68rem;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--gold);
+	background: rgba(48, 64, 51, 0.5);
+	position: sticky;
+	top: 0;
+}
+td { font-family: var(--mono); color: #d7e6d3; }
+td:first-child { color: var(--text); }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: rgba(48, 64, 51, 0.35); }
+
+.upgrade-cat {
+	font-family: var(--mono);
+	font-size: 0.64rem;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	padding: 0.08rem 0.4rem;
+	border-radius: 4px;
+	border: 1px solid currentColor;
+}
+.cat-damage { color: var(--red); }
+.cat-rapid { color: var(--gold); }
+.cat-projectile { color: var(--blue); }
+.cat-survival { color: var(--green); }
+.cat-utility { color: var(--purple); }
+.locked { color: var(--purple); }
+
+/* -- music ----------------------------------------------------------------- */
+
+.cue-btn {
+	font-family: var(--mono);
+	font-size: 0.72rem;
+	background: rgba(255, 209, 82, 0.1);
+	border: 1px solid rgba(255, 209, 82, 0.4);
+	color: var(--gold);
+	border-radius: 5px;
+	padding: 0.2rem 0.55rem;
+	cursor: pointer;
+	white-space: nowrap;
+}
+.cue-btn:hover { background: var(--gold); color: #10160f; }
+.cue-btn[aria-pressed="true"] { background: var(--gold); color: #10160f; }
+
+/* -- gallery -------------------------------------------------------------- */
+
+.gallery {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+	gap: 0.7rem;
+	margin-top: 2rem;
+}
+.gallery button {
+	padding: 0;
+	border: 1px solid rgba(92, 133, 87, 0.3);
+	border-radius: 8px;
+	overflow: hidden;
+	background: var(--panel);
+	cursor: zoom-in;
+	display: block;
+	position: relative;
+}
+.gallery button:hover { border-color: var(--gold); }
+.gallery img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.gallery figcaption {
+	font-family: var(--mono);
+	font-size: 0.7rem;
+	color: var(--dim);
+	padding: 0.4rem 0.55rem;
+	text-align: left;
+}
+
+dialog.lightbox {
+	border: 0;
+	padding: 0;
+	background: transparent;
+	max-width: 96vw;
+	max-height: 96vh;
+}
+dialog.lightbox::backdrop { background: rgba(8, 13, 8, 0.93); }
+dialog.lightbox img {
+	display: block;
+	max-width: 96vw;
+	max-height: 84vh;
+	border-radius: 8px;
+	border: 1px solid rgba(92, 133, 87, 0.4);
+}
+.lightbox-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.8rem;
+	padding: 0.7rem 0.2rem 0;
+	font-family: var(--mono);
+	font-size: 0.78rem;
+	color: var(--dim);
+}
+.lightbox-bar button {
+	font-family: var(--mono);
+	background: var(--panel);
+	border: 1px solid var(--border);
+	color: var(--text);
+	border-radius: 6px;
+	padding: 0.3rem 0.7rem;
+	cursor: pointer;
+}
+.lightbox-bar button:hover { border-color: var(--gold); color: var(--gold); }
+.lightbox-bar .count { margin-left: auto; }
+
+/* -- downloads ------------------------------------------------------------ */
+
+.dl-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+	gap: var(--gap);
+	margin-top: 2rem;
+}
+.dl {
+	display: flex;
+	flex-direction: column;
+	background: var(--panel);
+	border: 1px solid rgba(92, 133, 87, 0.3);
+	border-radius: var(--radius);
+	padding: 1.2rem;
+}
+.dl.is-browser { border-color: rgba(255, 209, 82, 0.5); }
+.dl h3 { font-family: var(--mono); font-size: 1.05rem; }
+.dl .size { font-family: var(--mono); font-size: 0.74rem; color: var(--gold); margin-top: 0.15rem; }
+.dl p { font-size: 0.84rem; color: #cddfc9; margin: 0.7rem 0 1rem; flex: 1; }
+.dl code {
+	font-family: var(--mono);
+	font-size: 0.76rem;
+	background: rgba(16, 22, 17, 0.7);
+	border: 1px solid rgba(92, 133, 87, 0.28);
+	border-radius: 4px;
+	padding: 0.1rem 0.35rem;
+	display: inline-block;
+	word-break: break-all;
+}
+.dl .btn { justify-content: center; }
+.dl-pending {
+	font-family: var(--mono);
+	font-size: 0.8rem;
+	text-align: center;
+	color: var(--dim);
+	border: 1px dashed rgba(158, 178, 158, 0.45);
+	border-radius: 8px;
+	padding: 0.8rem;
+}
+
+.callout {
+	margin-top: 2rem;
+	border-left: 3px solid var(--gold);
+	background: rgba(48, 64, 51, 0.4);
+	border-radius: 0 8px 8px 0;
+	padding: 1rem 1.2rem;
+	font-size: 0.9rem;
+}
+.callout.warn { border-left-color: var(--red); }
+.callout strong { color: var(--gold); }
+.callout.warn strong { color: var(--red); }
+
+/* -- footer -------------------------------------------------------------- */
+
+.footer {
+	background: #10160f;
+	border-top: 1px solid rgba(92, 133, 87, 0.28);
+	padding-block: 3rem 2rem;
+	font-size: 0.85rem;
+	color: var(--dim);
+}
+.footer h2 { font-size: 1.05rem; font-family: var(--mono); color: var(--text); }
+.footer h3 {
+	font-family: var(--mono);
+	font-size: 0.72rem;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--gold);
+	margin-bottom: 0.5rem;
+}
+.footer a { color: var(--green); }
+.footer a:hover { color: #fff; }
+.licence-block {
+	font-family: var(--mono);
+	font-size: 0.76rem;
+	line-height: 1.75;
+	background: rgba(33, 43, 36, 0.6);
+	border: 1px solid rgba(92, 133, 87, 0.26);
+	border-radius: 8px;
+	padding: 1rem 1.1rem;
+	margin-top: 0.6rem;
+	overflow-wrap: break-word;
+}
+.not-for-sale {
+	font-family: var(--mono);
+	color: var(--gold);
+	border: 1px solid rgba(255, 209, 82, 0.45);
+	border-radius: 6px;
+	padding: 0.5rem 0.8rem;
+	display: inline-block;
+	margin-bottom: 1.4rem;
+	font-size: 0.82rem;
+}
+.footer-cols {
+	display: grid;
+	gap: var(--gap);
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+	margin-top: 2rem;
+	padding-top: 1.6rem;
+	border-top: 1px solid rgba(92, 133, 87, 0.2);
+}
+.footer ul { list-style: none; margin: 0; padding: 0; }
+.footer li { margin-bottom: 0.3rem; }
+.colophon {
+	margin-top: 2rem;
+	padding-top: 1.2rem;
+	border-top: 1px solid rgba(92, 133, 87, 0.2);
+	font-family: var(--mono);
+	font-size: 0.74rem;
+}
+
+/* -- play page ------------------------------------------------------------ */
+
+.play-body {
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+	background: var(--bg);
+}
+.play-main {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: var(--gap);
+	overflow: hidden;
+}
+.gate {
+	max-width: 560px;
+	text-align: center;
+	background: var(--panel);
+	border: 1px solid rgba(92, 133, 87, 0.35);
+	border-radius: var(--radius);
+	padding: clamp(1.4rem, 4vw, 2.4rem);
+}
+.gate img { width: 88px; image-rendering: pixelated; }
+.gate h1 { font-family: var(--mono); font-size: 1.6rem; margin: 0.8rem 0 0; }
+.gate p { color: #cddfc9; font-size: 0.92rem; }
+.gate .weight {
+	font-family: var(--mono);
+	font-size: 0.8rem;
+	color: var(--gold);
+	border: 1px solid rgba(255, 209, 82, 0.4);
+	border-radius: 6px;
+	padding: 0.55rem 0.8rem;
+	margin: 1.1rem 0;
+}
+.gate progress { width: 100%; height: 8px; margin-top: 1rem; }
+.gate .controls {
+	font-family: var(--mono);
+	font-size: 0.76rem;
+	color: var(--dim);
+	text-align: left;
+	margin-top: 1.4rem;
+	padding-top: 1.1rem;
+	border-top: 1px solid rgba(92, 133, 87, 0.22);
+	display: grid;
+	gap: 0.2rem;
+}
+.gate .controls b { color: var(--text); font-weight: 400; }
+
+/* The game is designed at 1920x1080. Left to fill a tall container, Godot
+ * letterboxes it and the whole game renders as a small island of pixels in the
+ * middle - so give the shell the game's own aspect ratio and let it grow to
+ * whichever of width or height runs out first. */
+/* The game is designed at 1920x1080. Given a very tall container Godot letterboxes
+ * it and the game becomes a small island in the middle, so aim the shell at 16:9.
+ * width/max-height rather than height/max-width, because if the clamp has to win
+ * the shell simply gets a little shorter - it can never overflow the container. */
+#canvas-shell {
+	position: relative;
+	display: none;
+	width: 100%;
+	height: auto;
+	aspect-ratio: 16 / 9;
+	max-height: 100%;
+	max-width: 100%;
+	background: #000;
+}
+#canvas-shell.live { display: block; }
+#canvas-shell:fullscreen {
+	width: 100%;
+	height: 100%;
+	max-height: none;
+	aspect-ratio: auto;
+}
+#canvas-shell canvas { display: block; width: 100%; height: 100%; outline: none; }
+.play-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.8rem;
+	padding: 0.5rem clamp(1rem, 4vw, 2rem);
+	border-bottom: 1px solid rgba(92, 133, 87, 0.22);
+	font-family: var(--mono);
+	font-size: 0.78rem;
+	color: var(--dim);
+	background: rgba(23, 31, 26, 0.9);
+}
+.play-bar a { color: var(--gold); text-decoration: none; }
+.play-bar a:hover { color: #fff; }
+.play-bar .spacer { margin-left: auto; }
+.play-bar button {
+	font-family: var(--mono);
+	font-size: 0.76rem;
+	background: transparent;
+	border: 1px solid var(--border);
+	color: var(--text);
+	border-radius: 5px;
+	padding: 0.25rem 0.6rem;
+	cursor: pointer;
+}
+.play-bar button:hover { border-color: var(--gold); color: var(--gold); }

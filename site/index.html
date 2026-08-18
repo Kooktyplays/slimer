@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slimer — an endless procedural forest roguelike</title>
+<meta name="description" content="A free top-down forest roguelike built in Godot 4. Six enemy colours, five bosses, eleven abilities and a forest generated fresh every run. Play in your browser or download for macOS, Windows and Linux.">
+<link rel="icon" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="stylesheet" href="css/site.css">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Slimer — an endless procedural forest roguelike">
+<meta property="og:description" content="Six enemy colours, five bosses, a forest generated fresh every run. Free, and playable in your browser.">
+<meta property="og:image" content="assets/og.webp">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#293629">
+</head>
+<body>
+<a class="skip-link" href="#about">Skip to content</a>
+
+<nav class="nav">
+	<div class="wrap nav-inner">
+		<a class="nav-brand" href="#top">
+			<img src="assets/favicon.png" alt="" width="26" height="26">
+			SLIMER
+		</a>
+		<div class="nav-links">
+			<a href="#about">What it is</a>
+			<a href="#forest">The forest</a>
+			<a href="#enemies">Enemies</a>
+			<a href="#bosses">Bosses</a>
+			<a href="#difficulty">Difficulty</a>
+			<a href="#abilities">Abilities</a>
+			<a href="#shop">The shop</a>
+			<a href="#music">Music</a>
+			<a href="#shots">Screens</a>
+		</div>
+		<a class="nav-cta" href="play/">Play&nbsp;in&nbsp;browser</a>
+	</div>
+</nav>
+
+<header class="hero" id="top">
+	<canvas class="hero-gl" aria-hidden="true"
+		data-fallback="assets/shots/05_forest_spawn.webp"></canvas>
+	<div class="wrap hero-inner">
+		<h1 class="title">SLIM<span>ER</span></h1>
+		<p class="tagline">An endless forest that is new every run, and never lets you carry more than two answers into it.</p>
+		<p class="hero-meta">Godot 4 · Windows · macOS · Linux · Browser · Free — may be shared, not sold</p>
+		<div class="cta-row">
+			<a class="btn btn-primary" href="play/">▶ Play in browser</a>
+			<a class="btn btn-ghost" href="#download">Download for desktop</a>
+		</div>
+	</div>
+</header>
+
+<main>
+
+<!-- ------------------------------------------------------------------ about -->
+<section id="about">
+	<div class="wrap">
+		<p class="eyebrow">What it is</p>
+		<h2>A top-down roguelike that grows the crowd, not the health bars</h2>
+		<p class="lede">
+			You are dropped into a procedurally generated forest with one pistol and
+			exactly two abilities. Waves of coloured slimes come for you; every fifth
+			wave sends a boss, every twentieth a much larger one, and each boss is
+			followed by a shop where the coins you picked up buy upgrades you cannot
+			all afford. Die and the money and the upgrades go with you — only
+			<em>Essence</em> survives, and that is what unlocks new options for the
+			next run. There is no final wave. The run ends when you do.
+		</p>
+
+		<div class="stats">
+			<div class="stat"><b>∞</b><span>Waves</span></div>
+			<div class="stat"><b>6</b><span>Enemy colours</span></div>
+			<div class="stat"><b>5</b><span>Bosses</span></div>
+			<div class="stat"><b>11</b><span>Abilities, carry 2</span></div>
+			<div class="stat"><b>22</b><span>Shop upgrades</span></div>
+			<div class="stat"><b>22</b><span>Permanent unlocks</span></div>
+			<div class="stat"><b>55</b><span>Enemies at once</span></div>
+			<div class="stat"><b>4</b><span>Platforms</span></div>
+		</div>
+	</div>
+</section>
+
+<!-- ------------------------------------------------------------------- loop -->
+<section id="loop">
+	<div class="wrap">
+		<p class="eyebrow">The loop</p>
+		<h2>Wave, boss, shop, repeat — forever</h2>
+		<p class="lede">
+			A mini-boss lands on every fifth wave and a major boss on every twentieth.
+			Each shop is a fork: six offers, priced so you can typically afford two.
+			Bosses you have already beaten come back with an extra phase.
+		</p>
+
+		<div class="loop">
+			<div class="loop-step">Waves 1–4<small>the roster opens up</small></div>
+			<div class="loop-step is-mini">Wave 5<small>mini-boss</small></div>
+			<div class="loop-step is-shop">Forest Rest<small>spend, or swap abilities</small></div>
+			<div class="loop-step">Waves 6–19<small>elites from 13</small></div>
+			<div class="loop-step is-major">Wave 20<small>major boss</small></div>
+			<div class="loop-step is-loop">→ no ending<small>the cadence just continues</small></div>
+		</div>
+
+		<div class="grid grid-3" style="margin-top:2rem">
+			<div class="panel">
+				<h3 class="eyebrow" style="color:var(--red)">What death takes</h3>
+				<p class="note">Coins, every gun upgrade and every stat boost from the run. The forest is thrown away and reseeded.</p>
+			</div>
+			<div class="panel">
+				<h3 class="eyebrow" style="color:var(--purple)">What death leaves</h3>
+				<p class="note">Essence: <b>wave × 2 + minis × 12 + majors × 60</b>. It buys the nine locked abilities, five extra shop entries and eight small starting passives.</p>
+			</div>
+			<div class="panel">
+				<h3 class="eyebrow">Why that matters</h3>
+				<p class="note">The permanent unlocks are weighted towards variety, not power. Run twenty should have more possible shapes than run one — not be easier.</p>
+			</div>
+		</div>
+	</div>
+</section>
+
+<!-- ----------------------------------------------------------------- forest -->
+<section id="forest">
+	<div class="wrap">
+		<p class="eyebrow">The forest</p>
+		<h2>Generated fresh every run, and proven playable before you see it</h2>
+		<p class="lede">
+			A 4800 × 3700 arena, built from a new seed each time. Clearings are
+			scattered and pushed apart, joined by paths along a minimum spanning tree
+			plus three extra edges — so the map has <em>loops</em> to circle-strafe
+			rather than dead ends to get cornered in. Then it is rasterised into a
+			walkable grid and flood-filled to prove every clearing can actually be
+			reached. If it cannot, the generator widens the chokepoints and tries
+			again.
+		</p>
+
+		<div class="stage stage-wide" style="margin-top:2rem">
+			<canvas id="forest-gl"
+				data-fallback="assets/shots/05_forest_spawn.webp"
+				data-fallback-alt="The forest at spawn: a clearing ringed by trees"></canvas>
+			<div class="stage-caption">
+				<b id="forest-step">1 — scatter clearings</b>
+				<span id="forest-stat"></span>
+				<button class="stage-btn" id="forest-reseed" type="button">New seed</button>
+			</div>
+		</div>
+
+		<div class="grid grid-3" style="margin-top:1.4rem">
+			<div class="panel">
+				<h3 class="eyebrow">One rule, everywhere</h3>
+				<p class="note">
+					<b style="color:var(--gold)">Brown and grey stop you. Green does not.</b>
+					Trees, rocks, logs and stumps block. Grass, bushes and ferns are cover
+					you run straight through. You never have to test a bush to find out.
+				</p>
+			</div>
+			<div class="panel">
+				<h3 class="eyebrow">Clearance is baked in</h3>
+				<p class="note">
+					Blockers are inflated by a 46 px actor clearance before rasterising, so
+					an open cell already means <em>a slime fits</em>. It is why bosses with a
+					190 px radius do not wedge between two trees and strand the run.
+				</p>
+			</div>
+			<div class="panel">
+				<h3 class="eyebrow">200 seeds, no retries</h3>
+				<p class="note">
+					The test suite generates 200 forests and asserts every clearing, the shop
+					point and every loot point is reachable. All 200 pass on the first
+					attempt, about 74 ms each.
+				</p>
+			</div>
+		</div>
+	</div>
+</section>
+
+<!-- ---------------------------------------------------------------- enemies -->
+<section id="enemies">
+	<div class="wrap">
+		<p class="eyebrow">The roster</p>
+		<h2>Six colours, and colour is a promise</h2>
+		<p class="lede">
+			Every colour keeps one behaviour and one stat block, declared together in a
+			single table entry so they cannot drift apart. Learn a colour once and it
+			means the same thing at wave 40. Each cell below is running that colour's
+			real steering rule against a dummy player.
+		</p>
+
+		<div class="roster-stage">
+			<canvas class="roster-gl" id="roster-gl" aria-hidden="true"
+				data-fallback="assets/shots/06_wave_all_colours.webp"></canvas>
+			<div class="roster-grid">
+
+				<figure class="enemy" data-enemy="green" style="--tint:var(--e-green)">
+					<span class="unlock">wave 1</span>
+					<header><h3>Slime</h3><span class="tag">chase</span></header>
+					<p class="hint">Green slimes chase you down. Keep moving.</p>
+					<dl>
+						<div><dt>HP</dt><dd>30</dd></div>
+						<div><dt>Speed</dt><dd>110</dd></div>
+						<div><dt>Contact</dt><dd>8</dd></div>
+						<div><dt>Threat</dt><dd>1.0</dd></div>
+						<div><dt>Coins</dt><dd>4–7</dd></div>
+					</dl>
+				</figure>
+
+				<figure class="enemy" data-enemy="blue" style="--tint:var(--e-blue)">
+					<span class="unlock">wave 4</span>
+					<header><h3>Darter</h3><span class="tag">flank</span></header>
+					<p class="hint">Blue darters are fast and try to get behind you.</p>
+					<dl>
+						<div><dt>HP</dt><dd>20</dd></div>
+						<div><dt>Speed</dt><dd>215</dd></div>
+						<div><dt>Contact</dt><dd>6</dd></div>
+						<div><dt>Threat</dt><dd>1.2</dd></div>
+						<div><dt>Coins</dt><dd>6–10</dd></div>
+					</dl>
+				</figure>
+
+				<figure class="enemy" data-enemy="red" style="--tint:var(--e-red)">
+					<span class="unlock">wave 6</span>
+					<header><h3>Brute</h3><span class="tag">tank</span></header>
+					<p class="hint">Red brutes soak damage and hit hard. Don't get cornered.</p>
+					<dl>
+						<div><dt>HP</dt><dd>110</dd></div>
+						<div><dt>Speed</dt><dd>62</dd></div>
+						<div><dt>Contact</dt><dd>20</dd></div>
+						<div><dt>Threat</dt><dd>3.0</dd></div>
+						<div><dt>Coins</dt><dd>12–18</dd></div>
+					</dl>
+				</figure>
+
+				<figure class="enemy" data-enemy="purple" style="--tint:var(--e-purple)">
+					<span class="unlock">wave 9</span>
+					<header><h3>Spitter</h3><span class="tag">ranged</span></header>
+					<p class="hint">Purple spitters keep their distance. Close in or break line of sight.</p>
+					<dl>
+						<div><dt>HP</dt><dd>38</dd></div>
+						<div><dt>Speed</dt><dd>95</dd></div>
+						<div><dt>Shot</dt><dd>9</dd></div>
+						<div><dt>Holds</dt><dd>420 px</dd></div>
+						<div><dt>Threat</dt><dd>2.2</dd></div>
+					</dl>
+				</figure>
+
+				<figure class="enemy" data-enemy="yellow" style="--tint:var(--e-yellow)">
+					<span class="unlock">wave 11</span>
+					<header><h3>Hoarder</h3><span class="tag">skittish</span></header>
+					<p class="hint">Yellow hoarders run from you and pay out big. Worth the chase.</p>
+					<dl>
+						<div><dt>HP</dt><dd>45</dd></div>
+						<div><dt>Speed</dt><dd>145</dd></div>
+						<div><dt>Flees</dt><dd>340 px</dd></div>
+						<div><dt>Threat</dt><dd>1.8</dd></div>
+						<div><dt>Coins</dt><dd>34–52</dd></div>
+					</dl>
+				</figure>
+
+				<figure class="enemy" data-enemy="orange" style="--tint:var(--e-orange)">
+					<span class="unlock">wave 15</span>
+					<header><h3>Bloater</h3><span class="tag">bomber</span></header>
+					<p class="hint">Orange bloaters detonate. Kill them early, at range.</p>
+					<dl>
+						<div><dt>HP</dt><dd>34</dd></div>
+						<div><dt>Speed</dt><dd>130</dd></div>
+						<div><dt>Blast</dt><dd>26</dd></div>
+						<div><dt>Radius</dt><dd>165 px</dd></div>
+						<div><dt>Fuse</dt><dd>0.75 s</dd></div>
+					</dl>
+				</figure>
+
+			</div>
+		</div>
+		<p class="note" style="margin-top:0.9rem">
+			Distances above are the game's own. Actors are drawn at double size so they
+			read at card scale.
+		</p>
+
+		<div class="split narrow-right" style="margin-top:3rem">
+			<div>
+				<h3 style="font-family:var(--mono);font-size:1.15rem">Elites, from wave 13</h3>
+				<p style="font-size:0.95rem;color:#cddfc9">
+					A crowned slime is an elite: ×2.6 health, ×1.5 damage, ×3 money, ×1.32
+					size — and ×2.1 threat, so an elite-heavy wave contains fewer bodies
+					rather than simply more danger. One of three modifiers is rolled on top.
+				</p>
+				<p class="note">
+					Elite chance is <b>6%</b> at wave 13, rising 1.2 points a wave to a hard
+					cap of <b>30%</b> at wave 33.
+				</p>
+			</div>
+			<div class="grid" style="gap:0.7rem">
+				<div class="panel">
+					<h3 class="eyebrow" style="color:var(--blue)">Shielded</h3>
+					<p class="note">A shield pool worth 45% of max health absorbs everything before health is touched.</p>
+				</div>
+				<div class="panel">
+					<h3 class="eyebrow" style="color:var(--red)">Enraged</h3>
+					<p class="note">×1.5 speed and ×1.25 contact damage — and below half health the speed jumps to ×1.85.</p>
+				</div>
+				<div class="panel">
+					<h3 class="eyebrow" style="color:var(--purple)">Splitter</h3>
+					<p class="note">On death it breaks into two of its own colour at half health, so killing it is only most of the job.</p>
+				</div>
+			</div>
+		</div>
+	</div>
+</section>
+
+<!-- ----------------------------------------------------------------- bosses -->
+<section id="bosses">
+	<div class="wrap">
+		<p class="eyebrow">Bosses</p>
+		<h2>Five archetypes, nine attacks, and every one of them telegraphed</h2>
+		<p class="lede">
+			Three mini-bosses rotate through the wave-5 slots and two majors hold waves
+			20 and 40. All five draw from the same nine attacks — slam, radial, aimed
+			volley, charge, summon, spiral, rain, shockwave and blink radial — and add a
+			phase every time they come back around.
+		</p>
+
+		<div class="grid grid-2" style="margin-top:2rem">
+
+			<article class="panel boss">
+				<img src="assets/sprites/boss_bramble.png" alt="The Bramble Warden">
+				<div>
+					<h3>Bramble Warden <span class="kind mini">mini</span></h3>
+					<div class="title-line">Warden of the Thicket</div>
+					<p>A thorny root creature. It opens with a straight charge, so the first thing the game teaches you is how to read a line on the ground.</p>
+					<div class="phases">
+						<div>P1 <b>charge, radial</b></div>
+						<div>P2 <b>+ summon, rain</b></div>
+						<div>P3 <b>+ spiral</b></div>
+						<div>HP 520 + 95 × wave · summons 3</div>
+					</div>
+				</div>
+			</article>
+
+			<article class="panel boss">
+				<img src="assets/sprites/boss_toad.png" alt="The Toadfather">
+				<div>
+					<h3>The Toadfather <span class="kind mini">mini</span></h3>
+					<div class="title-line">Glutton of the Mire</div>
+					<p>Slow, bloated, and it summons bloaters. The pressure is never the toad — it is what the toad leaves standing next to you.</p>
+					<div class="phases">
+						<div>P1 <b>slam, aimed volley</b></div>
+						<div>P2 <b>+ summon, shockwave</b></div>
+						<div>P3 <b>+ rain</b></div>
+						<div>HP 520 + 95 × wave · summons 4</div>
+					</div>
+				</div>
+			</article>
+
+			<article class="panel boss">
+				<img src="assets/sprites/boss_wisp.png" alt="The Wisp Choir">
+				<div>
+					<h3>The Wisp Choir <span class="kind mini">mini</span></h3>
+					<div class="title-line">Voices in the Dark</div>
+					<p>It floats, and it is the fastest thing in the forest. It blinks before it bursts, so position is worth more than damage here.</p>
+					<div class="phases">
+						<div>P1 <b>spiral, blink radial</b></div>
+						<div>P2 <b>+ aimed volley, summon</b></div>
+						<div>P3 <b>+ rain</b></div>
+						<div>Speed 128 · summons 3</div>
+					</div>
+				</div>
+			</article>
+
+			<article class="panel boss">
+				<img src="assets/sprites/boss_oak.png" alt="The Ancient Oak">
+				<div>
+					<h3>The Ancient Oak <span class="kind major">major</span></h3>
+					<div class="title-line">First Root of the Deep Wood</div>
+					<p>The wave-20 wall. A treant that barely moves and fills the clearing instead — four phases deep once you meet it a second time.</p>
+					<div class="phases">
+						<div>P1 <b>rain, radial, summon</b></div>
+						<div>P2 <b>+ shockwave, slam</b></div>
+						<div>P3 <b>+ spiral</b> · P4 <b>+ charge</b></div>
+						<div>HP 1600 + 240 × wave = 6400 at wave 20</div>
+					</div>
+				</div>
+			</article>
+
+			<article class="panel boss">
+				<img src="assets/sprites/boss_sovereign.png" alt="The Slime Sovereign">
+				<div>
+					<h3>The Slime Sovereign <span class="kind major">major</span></h3>
+					<div class="title-line">Crowned Devourer</div>
+					<p>The largest hit radius in the game, and the only boss whose summons arrive already crowned. Everything the forest taught you, at once.</p>
+					<div class="phases">
+						<div>P1 <b>slam, spiral, summon</b></div>
+						<div>P2 <b>+ rain, radial</b></div>
+						<div>P3 <b>+ shockwave, charge</b> · P4 <b>+ blink radial</b></div>
+						<div>Radius 190 · summons 6, elites possible</div>
+					</div>
+				</div>
+			</article>
+
+			<article class="panel">
+				<h3 class="eyebrow">Phase changes are a beat, not a number</h3>
+				<p class="note">
+					Crossing a health threshold interrupts whatever the boss was doing,
+					fires 0.18 s of hit-stop, shakes the screen, pulses a ring, throws 30
+					particles and prints the phase — then holds a <b>0.9 second
+					invulnerable pause</b> so you can actually register that the fight just
+					changed.
+				</p>
+				<p class="note" style="margin-top:0.8rem">
+					Minis start at two phases and majors at three. Every repeat visit adds
+					one, up to the archetype's full attack list.
+				</p>
+			</article>
+
+		</div>
+
+		<h3 style="font-family:var(--mono);font-size:1.15rem;margin-top:3rem">Nothing lands without warning</h3>
+		<p class="lede" style="margin-bottom:1.4rem">
+			Every heavy attack paints its danger on the ground first, and the marker
+			fills from the centre outward to end exactly at the radius that will be hit.
+			Later phases shorten the warning — never below <b>0.42 seconds</b>.
+		</p>
+
+		<div class="stage stage-wide">
+			<canvas id="telegraph-gl"
+				data-fallback="assets/shots/12_major_boss.webp"
+				data-fallback-alt="The Ancient Oak with a telegraph ring drawn on the ground"></canvas>
+			<div class="stage-caption"><b id="telegraph-label"></b></div>
+		</div>
+
+		<div class="grid grid-2" style="margin-top:1.4rem">
+			<div class="panel">
+				<h3 class="eyebrow">The ring always has a seam</h3>
+				<p class="note">
+					The radial burst never closes fully. A perfect ring is a damage tax you
+					pay; a ring with a gap is a decision you get to make. The gap moves every
+					time, so it is something to look for rather than something to memorise.
+				</p>
+			</div>
+			<div class="panel">
+				<h3 class="eyebrow">The line comes before the charge</h3>
+				<p class="note">
+					A charging boss draws its path before it moves. Safe ground is never
+					ambiguous — you are being asked to step aside, not to guess.
+				</p>
+			</div>
+		</div>
+	</div>
+</section>
+
+<!-- ------------------------------------------------------------- difficulty -->
+<section id="difficulty">
+	<div class="wrap">
+		<p class="eyebrow">Difficulty</p>
+		<h2>A threat budget, not a health-bar multiplier</h2>
+		<p class="lede">
+			Each wave gets a budget of <b>4 + 2.1w + 0.075w²</b> threat and spends it on
+			whatever the roster allows — a green slime costs 1.0, a brute 3.0, an elite
+			2.1 times its base. Meanwhile what any individual enemy gets is hard capped:
+			health stops at ×3.2, damage at ×2.4, speed at ×1.45. A wave-40 enemy is a
+			few times tougher than a wave-1 one, not a thousand times. The difficulty is
+			the crowd and the combination.
+		</p>
+
+		<div class="stage stage-wide" style="margin-top:2rem;background:var(--panel)">
+			<canvas id="budget-chart"></canvas>
+		</div>
+		<p class="note" style="margin-top:0.7rem">
+			Hover or drag across the chart to read any wave. Gold bands are mini-boss
+			waves, red are majors.
+		</p>
+
+		<div class="grid grid-4" style="margin-top:2rem">
+			<div class="panel">
+				<h3 class="eyebrow">Spawn rate</h3>
+				<p class="note">min(1.1 + 0.18w, 7.5) threat per second, so late waves arrive faster as well as heavier.</p>
+			</div>
+			<div class="panel">
+				<h3 class="eyebrow">Opening cluster</h3>
+				<p class="note">Every wave opens with 35% of its budget at once, so it starts as an event rather than an ambient drip.</p>
+			</div>
+			<div class="panel">
+				<h3 class="eyebrow">Spawn placement</h3>
+				<p class="note">620–1250 px away, on open ground, preferably off-screen. Enemies that spawn at the far limit spend ten seconds walking, which is not a fight.</p>
+			</div>
+			<div class="panel">
+				<h3 class="eyebrow">Finisher mode</h3>
+				<p class="note">Once the budget is spent and four or fewer remain, every survivor commits. Hoarders stop fleeing, spitters stop kiting.</p>
+			</div>
+		</div>
+	</div>
+</section>
+
+<!-- -------------------------------------------------------------- abilities -->
+<section id="abilities">
+	<div class="wrap">
+		<p class="eyebrow">Abilities</p>
+		<h2>Eleven exist. You carry two.</h2>
+		<p class="lede">
+			That limit is the design. Two slots force a choice between getting out,
+			doing damage, controlling the field and staying alive — and you can only
+			change your mind at a shop. Dash and Grenade are free from the start; the
+			other nine are bought once, permanently, with Essence.
+		</p>
+
+		<div class="grid grid-3" style="margin-top:2rem">
+			<div class="ability is-free">
+				<img src="assets/sprites/icon_dash.png" alt="">
+				<div>
+					<h3>Dash <span class="role">escape</span></h3>
+					<p>Blink through enemies and bullets. Brief invulnerability.</p>
+					<div class="nums">2 charges · 3.2 s · 320 px, invulnerable for 0.16 s</div>
+					<div class="cost free">free from the start</div>
+				</div>
+			</div>
+			<div class="ability is-free">
+				<img src="assets/sprites/icon_grenade.png" alt="">
+				<div>
+					<h3>Grenade <span class="role">burst</span></h3>
+					<p>Lob an explosive at the cursor. Heavy area damage.</p>
+					<div class="nums">1 charge · 7 s · 90 damage, 190 radius</div>
+					<div class="cost free">free from the start</div>
+				</div>
+			</div>
+			<div class="ability">
+				<img src="assets/sprites/icon_shield.png" alt="">
+				<div>
+					<h3>Bulwark <span class="role">sustain</span></h3>
+					<p>A barrier absorbs the next 120 damage for 6 seconds.</p>
+					<div class="nums">1 charge · 14 s</div>
+					<div class="cost">120 essence</div>
+				</div>
+			</div>
+			<div class="ability">
+				<img src="assets/sprites/icon_nova.png" alt="">
+				<div>
+					<h3>Nova <span class="role">burst</span></h3>
+					<p>Detonate around yourself, damaging and flinging back everything near.</p>
+					<div class="nums">1 charge · 11 s · 70 damage, 300 radius, 640 knockback</div>
+					<div class="cost">150 essence</div>
+				</div>
+			</div>
+			<div class="ability">
+				<img src="assets/sprites/icon_heal.png" alt="">
+				<div>
+					<h3>Bloom <span class="role">sustain</span></h3>
+					<p>Restore 35% of maximum health instantly.</p>
+					<div class="nums">1 charge · 26 s</div>
+					<div class="cost">180 essence</div>
+				</div>
+			</div>
+			<div class="ability">
+				<img src="assets/sprites/icon_decoy.png" alt="">
+				<div>
+					<h3>Effigy <span class="role">control</span></h3>
+					<p>Drop a lure that pulls enemies for 7 seconds, then bursts.</p>
+					<div class="nums">1 charge · 16 s · taunts to 620 px, 60 damage burst</div>
+					<div class="cost">200 essence</div>
+				</div>
+			</div>
+			<div class="ability">
+				<img src="assets/sprites/icon_timeslow.png" alt="">
+				<div>
+					<h3>Torpor <span class="role">control</span></h3>
+					<p>Slow every enemy and enemy bullet to 35% for 4 seconds.</p>
+					<div class="nums">1 charge · 18 s · bullets too, not just bodies</div>
+					<div class="cost">200 essence</div>
+				</div>
+			</div>
+			<div class="ability">
+				<img src="assets/sprites/icon_lightning.png" alt="">
+				<div>
+					<h3>Stormcall <span class="role">burst</span></h3>
+					<p>Chain lightning arcs between up to 7 nearby enemies.</p>
+					<div class="nums">1 charge · 9 s · 55 damage, 320 px reach</div>
+					<div class="cost">220 essence</div>
+				</div>
+			</div>
+			<div class="ability">
+				<img src="assets/sprites/icon_rapidfire.png" alt="">
+				<div>
+					<h3>Frenzy <span class="role">burst</span></h3>
+					<p>Triple fire rate and free reloads for 5 seconds.</p>
+					<div class="nums">1 charge · 20 s</div>
+					<div class="cost">240 essence</div>
+				</div>
+			</div>
+			<div class="ability">
+				<img src="assets/sprites/icon_orbital.png" alt="">
+				<div>
+					<h3>Satellites <span class="role">control</span></h3>
+					<p>Three orbs circle you for 12 seconds, damaging what they touch.</p>
+					<div class="nums">1 charge · 22 s · 26 damage, 150 px orbit</div>
+					<div class="cost">260 essence</div>
+				</div>
+			</div>
+			<div class="ability">
+				<img src="assets/sprites/icon_lifesteal.png" alt="">
+				<div>
+					<h3>Leech <span class="role">sustain</span></h3>
+					<p>For 8 seconds, 18% of the damage you deal comes back as health.</p>
+					<div class="nums">1 charge · 24 s</div>
+					<div class="cost">280 essence</div>
+				</div>
+			</div>
+		</div>
+
+		<div class="callout">
+			<strong>Three potions drop while you fight.</strong>
+			Red restores 32% health, blue gives +45% move speed for 9 seconds, purple
+			refills your ability charges and clears both cooldowns. A potion you cannot
+			use dims, stops expiring and waits — and the magnet ignores it, so a red
+			potion at full health is never wasted on you by accident.
+		</div>
+	</div>
+</section>
+
+<!-- ------------------------------------------------------------------- shop -->
+<section id="shop">
+	<div class="wrap">
+		<p class="eyebrow">Forest Rest</p>
+		<h2>Six offers, and you cannot buy everything</h2>
+		<p class="lede">
+			There is one gun for the whole run and no weapon inventory. Purchases edit
+			the numbers that gun reads, so an upgrade applies on the very next shot. Six
+			offers are drawn from a pool of 22, priced so you can typically afford two —
+			and every repeat purchase of the same upgrade costs <b>55% of its base
+			price more</b> than the last, so stacking one stat has a real cost against
+			branching out.
+		</p>
+
+		<div class="grid grid-4" style="margin-top:2rem">
+			<div class="panel">
+				<h3 class="eyebrow">The gun, at base</h3>
+				<p class="note">12 damage · 5 shots/sec · 12 magazine · 1.1 s reload · 5% crit · 900 range</p>
+			</div>
+			<div class="panel">
+				<h3 class="eyebrow">Where it caps</h3>
+				<p class="note">18 shots/sec · 75% crit · ×5 crit damage · 9 projectiles · 6 pierce · 0.22 s reload</p>
+			</div>
+			<div class="panel">
+				<h3 class="eyebrow">Rerolls</h3>
+				<p class="note">60, then 105, 150, 195… The <em>Haggler</em> unlock grants one free reroll per visit.</p>
+			</div>
+			<div class="panel">
+				<h3 class="eyebrow">Never fully immune</h3>
+				<p class="note">Damage reduction caps at 70%, move speed at ×1.85, cooldown reduction at 60%, lifesteal at 35%.</p>
+			</div>
+		</div>
+
+		<div class="table-scroll">
+			<table>
+				<caption>All 22 shop upgrades. ✦ marks the five that need a permanent Essence unlock before they can appear.</caption>
+				<thead>
+					<tr><th>Upgrade</th><th>Effect</th><th>Base cost</th><th>Category</th></tr>
+				</thead>
+				<tbody>
+					<tr><td>Hollow Points</td><td>+3 damage</td><td>140</td><td><span class="upgrade-cat cat-damage">damage</span></td></tr>
+					<tr><td>Heavy Slugs <span class="locked">✦</span></td><td>+9 damage, −8% fire rate</td><td>340</td><td><span class="upgrade-cat cat-damage">damage</span></td></tr>
+					<tr><td>Weak Point Optics</td><td>+8% crit chance</td><td>185</td><td><span class="upgrade-cat cat-damage">damage</span></td></tr>
+					<tr><td>Fracture Rounds</td><td>+0.5× crit damage</td><td>205</td><td><span class="upgrade-cat cat-damage">damage</span></td></tr>
+					<tr><td>Piercing Core</td><td>+1 pierce</td><td>265</td><td><span class="upgrade-cat cat-damage">damage</span></td></tr>
+					<tr><td>Tuned Action</td><td>+0.9 shots/sec</td><td>165</td><td><span class="upgrade-cat cat-rapid">rapid</span></td></tr>
+					<tr><td>Runaway Sear <span class="locked">✦</span></td><td>+2.4 shots/sec, −12% accuracy</td><td>385</td><td><span class="upgrade-cat cat-rapid">rapid</span></td></tr>
+					<tr><td>Extended Drum</td><td>+6 magazine</td><td>135</td><td><span class="upgrade-cat cat-rapid">rapid</span></td></tr>
+					<tr><td>Quick Hands</td><td>−18% reload</td><td>155</td><td><span class="upgrade-cat cat-rapid">rapid</span></td></tr>
+					<tr><td>Split Barrel <span class="locked">✦</span></td><td>+1 projectile, −15% damage</td><td>430</td><td><span class="upgrade-cat cat-projectile">projectile</span></td></tr>
+					<tr><td>Hot Loads</td><td>+190 projectile speed</td><td>115</td><td><span class="upgrade-cat cat-projectile">projectile</span></td></tr>
+					<tr><td>Rifled Bore</td><td>−26% spread</td><td>125</td><td><span class="upgrade-cat cat-projectile">projectile</span></td></tr>
+					<tr><td>Impact Charge</td><td>+80 knockback</td><td>105</td><td><span class="upgrade-cat cat-projectile">projectile</span></td></tr>
+					<tr><td>Long Barrel</td><td>+220 range</td><td>100</td><td><span class="upgrade-cat cat-projectile">projectile</span></td></tr>
+					<tr><td>Thick Hide</td><td>+20 max HP, heals 20</td><td>210</td><td><span class="upgrade-cat cat-survival">survival</span></td></tr>
+					<tr><td>Bark Plating</td><td>−6% damage taken</td><td>270</td><td><span class="upgrade-cat cat-survival">survival</span></td></tr>
+					<tr><td>Field Poultice</td><td>full heal — price never escalates</td><td>130</td><td><span class="upgrade-cat cat-survival">survival</span></td></tr>
+					<tr><td>Thirsting Grip <span class="locked">✦</span></td><td>+1.5% lifesteal</td><td>290</td><td><span class="upgrade-cat cat-survival">survival</span></td></tr>
+					<tr><td>Light Step</td><td>+8% move speed</td><td>175</td><td><span class="upgrade-cat cat-utility">utility</span></td></tr>
+					<tr><td>Focused Mind</td><td>−12% ability cooldown</td><td>245</td><td><span class="upgrade-cat cat-utility">utility</span></td></tr>
+					<tr><td>Deep Reserves <span class="locked">✦</span></td><td>+1 charge on both abilities</td><td>330</td><td><span class="upgrade-cat cat-utility">utility</span></td></tr>
+					<tr><td>Keen Eye</td><td>+14% money from kills</td><td>205</td><td><span class="upgrade-cat cat-utility">utility</span></td></tr>
+				</tbody>
+			</table>
+		</div>
+
+		<div class="callout">
+			<strong>The offer list reads your situation.</strong>
+			Anything you have already stacked shows up less often. <em>Field
+			Poultice</em> is weighted almost to zero at full health and becomes one of
+			the likeliest offers when you are nearly dead — so the shop is responding to
+			the run you are actually having.
+		</div>
+	</div>
+</section>
+
+<!-- ------------------------------------------------------------------ music -->
+<section id="music">
+	<div class="wrap">
+		<p class="eyebrow">Sound</p>
+		<h2>Four tracks, nine cues, one continuous take</h2>
+		<p class="lede">
+			Two decks crossfade over 1.4 seconds. When the track underneath is the same
+			one, the incoming deck <em>inherits the playhead</em> — so escalating in the
+			middle of a wave feels like the music leaning in, not restarting. The combat
+			theme is pitched down and driven harder for bosses rather than swapped out.
+		</p>
+
+		<div class="table-scroll">
+			<table>
+				<caption>
+					Every music cue and what triggers it. Press play to hear the underlying
+					track — nothing plays until you ask it to.
+				</caption>
+				<thead>
+					<tr><th>Cue</th><th>Track</th><th>Rate</th><th>Drive</th><th>When</th><th></th></tr>
+				</thead>
+				<tbody id="cue-rows"></tbody>
+			</table>
+		</div>
+
+		<div class="grid grid-3" style="margin-top:2rem">
+			<div class="panel">
+				<h3 class="eyebrow">46 synthesised effects</h3>
+				<p class="note">Every sound effect is generated by script, not sampled — including the percussion layers, written to 100 BPM so they sit on the music.</p>
+			</div>
+			<div class="panel">
+				<h3 class="eyebrow">A fixed 24-voice ring</h3>
+				<p class="note">A hectic wave can never spawn unbounded audio players. Voices are reused round-robin, preferring finished ones, with ±6% pitch jitter.</p>
+			</div>
+			<div class="panel">
+				<h3 class="eyebrow">Per-sound throttling</h3>
+				<p class="note">A kill dropping five coins used to play five copies of the same blip on top of each other. Now it does not.</p>
+			</div>
+		</div>
+	</div>
+</section>
+
+<!-- ------------------------------------------------------------------ shots -->
+<section id="shots">
+	<div class="wrap">
+		<p class="eyebrow">Screenshots</p>
+		<h2>Sixteen frames, straight from the test suite</h2>
+		<p class="lede">
+			These are not staged. The visual pass drives a real run — menus, a spawn, a
+			wave with every colour on screen, both boss tiers, the shop, low health and
+			death — screenshots each beat and asserts things about it. Regenerating them
+			is one command.
+		</p>
+		<div class="gallery" id="gallery"></div>
+	</div>
+</section>
+
+<!-- --------------------------------------------------------------- download -->
+<section id="download">
+	<div class="wrap">
+		<p class="eyebrow">Get it</p>
+		<h2>Free, on four platforms</h2>
+		<p class="lede">
+			Version <span data-version>2.0.0</span>. The browser build is the fastest
+			way to try it; the desktop builds run better and hold your save. Neither
+			costs anything, and neither ever will — see the licence note at the bottom
+			of this page.
+		</p>
+
+		<div class="dl-grid">
+			<div class="dl is-browser">
+				<h3>▶ Browser</h3>
+				<div class="size">~50 MB, nothing to install</div>
+				<p>
+					The real game, compiled to WebAssembly. It loads only when you click,
+					and needs a desktop-class browser plus a keyboard and mouse.
+				</p>
+				<a class="btn btn-primary" href="play/">Play now</a>
+			</div>
+
+			<div class="dl">
+				<h3>macOS</h3>
+				<div class="size"><span data-dl-size="macos">65 MB</span> · universal</div>
+				<p>
+					Runs natively on Apple Silicon and Intel. It is ad-hoc signed but
+					<strong>not notarised</strong>, so Gatekeeper will refuse it on the first
+					try: right-click the app, choose <em>Open</em>, then confirm.
+				</p>
+				<a class="btn btn-ghost" data-dl="macos" href="#download" aria-disabled="true">Download .zip</a>
+			</div>
+
+			<div class="dl">
+				<h3>Windows</h3>
+				<div class="size"><span data-dl-size="windows">41 MB</span> · x86-64</div>
+				<p>
+					Unzip and keep <code>Slimer.exe</code> and <code>Slimer.pck</code> in the
+					same folder — the exe will not start without the pck. It is unsigned, so
+					expect a SmartScreen warning.
+				</p>
+				<a class="btn btn-ghost" data-dl="windows" href="#download" aria-disabled="true">Download .zip</a>
+			</div>
+
+			<div class="dl">
+				<h3>Linux</h3>
+				<div class="size"><span data-dl-size="linux">33 MB</span> · x86-64</div>
+				<p>
+					A single self-contained binary. After unzipping, make it executable:
+					<code>chmod +x Slimer.x86_64</code>
+				</p>
+				<a class="btn btn-ghost" data-dl="linux" href="#download" aria-disabled="true">Download .zip</a>
+			</div>
+		</div>
+
+		<div class="callout">
+			<strong>Built in Godot 4.4.1.</strong>
+			The full source is on <a data-repo href="https://github.com/Kooktyplays/slimer">GitHub</a>
+			— 60 GDScript files, a headless simulation that plays 22 waves with real
+			input, a 200-seed forest sweep and about 1,450 logic assertions. The
+			controller support is implemented but has only ever been tested in code,
+			never on physical hardware.
+		</div>
+	</div>
+</section>
+
+</main>
+
+<!-- ----------------------------------------------------------------- footer -->
+<footer class="footer">
+	<div class="wrap">
+		<div class="not-for-sale">Free. May be shared, not sold.</div>
+
+		<h2>Third-party assets and licensing</h2>
+		<p style="max-width:70ch">
+			Slimer uses art from GDQuest's <em>Your First 2D Game With Godot 4</em>
+			starter pack. GDQuest license their code as MIT and their game assets as
+			<strong>CC BY-NC-SA 4.0</strong>. The NonCommercial term covers modified
+			assets too, so this game — and this page — cannot be sold, carry ads, or be
+			monetised in any other way. It is free, permanently.
+		</p>
+
+		<h3>Required attribution</h3>
+		<div class="licence-block">
+			This asset, "Your First 2D Game With Godot 4 — 2D project assets -
+			modified", is a derivative of "Your First 2D Game With Godot 4 — 2D project
+			assets" by GDQuest (<a href="https://gdquest.com" rel="noopener">https://gdquest.com</a>),
+			used under CC BY-NC-SA 4.0
+			(<a href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en" rel="noopener">https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en</a>).
+			The original can be found at
+			<a href="https://www.gdquest.com/library/first_2d_game_godot4_vampire_survivor" rel="noopener">https://www.gdquest.com/library/first_2d_game_godot4_vampire_survivor</a>.
+			"Your First 2D Game With Godot 4 — 2D project assets - modified" is also
+			licensed under CC BY-NC-SA 4.0 by Tanav Yedlapalli.
+		</div>
+
+		<h3 style="margin-top:1.4rem">Statement of changes</h3>
+		<p class="note" style="max-width:70ch">
+			Ten files from the pack are used here. <code>slime_body.png</code> was
+			hue-rotated into the six enemy colours; <code>boo_body.png</code> and
+			<code>boo_face.png</code> were recoloured, outlined and rescaled into the
+			player; <code>projectile.png</code> and <code>impact_circle.png</code> are
+			tinted per shot and per impact; the three potion files were 3×3 sprite
+			sheets from which a single bottle was sliced and scaled. The pistol, muzzle
+			flash, pine tree and ground shadow are used unmodified. As ShareAlike
+			requires, those modified assets are re-released under CC BY-NC-SA 4.0.
+		</p>
+		<p class="note" style="max-width:70ch;margin-top:0.8rem">
+			Everything else — all five boss sprites, every other environment prop, the
+			ground tiles, all UI icons, coins, essence, particles, the app icon and all
+			46 sound effects — is original work generated by the project's own scripts
+			and is not covered by that licence. The game's code, and this website, are
+			MIT. The four music tracks are by Tanav Yedlapalli.
+		</p>
+
+		<div class="footer-cols">
+			<div>
+				<h3>The game</h3>
+				<ul>
+					<li><a href="play/">Play in browser</a></li>
+					<li><a href="#download">Download</a></li>
+					<li><a data-repo href="https://github.com/Kooktyplays/slimer" rel="noopener">Source on GitHub</a></li>
+				</ul>
+			</div>
+			<div>
+				<h3>Built with</h3>
+				<ul>
+					<li><a href="https://godotengine.org" rel="noopener">Godot Engine</a> — MIT</li>
+					<li><a href="https://www.gdquest.com/library/first_2d_game_godot4_vampire_survivor" rel="noopener">GDQuest asset pack</a> — CC BY-NC-SA 4.0</li>
+					<li>No frameworks, no trackers, no analytics</li>
+				</ul>
+			</div>
+			<div>
+				<h3>This page</h3>
+				<ul>
+					<li>Hand-written WebGL2, one sprite atlas</li>
+					<li>Every number read from the game's own data tables</li>
+					<li>Sprites and screenshots are the game's own</li>
+				</ul>
+			</div>
+		</div>
+
+		<p class="colophon">
+			Slimer · a game by Tanav Yedlapalli · shared under CC BY-NC-SA 4.0 for the
+			art, MIT for the code · not for sale
+		</p>
+	</div>
+</footer>
+
+<dialog class="lightbox" id="lightbox">
+	<img id="lightbox-img" alt="">
+	<div class="lightbox-bar">
+		<button type="button" id="lb-prev">← Prev</button>
+		<button type="button" id="lb-next">Next →</button>
+		<span id="lb-caption"></span>
+		<span class="count" id="lb-count"></span>
+		<button type="button" id="lb-close">Close ✕</button>
+	</div>
+</dialog>
+
+<script type="module" src="js/site.js"></script>
+</body>
+</html>

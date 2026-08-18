@@ -1,0 +1,274 @@
+class_name Player
+extends CharacterBody2D
+## The player character.
+##
+## Feel notes, because these are the numbers that decide whether the game is
+## fun rather than merely correct:
+##  * acceleration is high and friction higher, so input-to-motion is near
+##    instant but the character still has weight when you let go
+##  * aim is read every frame from the raw mouse position, never smoothed -
+##    smoothing aim always feels like input lag
+##  * the body squashes and stretches with speed, which sells motion without
+##    needing walk-cycle art
+
+const SHADOW_TEXTURE := preload("res://assets/sprites/ground_shadow.png")
+## Base size of the character. The squash-and-stretch below multiplies this,
+## so it must be applied there too - setting it only in the scene would be
+## overwritten on the first animated frame.
+const VISUAL_SCALE := 1.18
+
+signal health_changed(hp: float, max_hp: float)
+signal died()
+
+@onready var _body: Sprite2D = $Visual/Body
+@onready var _outline: Sprite2D = $Visual/Outline
+@onready var _face: Sprite2D = $Visual/Body/Face
+@onready var _visual: Node2D = $Visual
+@onready var _shadow: Sprite2D = $Shadow
+@onready var gun: Gun = $Gun
+@onready var abilities: AbilityController = $Abilities
+@onready var camera: GameCamera = $Camera
+@onready var _reticle: Sprite2D = $Reticle
+
+var alive := true
+var aim_direction := Vector2.RIGHT
+var invulnerable_until := 0.0
+
+## Set by abilities / potions.
+var speed_multiplier := 1.0
+var shield_absorb := 0.0
+var lifesteal_bonus := 0.0
+var dashing := false
+
+var _bob := 0.0
+var _hurt_flash := 0.0
+var _shoot_held := false
+
+
+func _ready() -> void:
+	collision_layer = Layers.PLAYER
+	collision_mask = Layers.WORLD
+	_shadow.texture = SHADOW_TEXTURE
+	_shadow.modulate = Color(0, 0, 0, 0.28)
+	# pure white: the player is the only white thing in a green forest full of
+	# saturated slimes, and that is the whole readability strategy
+	_body.modulate = Color(1, 1, 1)
+	add_to_group("player")
+	_emit_health()
+
+
+func _physics_process(delta: float) -> void:
+	if not alive:
+		return
+	_move(delta)
+	_aim()
+	_handle_shooting()
+	_animate(delta)
+
+
+# ---------------------------------------------------------------------------
+# movement
+# ---------------------------------------------------------------------------
+func _move(delta: float) -> void:
+	if dashing:
+		move_and_slide()
+		return
+	var input := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	var target := input * max_speed()
+	if input == Vector2.ZERO:
+		velocity = velocity.move_toward(Vector2.ZERO, Balance.PLAYER_FRICTION * delta)
+	else:
+		velocity = velocity.move_toward(target, Balance.PLAYER_ACCEL * delta)
+	move_and_slide()
+
+
+func max_speed() -> float:
+	var run_mul := Game.run.move_speed_mul if Game.run != null else 1.0
+	return Balance.PLAYER_SPEED * run_mul * speed_multiplier
+
+
+# ---------------------------------------------------------------------------
+# aiming and shooting
+# ---------------------------------------------------------------------------
+## Set by the headless sim harness, which has no mouse. Vector2.INF means
+## "use the real cursor".
+var aim_override := Vector2.INF
+
+## How far in front of the player the gamepad reticle sits.
+const AIM_RETICLE_DISTANCE := 320.0
+var _gamepad_aim := Vector2.ZERO
+
+
+## Aim target for this frame.
+##
+## Right stick wins when it is actually deflected; otherwise the mouse. Falling
+## back rather than locking to a mode means a player can switch mid-fight
+## without the aim snapping somewhere unexpected, and a controller that is
+## plugged in but idle never fights the mouse for control.
+func _aim_target() -> Vector2:
+	if aim_override != Vector2.INF:
+		return aim_override
+	var stick := Input.get_vector("aim_left", "aim_right", "aim_up", "aim_down")
+	if stick.length() > InputBinds.JOY_DEADZONE:
+		_gamepad_aim = stick.normalized()
+		return global_position + _gamepad_aim * AIM_RETICLE_DISTANCE
+	if Game.using_gamepad() and _gamepad_aim != Vector2.ZERO:
+		# stick released but still on a controller: hold the last heading
+		return global_position + _gamepad_aim * AIM_RETICLE_DISTANCE
+	return get_global_mouse_position()
+
+
+func _aim() -> void:
+	var mouse := _aim_target()
+	var dir := mouse - global_position
+	if dir.length_squared() > 4.0:
+		aim_direction = dir.normalized()
+	gun.aim_at(mouse)
+	# face and gun follow the aim, so the character always reads as pointed at
+	# what the cursor is on
+	_face.position.x = clampf(aim_direction.x * 6.0, -6.0, 6.0)
+	_body.flip_h = aim_direction.x < 0.0
+	_outline.flip_h = _body.flip_h
+
+	# On a controller there is no cursor, so the aim direction needs to be
+	# drawn or you are shooting blind. `top_level` keeps it in world space
+	# rather than inheriting the player's squash-and-stretch.
+	var pad := Game.using_gamepad()
+	_reticle.visible = pad
+	if pad:
+		_reticle.global_position = global_position + aim_direction * AIM_RETICLE_DISTANCE
+		_reticle.rotation += get_physics_process_delta_time() * 1.2
+
+
+func _handle_shooting() -> void:
+	_shoot_held = Input.is_action_pressed("shoot")
+	if _shoot_held:
+		gun.try_fire(aim_direction)
+	if Input.is_action_just_pressed("reload"):
+		gun.start_reload()
+
+
+# ---------------------------------------------------------------------------
+# animation
+# ---------------------------------------------------------------------------
+func _animate(delta: float) -> void:
+	var speed_frac := clampf(velocity.length() / maxf(max_speed(), 1.0), 0.0, 1.0)
+	_bob += delta * (7.0 + speed_frac * 10.0)
+
+	# squash and stretch: taller and narrower while moving fast
+	var squash := 1.0 + sin(_bob) * (0.035 + speed_frac * 0.055)
+	_visual.scale = Vector2(2.0 - squash, squash) * VISUAL_SCALE
+	_visual.position.y = -sin(_bob) * (2.0 + speed_frac * 5.0)
+	_shadow.scale = Vector2.ONE * VISUAL_SCALE * (1.0 - speed_frac * 0.08)
+
+	if _hurt_flash > 0.0:
+		_hurt_flash = maxf(0.0, _hurt_flash - delta * 4.0)
+		_body.modulate = Color(1, 1, 1).lerp(Color(1.6, 0.4, 0.4), _hurt_flash)
+
+	# I-frames blink the outline rather than fading the whole character.
+	# Fading was clearer in isolation but made the player genuinely hard to
+	# find in a crowd, which is the worst possible moment to lose track of it.
+	var invuln := is_invulnerable() and not dashing
+	if invuln:
+		var blink := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 45.0)
+		_outline.modulate = Color(0.07, 0.11, 0.09).lerp(Color(1.0, 0.95, 0.6), blink)
+	else:
+		_outline.modulate = Color(0.07, 0.11, 0.09)
+	_visual.modulate.a = 1.0
+
+
+# ---------------------------------------------------------------------------
+# damage
+# ---------------------------------------------------------------------------
+func is_invulnerable() -> bool:
+	return dashing or Time.get_ticks_msec() / 1000.0 < invulnerable_until
+
+
+func take_damage(amount: float, _crit: bool = false, from: Vector2 = Vector2.ZERO,
+		_knockback: float = 0.0) -> void:
+	if not alive or is_invulnerable() or Game.run == null:
+		return
+
+	var incoming := amount * (1.0 - Game.run.damage_reduction)
+
+	# a shield eats damage before health does, and reports what it absorbed
+	if shield_absorb > 0.0:
+		var absorbed := minf(shield_absorb, incoming)
+		shield_absorb -= absorbed
+		incoming -= absorbed
+		FX.floating_text(global_position + Vector2(0, -60),
+			"-%d" % int(absorbed), Color(0.55, 0.85, 1.0))
+		if shield_absorb <= 0.0:
+			FX.ring(global_position, 90.0, Color(0.5, 0.8, 1.0), 0.3, 0.6)
+		if incoming <= 0.01:
+			return
+
+	Game.run.hp = maxf(0.0, Game.run.hp - incoming)
+	invulnerable_until = Time.get_ticks_msec() / 1000.0 + Balance.PLAYER_IFRAMES
+	_hurt_flash = 1.0
+
+	Audio.play("player_hurt", -3.0)
+	Game.shake(Balance.SHAKE_HIT, 0.22)
+	Events.player_damaged.emit(incoming, from)
+	Events.hit_stop.emit(0.05)
+	_emit_health()
+	Game.notify_health_changed()
+
+	if Game.run.hp <= 0.0:
+		_die()
+
+
+func heal(amount: float) -> void:
+	if not alive or Game.run == null:
+		return
+	var before := Game.run.hp
+	Game.run.hp = minf(Game.run.max_hp, Game.run.hp + amount)
+	var gained := Game.run.hp - before
+	if gained > 0.0:
+		FX.floating_text(global_position + Vector2(0, -70),
+			"+%d" % int(round(gained)), Color(0.45, 0.95, 0.5))
+		Events.player_healed.emit(gained)
+	_emit_health()
+	Game.notify_health_changed()
+
+
+## Called whenever the player deals damage, so lifesteal can pay out.
+func on_damage_dealt(amount: float) -> void:
+	if Game.run == null:
+		return
+	Game.run.damage_dealt += amount
+	var fraction := Game.run.lifesteal + lifesteal_bonus
+	if fraction > 0.0:
+		heal(amount * fraction)
+
+
+func _die() -> void:
+	if not alive:
+		return
+	alive = false
+	velocity = Vector2.ZERO
+	set_physics_process(false)
+	_shoot_held = false
+	Audio.play("death", 0.0, 0.0)
+	FX.burst(global_position, Color(1, 1, 1), 26, 1.8)
+	Game.shake(Balance.SHAKE_EXPLOSION, 0.6)
+	var t := create_tween()
+	t.tween_property(_visual, "scale", Vector2(1.6, 0.2), 0.35).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(_visual, "modulate:a", 0.0, 0.45)
+	died.emit()
+	Events.player_died.emit()
+
+
+func _emit_health() -> void:
+	if Game.run != null:
+		health_changed.emit(Game.run.hp, Game.run.max_hp)
+
+
+# ---------------------------------------------------------------------------
+# used by abilities
+# ---------------------------------------------------------------------------
+func apply_speed_boost(multiplier: float, duration: float) -> void:
+	speed_multiplier = multiplier
+	var t := create_tween()
+	t.tween_interval(duration)
+	t.tween_callback(func() -> void: speed_multiplier = 1.0)

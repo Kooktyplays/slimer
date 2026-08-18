@@ -1,0 +1,21 @@
+[gd_scene load_steps=3 format=3 uid="uid://bslimerfxdamagenum"]
+
+[ext_resource type="Script" path="res://fx/damage_number.gd" id="1_s"]
+
+[sub_resource type="LabelSettings" id="LabelSettings_dn"]
+font_size = 30
+outline_size = 8
+outline_color = Color(0.05, 0.07, 0.05, 0.85)
+
+[node name="DamageNumber" type="Node2D"]
+z_index = 90
+script = ExtResource("1_s")
+
+[node name="Label" type="Label" parent="."]
+offset_left = -60.0
+offset_top = -20.0
+offset_right = 60.0
+offset_bottom = 20.0
+horizontal_alignment = 1
+vertical_alignment = 1
+label_settings = SubResource("LabelSettings_dn")

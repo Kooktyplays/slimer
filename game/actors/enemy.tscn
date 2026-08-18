@@ -1,0 +1,37 @@
+[gd_scene load_steps=6 format=3 uid="uid://bslimerenemy"]
+
+[ext_resource type="Script" path="res://actors/enemy.gd" id="1_s"]
+[ext_resource type="Texture2D" path="res://assets/sprites/ground_shadow.png" id="2_sh"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/enemy_green_body.png" id="3_b"]
+[ext_resource type="Texture2D" path="res://assets/sprites/slime_face.png" id="4_f"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_enemy"]
+radius = 26.0
+
+[node name="Enemy" type="CharacterBody2D"]
+collision_layer = 4
+collision_mask = 1
+motion_mode = 1
+script = ExtResource("1_s")
+
+[node name="Shadow" type="Sprite2D" parent="."]
+modulate = Color(0, 0, 0, 0.26)
+position = Vector2(0, 10)
+texture = ExtResource("2_sh")
+
+[node name="Visual" type="Node2D" parent="."]
+
+[node name="Body" type="Sprite2D" parent="Visual"]
+position = Vector2(0, -32)
+texture = ExtResource("3_b")
+
+[node name="Face" type="Sprite2D" parent="Visual/Body"]
+position = Vector2(0, -6)
+texture = ExtResource("4_f")
+
+[node name="Crown" type="Sprite2D" parent="Visual/Body"]
+visible = false
+position = Vector2(0, -34)
+
+[node name="Shape" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_enemy")

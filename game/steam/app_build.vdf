@@ -1,0 +1,26 @@
+// Steam build script for Slimer.
+//
+// Replace APPID_HERE and the three DEPOTID values with the numbers Steamworks
+// assigns you (Steamworks -> your app -> SteamPipe -> Depots). Depot IDs are
+// conventionally APPID+1, +2, +3.
+//
+// Upload with:
+//   steamcmd +login <account> +run_app_build ../steam/app_build.vdf +quit
+// or use tools/steam_build.sh, which builds and then calls that for you.
+
+"appbuild"
+{
+	"appid"          "APPID_HERE"
+	"desc"           "Slimer 1.0.0"
+	"buildoutput"    "../build/steam/output"
+	"contentroot"    "../build/steam"
+	"setlive"        ""          // blank = do not auto-promote; set a branch name to publish
+	"preview"        "0"         // 1 = dry run, prints what would upload
+
+	"depots"
+	{
+		"DEPOTID_WINDOWS"  "depot_windows.vdf"
+		"DEPOTID_MACOS"    "depot_macos.vdf"
+		"DEPOTID_LINUX"    "depot_linux.vdf"
+	}
+}

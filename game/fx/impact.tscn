@@ -1,0 +1,12 @@
+[gd_scene load_steps=3 format=3 uid="uid://bslimerfximpact"]
+
+[ext_resource type="Script" path="res://fx/impact.gd" id="1_s"]
+[ext_resource type="Texture2D" path="res://assets/sprites/impact_circle.png" id="2_t"]
+
+[node name="Impact" type="Node2D"]
+z_index = 60
+script = ExtResource("1_s")
+
+[node name="Sprite" type="Sprite2D" parent="."]
+scale = Vector2(0.5, 0.5)
+texture = ExtResource("2_t")

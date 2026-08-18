@@ -1,0 +1,16 @@
+[gd_scene load_steps=4 format=3 uid="uid://bslimerfxring"]
+
+[ext_resource type="Script" path="res://fx/ring_pulse.gd" id="1_s"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/ring.png" id="2_r"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/glow.png" id="3_g"]
+
+[node name="RingPulse" type="Node2D"]
+z_index = 55
+script = ExtResource("1_s")
+
+[node name="Fill" type="Sprite2D" parent="."]
+visible = false
+texture = ExtResource("3_g")
+
+[node name="Ring" type="Sprite2D" parent="."]
+texture = ExtResource("2_r")

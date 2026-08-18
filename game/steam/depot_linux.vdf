@@ -1,0 +1,16 @@
+// Linux depot for Slimer. Replace DEPOTID_LINUX with the real depot ID.
+"DepotBuildConfig"
+{
+	"DepotID"     "DEPOTID_LINUX"
+	"contentroot" "../build/steam/linux"
+
+	"FileMapping"
+	{
+		"LocalPath" "*"
+		"DepotPath" "."
+		"recursive" "1"
+	}
+
+	"FileExclusion" "*.pdb"
+	"FileExclusion" "**/*.DS_Store"
+}

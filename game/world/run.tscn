@@ -1,0 +1,15 @@
+[gd_scene load_steps=3 format=3 uid="uid://bslimerrun"]
+
+[ext_resource type="Script" uid="uid://efan4kj4s24w" path="res://world/run.gd" id="1_s"]
+[ext_resource type="Script" uid="uid://yy2xjuk5kgg1" path="res://world/forest.gd" id="2_f"]
+
+[node name="Run" type="Node2D"]
+script = ExtResource("1_s")
+
+[node name="Forest" type="Node2D" parent="."]
+script = ExtResource("2_f")
+
+[node name="Effects" type="Node2D" parent="."]
+z_index = 40
+
+[node name="HUDLayer" type="CanvasLayer" parent="."]

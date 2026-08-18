@@ -1,0 +1,16 @@
+// macOS depot for Slimer. Replace DEPOTID_MACOS with the real depot ID.
+"DepotBuildConfig"
+{
+	"DepotID"     "DEPOTID_MACOS"
+	"contentroot" "../build/steam/macos"
+
+	"FileMapping"
+	{
+		"LocalPath" "*"
+		"DepotPath" "."
+		"recursive" "1"
+	}
+
+	"FileExclusion" "*.pdb"
+	"FileExclusion" "**/*.DS_Store"
+}

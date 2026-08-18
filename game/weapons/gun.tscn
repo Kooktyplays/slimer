@@ -1,0 +1,16 @@
+[gd_scene load_steps=3 format=3 uid="uid://bslimergun"]
+
+[ext_resource type="Script" path="res://weapons/gun.gd" id="1_s"]
+[ext_resource type="Texture2D" path="res://assets/sprites/pistol.png" id="2_t"]
+
+[node name="Gun" type="Node2D"]
+script = ExtResource("1_s")
+
+[node name="Sprite" type="Sprite2D" parent="."]
+position = Vector2(22, 2)
+scale = Vector2(0.85, 0.85)
+texture = ExtResource("2_t")
+offset = Vector2(6, 0)
+
+[node name="Muzzle" type="Marker2D" parent="Sprite"]
+position = Vector2(42, -6)

@@ -1,0 +1,16 @@
+// Windows depot for Slimer. Replace DEPOTID_WINDOWS with the real depot ID.
+"DepotBuildConfig"
+{
+	"DepotID"     "DEPOTID_WINDOWS"
+	"contentroot" "../build/steam/windows"
+
+	"FileMapping"
+	{
+		"LocalPath" "*"
+		"DepotPath" "."
+		"recursive" "1"
+	}
+
+	"FileExclusion" "*.pdb"
+	"FileExclusion" "**/*.DS_Store"
+}

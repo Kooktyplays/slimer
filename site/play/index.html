@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Play Slimer in your browser</title>
+<meta name="description" content="Play Slimer, an endless procedural forest roguelike, directly in your browser. Nothing installs and nothing downloads until you press play.">
+<link rel="icon" href="../assets/favicon.png">
+<link rel="stylesheet" href="../css/site.css">
+<meta name="theme-color" content="#293629">
+<meta name="robots" content="noindex">
+</head>
+<body class="play-body">
+
+<div class="play-bar">
+	<a href="../">← Slimer</a>
+	<span id="status-text">not loaded</span>
+	<span class="spacer"></span>
+	<a href="../#download">Desktop builds</a>
+	<button type="button" id="fullscreen" hidden>Fullscreen</button>
+</div>
+
+<main class="play-main" id="main">
+
+	<div class="gate" id="gate">
+		<img src="../assets/icon-192.png" alt="" width="88" height="88">
+		<h1>Slimer, in your browser</h1>
+		<p>
+			The real game, compiled to WebAssembly. Nothing has downloaded yet — the
+			engine is only fetched once you press the button below.
+		</p>
+
+		<div class="weight">
+			About 50 MB to download, 42 MB of it a single WebAssembly file.<br>
+			It arrives compressed, so expect roughly 12 MB over the wire.
+		</div>
+
+		<button class="btn btn-primary" id="start" style="width:100%;justify-content:center">
+			▶ Load and play
+		</button>
+		<progress id="progress" hidden></progress>
+		<p class="note" id="notice" hidden style="color:var(--red)"></p>
+
+		<div class="controls">
+			<div><b>WASD</b> move · <b>Mouse</b> aim · <b>Left click</b> shoot</div>
+			<div><b>Space</b> ability one · <b>Shift</b> ability two · <b>R</b> reload</div>
+			<div><b>F</b> continue at the shop · <b>Esc</b> pause</div>
+			<div style="color:var(--dim);margin-top:0.5rem">
+				Needs a keyboard and mouse. The desktop builds run smoother and keep
+				your save between sessions.
+			</div>
+		</div>
+	</div>
+
+	<div id="canvas-shell">
+		<canvas id="canvas" tabindex="0">
+			Your browser does not support the canvas element.
+		</canvas>
+	</div>
+
+</main>
+
+<noscript>
+	<p style="padding:2rem;text-align:center">
+		The browser build needs JavaScript. The
+		<a href="../#download">desktop downloads</a> do not.
+	</p>
+</noscript>
+
+<script>
+// Boots the Godot web export, but only after a click.
+//
+// The engine is a 42 MB wasm file; fetching that on page load would be a
+// hostile default. So index.js is not even in the document until the visitor
+// asks for it, and the progress bar is wired to the engine's own onProgress.
+//
+// The export was built with thread support off (GODOT_THREADS_ENABLED = false),
+// which is why this page needs no COOP/COEP headers to run.
+(function () {
+	var gate = document.getElementById('gate');
+	var shell = document.getElementById('canvas-shell');
+	var startBtn = document.getElementById('start');
+	var progress = document.getElementById('progress');
+	var notice = document.getElementById('notice');
+	var statusText = document.getElementById('status-text');
+	var fullscreenBtn = document.getElementById('fullscreen');
+
+	function fail(message) {
+		notice.hidden = false;
+		notice.textContent = message;
+		progress.hidden = true;
+		startBtn.disabled = false;
+		startBtn.textContent = '▶ Try again';
+		statusText.textContent = 'failed';
+	}
+
+	function boot() {
+		startBtn.disabled = true;
+		startBtn.textContent = 'Loading…';
+		progress.hidden = false;
+		progress.removeAttribute('value');
+		notice.hidden = true;
+		statusText.textContent = 'downloading engine…';
+
+		var script = document.createElement('script');
+		script.src = 'engine/index.js';
+		script.onerror = function () {
+			fail('The engine failed to download. Check your connection and try again.');
+		};
+		script.onload = function () {
+			if (typeof Engine === 'undefined') {
+				fail('The engine loaded but did not initialise.');
+				return;
+			}
+
+			var missing = Engine.getMissingFeatures({ threads: false });
+			if (missing.length !== 0) {
+				fail('This browser is missing features the game needs: ' + missing.join(', '));
+				return;
+			}
+
+			var engine = new Engine({
+				args: [],
+				canvasResizePolicy: 2,
+				executable: 'engine/index',
+				mainPack: 'engine/index.pck',
+				experimentalVK: false,
+				focusCanvas: true,
+				gdextensionLibs: [],
+			});
+
+			engine.startGame({
+				canvas: document.getElementById('canvas'),
+				onProgress: function (current, total) {
+					if (current > 0 && total > 0) {
+						progress.value = current;
+						progress.max = total;
+						statusText.textContent =
+							'downloading… ' + Math.round((current / total) * 100) + '%';
+					} else {
+						progress.removeAttribute('value');
+					}
+				},
+			}).then(function () {
+				gate.hidden = true;
+				shell.classList.add('live');
+				statusText.textContent = 'running';
+				fullscreenBtn.hidden = false;
+				document.getElementById('main').style.padding = '0';
+				document.getElementById('canvas').focus();
+			}, function (err) {
+				fail(String((err && err.message) || err));
+			});
+		};
+		document.body.appendChild(script);
+	}
+
+	startBtn.addEventListener('click', boot);
+
+	fullscreenBtn.addEventListener('click', function () {
+		var el = document.getElementById('canvas-shell');
+		if (document.fullscreenElement) document.exitFullscreen();
+		else if (el.requestFullscreen) el.requestFullscreen();
+	});
+}());
+</script>
+</body>
+</html>

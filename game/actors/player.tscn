@@ -1,0 +1,68 @@
+[gd_scene load_steps=10 format=3 uid="uid://bslimerplayer"]
+
+[ext_resource type="Script" path="res://actors/player.gd" id="1_s"]
+[ext_resource type="Texture2D" path="res://assets/sprites/ground_shadow.png" id="2_sh"]
+[ext_resource type="Texture2D" path="res://assets/sprites/boo_body.png" id="3_b"]
+[ext_resource type="Texture2D" path="res://assets/sprites/boo_face.png" id="4_f"]
+[ext_resource type="PackedScene" path="res://weapons/gun.tscn" id="5_g"]
+[ext_resource type="Script" path="res://abilities/ability_controller.gd" id="6_a"]
+[ext_resource type="Script" path="res://actors/game_camera.gd" id="7_c"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/glow.png" id="8_glow"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/crosshair.png" id="9_ret"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_player"]
+radius = 22.0
+
+[node name="Player" type="CharacterBody2D"]
+collision_layer = 2
+collision_mask = 1
+motion_mode = 1
+script = ExtResource("1_s")
+
+[node name="Marker" type="Sprite2D" parent="."]
+modulate = Color(1, 0.97, 0.82, 0.16)
+position = Vector2(0, -6)
+scale = Vector2(1.5, 1.1)
+texture = ExtResource("8_glow")
+
+[node name="Shadow" type="Sprite2D" parent="."]
+modulate = Color(0, 0, 0, 0.28)
+position = Vector2(0, 8)
+texture = ExtResource("2_sh")
+
+[node name="Visual" type="Node2D" parent="."]
+scale = Vector2(1.18, 1.18)
+
+[node name="Outline" type="Sprite2D" parent="Visual"]
+modulate = Color(0.07, 0.11, 0.09, 1)
+position = Vector2(0, -28)
+scale = Vector2(1.22, 1.22)
+texture = ExtResource("3_b")
+
+[node name="Body" type="Sprite2D" parent="Visual"]
+position = Vector2(0, -28)
+texture = ExtResource("3_b")
+
+[node name="Face" type="Sprite2D" parent="Visual/Body"]
+position = Vector2(0, -11)
+texture = ExtResource("4_f")
+
+[node name="Shape" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_player")
+
+[node name="Gun" parent="." instance=ExtResource("5_g")]
+position = Vector2(0, -16)
+
+[node name="Reticle" type="Sprite2D" parent="."]
+visible = false
+modulate = Color(1, 0.95, 0.75, 0.85)
+z_index = 80
+top_level = true
+scale = Vector2(0.7, 0.7)
+texture = ExtResource("9_ret")
+
+[node name="Abilities" type="Node" parent="."]
+script = ExtResource("6_a")
+
+[node name="Camera" type="Camera2D" parent="."]
+script = ExtResource("7_c")

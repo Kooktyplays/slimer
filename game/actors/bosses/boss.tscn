@@ -1,0 +1,34 @@
+[gd_scene load_steps=6 format=3 uid="uid://bslimerboss"]
+
+[ext_resource type="Script" path="res://actors/bosses/boss.gd" id="1_s"]
+[ext_resource type="Texture2D" path="res://assets/sprites/ground_shadow.png" id="2_sh"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/boss_bramble_body.png" id="3_b"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/boss_bramble_eyes.png" id="4_e"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_boss"]
+radius = 62.0
+
+[node name="Boss" type="CharacterBody2D"]
+collision_layer = 4
+collision_mask = 1
+motion_mode = 1
+script = ExtResource("1_s")
+
+[node name="Shadow" type="Sprite2D" parent="."]
+modulate = Color(0, 0, 0, 0.3)
+position = Vector2(0, 14)
+scale = Vector2(2.4, 2.4)
+texture = ExtResource("2_sh")
+
+[node name="Visual" type="Node2D" parent="."]
+
+[node name="Body" type="Sprite2D" parent="Visual"]
+position = Vector2(0, -78)
+texture = ExtResource("3_b")
+
+[node name="Eyes" type="Sprite2D" parent="Visual/Body"]
+position = Vector2(0, -22)
+texture = ExtResource("4_e")
+
+[node name="Shape" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_boss")
