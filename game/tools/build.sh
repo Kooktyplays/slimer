@@ -114,10 +114,33 @@ run_export() {
   rm -rf "$OUT/macos/Slimer.app"
   run_export "macOS" "$OUT/macos/Slimer.app" "macOS (universal, ad-hoc signed)"
   if [ -d "$OUT/macos/Slimer.app" ]; then
-    # ditto, not zip: it preserves the bundle's symlinks and permissions
+    # Godot's "ad-hoc signed" export only leaves the linker's signature on the
+    # Mach-O: no _CodeSignature, no sealed resources. The code directory still
+    # claims resources must be sealed, so verification fails and macOS reports
+    # the app as "damaged and can't be opened" - which, unlike the unsigned
+    # warning, right-click -> Open will NOT get past. Sign it here for real.
+    #
+    # arm64 makes this mandatory rather than cosmetic: Apple Silicon refuses to
+    # execute a binary whose signature does not validate.
+    codesign --force --deep --sign - --timestamp=none "$OUT/macos/Slimer.app" 2>&1 \
+      | sed 's/^/    /'
+    if codesign --verify --deep --strict "$OUT/macos/Slimer.app" 2>/dev/null; then
+      echo "    signed: ad-hoc, sealed resources verified"
+    else
+      echo "    ERROR: macOS signature does not verify - the app will be"
+      echo "           reported as damaged. Not shipping this build."
+      FAILED=1
+    fi
+
+    # ditto, not zip: it preserves the bundle's symlinks, permissions and the
+    # signature. A plain zip breaks all three.
     ( cd "$OUT/macos" && rm -f Slimer-macos.zip \
       && ditto -c -k --sequesterRsrc --keepParent Slimer.app Slimer-macos.zip )
     echo "    zipped: $OUT/macos/Slimer-macos.zip"
+
+    # The build is still not notarised, so a *downloaded* copy carries a
+    # quarantine flag that Gatekeeper honours regardless of the signature.
+    # Users clear it with:  xattr -dr com.apple.quarantine /path/to/Slimer.app
   fi
 }
 

@@ -95,8 +95,11 @@ are easy to reintroduce.
 - Gamepad support is implemented but has only ever been tested in code, never on
   physical hardware.
 - Steamworks is not integrated — no achievements, overlay or cloud saves.
-- macOS builds are ad-hoc signed but not notarised, so Gatekeeper will block a
-  downloaded copy until you right-click → Open.
+- macOS builds are ad-hoc signed but not notarised, so macOS quarantines the
+  download and reports *"Slimer is damaged and can't be opened"*. It is not
+  damaged — that is the message macOS uses for anything it cannot verify, and
+  right-click → Open does not clear it. Run once, after moving the app:
+  `xattr -dr com.apple.quarantine /Applications/Slimer.app`
 
 ## Licensing
 

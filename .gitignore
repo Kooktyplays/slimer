@@ -33,3 +33,6 @@ build/
 # Godot's import cache and editor-local state. Regenerated on first open.
 .godot/
 *.translation
+
+# Vercel
+.vercel

@@ -776,9 +776,13 @@
 				<div class="size"><span data-dl-size="macos">65 MB</span> · universal</div>
 				<p>
 					Runs natively on Apple Silicon and Intel. It is ad-hoc signed but
-					<strong>not notarised</strong>, so Gatekeeper will refuse it on the first
-					try: right-click the app, choose <em>Open</em>, then confirm.
+					<strong>not notarised</strong>, so macOS quarantines the download and
+					says <em>&ldquo;Slimer is damaged and can&rsquo;t be opened&rdquo;</em>.
+					It is not damaged &mdash; that is the message macOS uses for anything it
+					cannot verify. Right-click &rarr; Open does <strong>not</strong> clear it.
+					Move the app where you want it, then run this once:
 				</p>
+				<p><code>xattr -dr com.apple.quarantine /Applications/Slimer.app</code></p>
 				<a class="btn btn-ghost" data-dl="macos" href="#download" aria-disabled="true">Download .zip</a>
 			</div>
 
