@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://k5yryrxuu6qf"]
+
+[ext_resource type="Script" path="res://abilities/thornwall.gd" id="1_t"]
+
+[node name="Thornwall" type="Node2D"]
+script = ExtResource("1_t")

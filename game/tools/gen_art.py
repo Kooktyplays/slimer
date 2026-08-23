@@ -810,6 +810,39 @@ def gen_ui_icons():
             a.circle(cx - 10 + i * 10, 46, 5, (255, 255, 255, al))
     a.save("icon_decoy.png")
 
+    # surge - three swept speed lines, leaning forward
+    a = new()
+    for i, y in enumerate((16, 32, 48)):
+        lead = 8 + i * 4
+        a.poly([(10 + lead, y - 5), (52, y - 5), (46, y + 5), (4 + lead, y + 5)],
+               (255, 255, 255, 235 - i * 30))
+    a.save("icon_surge.png")
+
+    # vault - an arcing leap over a landing burst
+    a = new()
+    a.line([(10, 50), (20, 20), (34, 12), (48, 22), (54, 46)], W, 5)
+    a.circle(54, 50, 7, W)
+    for x in (40, 54, 60):
+        a.line([(x, 56), (x, 62)], (255, 255, 255, 150), 3)
+    a.save("icon_vault.png")
+
+    # thornwall - a barrier with spikes along its top
+    a = new()
+    a.rrect(8, 30, 56, 52, 3, W)
+    for x in (12, 24, 36, 48):
+        a.poly([(x, 30), (x + 6, 12), (x + 12, 30)], W)
+    a.line([(8, 40), (56, 40)], (0, 0, 0, 70), 3)
+    a.save("icon_thornwall.png")
+
+    # cinders - three flames off a scorched line
+    a = new()
+    a.rrect(8, 50, 56, 56, 3, W)
+    for i, cx in enumerate((18, 32, 46)):
+        h = (14, 4, 18)[i]
+        a.poly([(cx, h), (cx + 9, 30), (cx + 5, 50), (cx - 5, 50), (cx - 9, 30)],
+               (255, 255, 255, 240 - i * 20))
+    a.save("icon_cinders.png")
+
     # life steal - heart with drop
     a = new()
     a.circle(23, 24, 11, W)

@@ -13,14 +13,17 @@ const KIND_PASSIVE := "passive"
 
 const DEFS := {
 	# ---- new abilities (cost mirrors AbilitiesDB.essence) -------------------
+	"ab_surge":     {"kind": KIND_ABILITY, "ref": "surge",     "cost": 170},
+	"ab_vault":     {"kind": KIND_ABILITY, "ref": "vault",     "cost": 210},
 	"ab_shield":    {"kind": KIND_ABILITY, "ref": "shield",    "cost": 120},
-	"ab_nova":      {"kind": KIND_ABILITY, "ref": "nova",      "cost": 150},
 	"ab_heal":      {"kind": KIND_ABILITY, "ref": "heal",      "cost": 180},
 	"ab_decoy":     {"kind": KIND_ABILITY, "ref": "decoy",     "cost": 200},
 	"ab_timeslow":  {"kind": KIND_ABILITY, "ref": "timeslow",  "cost": 200},
 	"ab_lightning": {"kind": KIND_ABILITY, "ref": "lightning", "cost": 220},
 	"ab_rapidfire": {"kind": KIND_ABILITY, "ref": "rapidfire", "cost": 240},
 	"ab_orbital":   {"kind": KIND_ABILITY, "ref": "orbital",   "cost": 260},
+	"ab_thornwall": {"kind": KIND_ABILITY, "ref": "thornwall", "cost": 190},
+	"ab_cinders":   {"kind": KIND_ABILITY, "ref": "cinders",   "cost": 230},
 	"ab_lifesteal": {"kind": KIND_ABILITY, "ref": "lifesteal", "cost": 280},
 
 	# ---- new shop entries --------------------------------------------------
@@ -68,7 +71,7 @@ const DEFS := {
 	},
 	"pas_reserve": {
 		"kind": KIND_PASSIVE, "cost": 340, "stat": "ability_extra_charges", "amount": 1.0,
-		"name": "Second Wind", "desc": "Both abilities start with +1 charge.",
+		"name": "Second Wind", "desc": "Every ability starts with +1 charge.",
 	},
 	"pas_attune": {
 		"kind": KIND_PASSIVE, "cost": 280, "stat": "essence_mul", "amount": 0.25,
@@ -81,8 +84,10 @@ const DEFS := {
 }
 
 const ORDER: Array[String] = [
-	"ab_shield", "ab_nova", "ab_heal", "ab_decoy", "ab_timeslow",
-	"ab_lightning", "ab_rapidfire", "ab_orbital", "ab_lifesteal",
+	"ab_surge", "ab_vault",
+	"ab_shield", "ab_heal", "ab_thornwall", "ab_decoy",
+	"ab_timeslow", "ab_lightning", "ab_cinders", "ab_rapidfire",
+	"ab_orbital", "ab_lifesteal",
 	"upg_heavy_slugs", "upg_runaway_sear", "upg_split_barrel",
 	"upg_thirsting_grip", "upg_deep_reserves",
 	"pas_vigor_1", "pas_vigor_2", "pas_purse_1", "pas_edge_1", "pas_edge_2",

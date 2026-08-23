@@ -188,16 +188,30 @@ see §11.
 
 ---
 
-## 8. Abilities — you carry exactly two
+## 8. Abilities — one movement, two general
 
-Eleven exist in `data/abilities_db.gd`; two slots, always. That limit is the
-point: it forces a choice between escape, burst, control and sustain.
+Fifteen exist in `data/abilities_db.gd`, in two classes. **Slot 0 is a movement
+slot** and only takes a movement ability; slots 1 and 2 are general.
 
-| Ability | Effect | Cooldown |
-| --- | --- | --- |
-| **Dash** ★ | Blink with i-frames, 2 charges | 3.2 s |
-| **Grenade** ★ | Lobbed 90 damage in a 190 radius | 7 s |
-| **Nova** | 70 damage + heavy knockback around you | 11 s |
+The split is not decoration. Dash used to compete for one of two general slots
+and won every time — it is the only source of invulnerability in the game, and
+several boss attacks (slam most of all) cannot be walked out of at all, so "pick
+two" really meant "pick one, plus Dash". Giving movement its own slot is what
+makes the general pair an actual argument between burst, control and sustain.
+
+Movement abilities are three answers to *"I need to not be standing here"*:
+Dash is the panic button, Surge trades invulnerability for duration, Vault turns
+the escape into an opener.
+
+| Ability | Class | Effect | Cooldown |
+| --- | --- | --- | --- |
+| **Dash** ★ | movement | Blink with i-frames, 2 charges | 3.2 s |
+| **Surge** | movement | x1.95 speed for 3.5 s, no i-frames | 9 s |
+| **Vault** | movement | 380 px leap, invulnerable, 45 dmg on landing | 7 s |
+| **Grenade** ★ | general | Lobbed 90 damage in a 190 radius | 7 s |
+| **Nova** ★ | general | 70 damage + heavy knockback around you | 11 s |
+| **Thornwall** | general | A 260 px barrier for 6 s that blocks everything | 15 s |
+| **Cinders** | general | Burning ground: 8 dmg / 0.25 s for 5 s | 13 s |
 | **Bulwark** | Absorbs the next 120 damage for 6 s | 14 s |
 | **Bloom** | Heal 35% of max | 26 s |
 | **Stormcall** | Chain lightning across 7 enemies | 9 s |
@@ -340,8 +354,8 @@ $G --path . --resolution 1600x900 -- visual                # screenshots + behav
 What each one actually proves:
 
 - **logic** — boss cadence over 200 waves, budget curve monotonic, unlock
-  gates, stat caps, economy, potion bounds, save round-trip, the two-slot
-  loadout rule, meta gating.
+  gates, stat caps, economy, potion bounds, save round-trip, the slot and
+  ability-class rules, the version-1 keybind migration, meta gating.
 - **forest** — across 200 seeds: spawn never blocked, everything reachable, no
   clearing too cramped, a boss always has somewhere to stand.
 - **sim** — drives the real run scene with real input through 22 waves, then

@@ -279,7 +279,7 @@ func _open_swap() -> void:
 	_swap_panel = preload("res://ui/ability_picker.gd").new()
 	add_child(_swap_panel)
 	_swap_panel.call("setup", "Swap Abilities",
-		"You carry two. Choose which two.", true)
+		"One movement ability and two others. Choose all three.", true)
 	_swap_panel.connect("closed", func() -> void:
 		if _swap_panel != null:
 			_swap_panel.queue_free()

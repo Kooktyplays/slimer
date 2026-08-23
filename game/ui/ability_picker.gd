@@ -1,10 +1,11 @@
 extends Control
-## Two-slot ability chooser, shared by the pre-run loadout screen and the shop.
+## Ability chooser, shared by the pre-run loadout screen and the shop.
 ##
-## Shows every unlocked ability with the two equipped ones marked. Picking a
-## third replaces whichever slot is selected - there is no way to reach three
-## equipped abilities, because the two-slot limit is the thing that makes the
-## choice interesting.
+## Three slots: one movement, two general. Selecting a slot filters the grid to
+## abilities of that slot's class, so a general slot is never offered Dash and
+## the movement slot is never offered Grenade. Picking one replaces whatever the
+## selected slot held - the slot count is fixed, which is what keeps the general
+## pair an actual choice rather than an accumulation.
 
 signal closed()
 
@@ -42,15 +43,15 @@ func _build(title_text: String, subtitle: String) -> void:
 	col.add_child(sub)
 	col.add_child(UITheme.spacer(6))
 
-	# the two equipped slots, click to choose which one you're changing
+	# the equipped slots, click to choose which one you're changing
 	var slots := HBoxContainer.new()
 	slots.alignment = BoxContainer.ALIGNMENT_CENTER
-	slots.add_theme_constant_override("separation", 24)
+	slots.add_theme_constant_override("separation", 18)
 	col.add_child(slots)
 	_slot_buttons.clear()
-	for i in 2:
-		var b := UITheme.button("", 20)
-		b.custom_minimum_size = Vector2(300, 84)
+	for i in AbilitiesDB.SLOT_COUNT:
+		var b := UITheme.button("", 19)
+		b.custom_minimum_size = Vector2(232, 84)
 		b.pressed.connect(func() -> void:
 			_selected_slot = i
 			_refresh())
@@ -75,19 +76,21 @@ func _build(title_text: String, subtitle: String) -> void:
 
 
 func _refresh() -> void:
-	for i in 2:
-		var id: String = Save.loadout[i]
+	for i in _slot_buttons.size():
+		var id: String = Save.loadout[i] if i < Save.loadout.size() else ""
 		var def := AbilitiesDB.get_def(id)
-		_slot_buttons[i].text = "SLOT %d\n%s" % [i + 1, def["name"]]
+		var label := "MOVEMENT" if AbilitiesDB.class_for_slot(i) == \
+			AbilitiesDB.CLASS_MOVEMENT else "ABILITY %d" % i
+		_slot_buttons[i].text = "%s\n%s" % [label, def["name"]]
 		_slot_buttons[i].add_theme_color_override("font_color",
 			UITheme.GOLD if i == _selected_slot else UITheme.TEXT)
 
 	for c in _grid.get_children():
 		c.queue_free()
 
-	for id: String in AbilitiesDB.ORDER:
-		if not Save.unlocked_abilities().has(id):
-			continue
+	# Only abilities the selected slot can actually hold. Showing the rest and
+	# rejecting the click would be a worse way to teach the same rule.
+	for id: String in Save.unlocked_for_slot(_selected_slot):
 		_grid.add_child(_ability_card(id))
 
 
@@ -151,7 +154,7 @@ func _on_pick(id: String) -> void:
 		# Save.set_loadout may have swapped the other slot too, so push both
 		var p := Combat.player()
 		if p != null and p.get("abilities") != null:
-			for i in 2:
+			for i in Save.loadout.size():
 				p.abilities.equip(i, Save.loadout[i])
 		Game.run.abilities = Save.loadout.duplicate()
 	Audio.play_ui("ui_confirm", -6.0)

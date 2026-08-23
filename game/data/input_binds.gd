@@ -24,6 +24,7 @@ const ACTIONS: Array[Dictionary] = [
 	{"action": "move_right", "label": "Move right", "group": GROUP_MOVEMENT},
 	{"action": "shoot", "label": "Shoot", "group": GROUP_COMBAT},
 	{"action": "reload", "label": "Reload", "group": GROUP_COMBAT},
+	{"action": "ability_movement", "label": "Movement ability", "group": GROUP_ABILITIES},
 	{"action": "ability_1", "label": "Ability 1", "group": GROUP_ABILITIES},
 	{"action": "ability_2", "label": "Ability 2", "group": GROUP_ABILITIES},
 	{"action": "interact", "label": "Continue / interact", "group": GROUP_INTERFACE},
@@ -88,15 +89,18 @@ const DEFAULTS := {
 		{"type": "key", "physical": _KEY_R},
 		{"type": "pad_button", "button": JOY_BUTTON_X},
 	],
-	"ability_1": [
+	"ability_movement": [
 		{"type": "key", "physical": _KEY_SPACE},
 		{"type": "mouse", "button": MOUSE_BUTTON_RIGHT},
 		{"type": "pad_button", "button": JOY_BUTTON_A},
 	],
-	"ability_2": [
+	"ability_1": [
 		{"type": "key", "physical": _KEY_SHIFT},
-		{"type": "key", "physical": _KEY_E},
 		{"type": "pad_button", "button": JOY_BUTTON_B},
+	],
+	"ability_2": [
+		{"type": "key", "physical": _KEY_E},
+		{"type": "pad_button", "button": JOY_BUTTON_LEFT_SHOULDER},
 	],
 	"interact": [
 		{"type": "key", "physical": _KEY_F},

@@ -46,17 +46,26 @@ const WAVE_INTERMISSION := 3.0
 const MINI_BOSS_EVERY := 5
 const MAJOR_BOSS_EVERY := 20
 const WAVES_PER_DEPTH := 5
-const MAX_CONCURRENT_ENEMIES := 55
+const MAX_CONCURRENT_ENEMIES := 68
 const SPAWN_MIN_DISTANCE := 620.0
 const SPAWN_MAX_DISTANCE := 1250.0
 
 ## Threat budget for a wave. Quadratic so late waves get genuinely crowded.
+##
+## Raised about 28% when the movement slot was added: a third ability is roughly
+## +50% uptime, and the forest has to push back or the extra slot just makes the
+## run easier rather than more interesting.
 static func wave_budget(wave: int) -> float:
-	return 4.0 + 2.1 * wave + 0.075 * wave * wave
+	return 5.0 + 2.7 * wave + 0.098 * wave * wave
 
 ## How fast the spawner feeds the budget in, in threat per second.
+##
+## Deliberately raised in step with the budget. Lifting the budget alone would
+## make every wave 28% *longer* rather than denser, which reads as padding - the
+## extra threat has to arrive as pressure. Both curves still reach their cap
+## around wave 35, so the shape of the ramp is unchanged.
 static func spawn_rate(wave: int) -> float:
-	return minf(1.1 + 0.18 * wave, 7.5)
+	return minf(1.4 + 0.23 * wave, 9.5)
 
 # --- enemy scaling (capped on purpose) --------------------------------------
 static func hp_scale(wave: int) -> float:

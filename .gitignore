@@ -21,6 +21,7 @@ build/
 /Slimer.console.exe
 /Slimer.pck
 /Slimer-macos.zip
+/Slimer.zip
 /slimer.html
 
 # The four source mp3s live at game/assets/music/ where the project imports

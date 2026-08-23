@@ -1,5 +1,5 @@
 extends Control
-## Pre-run loadout: pick your two abilities, then go.
+## Pre-run loadout: pick a movement ability and two others, then go.
 
 var _picker: Control = null
 
@@ -13,8 +13,8 @@ func _ready() -> void:
 
 	_picker = preload("res://ui/ability_picker.gd").new()
 	add_child(_picker)
-	_picker.call("setup", "CHOOSE YOUR TWO",
-		"You can swap them at any forest rest. You can never carry three.", false)
+	_picker.call("setup", "CHOOSE YOUR THREE",
+		"Movement, then two more. You can swap them at any forest rest.", false)
 	_picker.connect("closed", _start)
 
 	var back := UITheme.button("BACK", 22)

@@ -83,8 +83,11 @@ func _run() -> void:
 	await _shot("combat")
 
 	# --- 7. abilities -------------------------------------------------------
-	player.abilities.equip(0, "nova")
-	player.abilities.equip(1, "orbital")
+	# Slot 0 is the movement slot, so it takes a movement ability - equipping a
+	# general one here would put Nova on the dash key.
+	player.abilities.equip(0, "vault")
+	player.abilities.equip(1, "nova")
+	player.abilities.equip(2, "orbital")
 	player.abilities.use(0)
 	player.abilities.use(1)
 	await _settle(0.35)
@@ -195,13 +198,23 @@ func _run() -> void:
 	waves.clear_all_enemies()
 	player.abilities.equip(0, "dash")
 	player.abilities.equip(1, "grenade")
+	player.abilities.equip(2, "nova")
 	await _settle(0.3)
 	var potion_scene: PackedScene = preload("res://actors/pickup.tscn")
 	var potion := Pools.acquire(potion_scene, run.forest.sorted_layer) as Pickup
 	potion.configure(Pickup.ABILITY, player.global_position + Vector2(30, 0))
 	await _settle(0.9)
 	_expect(not potion.collected,
-		"an ability potion was consumed while both abilities were full")
+		"an ability potion was consumed while every ability was full")
+
+	# Pin the potion inside the pickup radius before the real assertion below.
+	# configure() scatters a drop with an unseeded randf(), so it comes to rest a
+	# different distance away every run - measured at 36.4 px against a
+	# PICKUP_RADIUS of 34, i.e. either side of the threshold depending on the
+	# roll and the frame timing. That made the collection check a coin flip that
+	# failed for reasons having nothing to do with what it is testing. The
+	# scatter is incidental here; the charge state is the subject.
+	potion.global_position = player.global_position + Vector2(20, 0)
 
 	# grenade, not dash: dashing moves the player 320px away and the potion
 	# can never catch up, which looks like the potion being broken

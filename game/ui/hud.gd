@@ -53,7 +53,7 @@ func bind(p: Player, w: WaveController) -> void:
 		p.abilities.slot_changed.connect(_on_slot_changed)
 		_on_health_changed(Game.run.hp, Game.run.max_hp)
 		_on_ammo_changed(p.gun.ammo, p.gun.magazine_size())
-		for i in 2:
+		for i in AbilitiesDB.SLOT_COUNT:
 			_on_slot_changed(i)
 	_on_money_changed(Game.run.money if Game.run != null else 0, 0)
 	if Game.wave() >= 1:
@@ -220,10 +220,13 @@ func _build_abilities() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	for i in 2:
+	# Movement slot first, then the general pair - the same order as the picker
+	# and the keybinds screen, so the icons match the keys left to right.
+	const SLOT_ACTIONS := ["ability_movement", "ability_1", "ability_2"]
+	for i in AbilitiesDB.SLOT_COUNT:
 		var slot := AbilitySlot.new()
 		slot.custom_minimum_size = Vector2(74, 74)
-		slot.action = "ability_1" if i == 0 else "ability_2"
+		slot.action = SLOT_ACTIONS[i] if i < SLOT_ACTIONS.size() else "ability_1"
 		slot.refresh_hotkey()
 		root.add_child(slot)
 		_slots.append(slot)
@@ -302,7 +305,7 @@ func _process(delta: float) -> void:
 		if player.gun.reloading:
 			_reload_bar.size.x = 216.0 * player.gun.reload_fraction()
 
-		for i in 2:
+		for i in _slots.size():
 			(_slots[i] as AbilitySlot).set_progress(player.abilities.charge_fraction(i))
 			var s: Dictionary = player.abilities.slots[i]
 			if not s.is_empty():

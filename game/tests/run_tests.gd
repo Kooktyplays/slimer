@@ -125,7 +125,7 @@ func _test_wave_curve() -> void:
 	_check(Balance.hp_scale(500) <= 3.2001, "hp scale exceeded its cap")
 	_check(Balance.damage_scale(500) <= 2.4001, "damage scale exceeded its cap")
 	_check(Balance.speed_scale(500) <= 1.4501, "speed scale exceeded its cap")
-	_check(Balance.spawn_rate(500) <= 7.5001, "spawn rate exceeded its cap")
+	_check(Balance.spawn_rate(500) <= 9.5001, "spawn rate exceeded its cap")
 
 	# an enemy at wave 200 should be a few times tougher, not a thousand times
 	_check(Balance.hp_scale(200) < 4.0,
@@ -314,18 +314,18 @@ func _test_save_roundtrip() -> void:
 	var original := Save.to_dict()
 
 	Save.essence = 1234
-	Save.unlocks = ["ab_nova", "pas_vigor_1"]
+	Save.unlocks = ["ab_shield", "pas_vigor_1"]
 	Save.seen_hints = ["hint_move"]
 	Save.stats["best_wave"] = 42
 	Save.settings["music_volume"] = 0.42
 	Save.settings["damage_numbers"] = false
-	Save.loadout = ["nova", "dash"]
+	Save.loadout = ["dash", "nova", "grenade"]
 
 	var snapshot := Save.to_dict().duplicate(true)
 	Save.from_dict(snapshot)
 
 	_check(Save.essence == 1234, "essence did not survive the round trip")
-	_check(Save.unlocks.has("ab_nova"), "unlocks did not survive the round trip")
+	_check(Save.unlocks.has("ab_shield"), "unlocks did not survive the round trip")
 	_check(Save.seen_hints.has("hint_move"), "hints did not survive the round trip")
 	_check(int(Save.stats["best_wave"]) == 42, "stats did not survive the round trip")
 	_close(float(Save.settings["music_volume"]), 0.42, "settings float lost")
@@ -334,13 +334,42 @@ func _test_save_roundtrip() -> void:
 	# corrupt input must not throw
 	Save.from_dict({})
 	Save.from_dict({"unlocks": "not an array", "stats": {"best_wave": "x"}})
-	_check(Save.loadout.size() == 2, "loadout survived corrupt input at wrong size")
+	_check(Save.loadout.size() == AbilitiesDB.SLOT_COUNT,
+		"loadout survived corrupt input at wrong size")
+
+	# A version-1 save binds ability_1 to Space, which is now the movement slot's
+	# key. Carrying that override forward would leave two actions on one key and
+	# fire two slots per press, so loading an old save must drop it.
+	Save.from_dict({
+		"version": 1,
+		"keybinds": {
+			"ability_1": [{"type": "key", "physical": 32}],
+			"ability_2": [{"type": "key", "physical": 4194325}],
+			"shoot": [{"type": "mouse", "button": 1}],
+		},
+	})
+	_check(not Save.keybinds.has("ability_1"),
+		"a version-1 ability binding survived the migration and now collides "
+		+ "with the movement key")
+	_check(not Save.keybinds.has("ability_2"),
+		"a version-1 ability binding survived the migration")
+	_check(Save.keybinds.has("shoot"),
+		"the migration threw away bindings it had no business touching")
+
+	# A current save keeps its bindings.
+	Save.from_dict({
+		"version": Save.VERSION,
+		"keybinds": {"ability_1": [{"type": "key", "physical": 81}]},
+	})
+	_check(Save.keybinds.has("ability_1"),
+		"a current-version ability binding was wrongly discarded")
 
 	Save.from_dict(original)
 
 
-## The two-slot rule is load-bearing for build variety, so it is enforced
-## rather than assumed.
+## The slot rules are load-bearing for build variety, so they are enforced
+## rather than assumed. In particular a movement ability must never reach a
+## general slot: that is the whole reason the classes exist.
 func _test_loadout() -> void:
 	var original_unlocks := Save.unlocks.duplicate()
 	var original_loadout := Save.loadout.duplicate()
@@ -348,41 +377,78 @@ func _test_loadout() -> void:
 	Save.unlocks = []
 	_check(Save.unlocked_abilities() == AbilitiesDB.default_unlocked(),
 		"a fresh save should only have the default abilities")
+	_check(AbilitiesDB.default_unlocked().size() == AbilitiesDB.SLOT_COUNT,
+		"a fresh save must have one free ability per slot, or a slot starts empty")
+
+	# one free ability of the right class for every slot
+	for slot in AbilitiesDB.SLOT_COUNT:
+		_check(not Save.unlocked_for_slot(slot).is_empty(),
+			"slot %d has nothing legal to put in it on a fresh save" % slot)
 
 	# asking for a locked ability must be refused
-	Save.loadout = ["dash", "grenade"]
-	Save.set_loadout(0, "orbital")
+	Save.loadout = ["dash", "grenade", "nova"]
+	Save.set_loadout(1, "orbital")
 	_check(not Save.loadout.has("orbital"), "equipped a locked ability")
 
-	# unlocking makes it available, and equipping it swaps rather than adds
+	# unlocking makes it available
 	Save.unlocks = ["ab_orbital"]
-	Save.set_loadout(0, "orbital")
-	_check(Save.loadout.size() == 2, "loadout is not exactly two abilities")
-	_check(Save.loadout[0] == "orbital", "the chosen ability was not equipped")
-	_check(Save.loadout[1] == "grenade", "the other slot was disturbed")
-
-	# picking the ability already in the other slot swaps them, never duplicates
 	Save.set_loadout(1, "orbital")
-	_check(Save.loadout[0] != Save.loadout[1],
-		"the same ability ended up in both slots")
-	_check(Save.loadout.size() == 2, "loadout grew beyond two")
+	_check(Save.loadout.size() == AbilitiesDB.SLOT_COUNT,
+		"loadout is not exactly one ability per slot")
+	_check(Save.loadout[1] == "orbital", "the chosen ability was not equipped")
+	_check(Save.loadout[0] == "dash", "the movement slot was disturbed")
 
-	# sanitising junk still yields two distinct unlocked abilities
-	Save.from_dict({"unlocks": [], "loadout": ["orbital", "orbital", "nova"]})
-	_check(Save.loadout.size() == 2, "sanitised loadout is not two entries")
-	_check(Save.loadout[0] != Save.loadout[1], "sanitised loadout has duplicates")
-	for id: String in Save.loadout:
+	# picking the ability already in another slot swaps, never duplicates
+	Save.set_loadout(2, "orbital")
+	_check(Save.loadout[1] != Save.loadout[2],
+		"the same ability ended up in two slots")
+	_check(Save.loadout.size() == AbilitiesDB.SLOT_COUNT, "loadout grew a slot")
+
+	# the class rule, from both directions
+	Save.loadout = ["dash", "grenade", "nova"]
+	Save.set_loadout(1, "dash")
+	_check(Save.loadout[1] != "dash", "a movement ability reached a general slot")
+	Save.set_loadout(0, "grenade")
+	_check(Save.loadout[0] == "dash", "a general ability reached the movement slot")
+
+	# a pre-movement-slot save is the right length but the wrong shape
+	Save.from_dict({"unlocks": [], "loadout": ["dash", "grenade"]})
+	_check(Save.loadout.size() == AbilitiesDB.SLOT_COUNT,
+		"an old two-entry loadout was not padded to the slot count")
+	for slot in AbilitiesDB.SLOT_COUNT:
+		_check(AbilitiesDB.fits_slot(Save.loadout[slot], slot),
+			"slot %d holds the wrong class after migration" % slot)
+
+	# sanitising junk still yields one distinct unlocked ability per slot
+	Save.from_dict({"unlocks": [], "loadout": ["orbital", "orbital", "dash", "dash"]})
+	_check(Save.loadout.size() == AbilitiesDB.SLOT_COUNT,
+		"sanitised loadout is the wrong size")
+	var seen: Array[String] = []
+	for slot in AbilitiesDB.SLOT_COUNT:
+		var id: String = Save.loadout[slot]
+		_check(not seen.has(id), "sanitised loadout duplicated '%s'" % id)
+		seen.append(id)
+		_check(AbilitiesDB.fits_slot(id, slot),
+			"sanitised loadout put '%s' in the wrong class of slot" % id)
 		_check(Save.unlocked_abilities().has(id),
 			"sanitised loadout contains locked ability '%s'" % id)
 
-	# every ability must be reachable and distinct
-	_check(AbilitiesDB.ORDER.size() == 11, "expected eleven abilities")
+	# every ability must be reachable, well formed and correctly classed
+	_check(AbilitiesDB.ORDER.size() == 15, "expected fifteen abilities")
+	var movement := 0
 	for id: String in AbilitiesDB.ORDER:
 		var def := AbilitiesDB.get_def(id)
 		_check(float(def["cooldown"]) > 0.0, "ability '%s' has no cooldown" % id)
 		_check(int(def["charges"]) >= 1, "ability '%s' has no charges" % id)
 		_check(ResourceLoader.exists(AbilitiesDB.icon_path(id)),
 			"ability '%s' has no icon" % id)
+		var kind: String = def["class"]
+		_check(kind == AbilitiesDB.CLASS_MOVEMENT or kind == AbilitiesDB.CLASS_GENERAL,
+			"ability '%s' has no valid class" % id)
+		if kind == AbilitiesDB.CLASS_MOVEMENT:
+			movement += 1
+	_check(movement >= 2,
+		"one movement ability is not a choice - the slot needs alternatives")
 
 	Save.unlocks = original_unlocks
 	Save.loadout = original_loadout
@@ -394,10 +460,10 @@ func _test_meta_progression() -> void:
 
 	Save.essence = 0
 	Save.unlocks = []
-	_check(not Save.can_purchase("ab_nova"), "bought an unlock with no essence")
+	_check(not Save.can_purchase("ab_shield"), "bought an unlock with no essence")
 
 	Save.essence = 100_000
-	_check(Save.can_purchase("ab_nova"), "a affordable unlock was refused")
+	_check(Save.can_purchase("ab_shield"), "a affordable unlock was refused")
 	_check(not Save.can_purchase("pas_vigor_2"),
 		"a tiered passive ignored its prerequisite")
 	Save.purchase("pas_vigor_1")

@@ -6,11 +6,22 @@ extends Node
 
 const PATH := "user://slimer_save.json"
 const TMP_PATH := "user://slimer_save.json.tmp"
-const VERSION := 1
+const VERSION := 2
+
+## Bumped when the *meaning* of an ability binding changes, not when a binding
+## is added. Version 2 introduced the movement slot: it moved Space from
+## ability_1 to ability_movement and split Shift and E across the two general
+## slots. A version-1 save still binds ability_1 to Space, which would leave two
+## actions on the same key and fire two slots at once - so those overrides are
+## dropped on load and fall back to the new defaults.
+const ABILITY_BIND_VERSION := 2
+const _VERSIONED_ABILITY_ACTIONS: Array[String] = [
+	"ability_movement", "ability_1", "ability_2",
+]
 
 var essence: int = 0
 var unlocks: Array[String] = []
-var loadout: Array[String] = ["dash", "grenade"]
+var loadout: Array[String] = ["dash", "grenade", "nova"]
 var seen_hints: Array[String] = []
 var stats := {
 	"runs": 0,
@@ -64,10 +75,13 @@ func from_dict(d: Dictionary) -> void:
 	unlocks = _to_string_array(d.get("unlocks", []))
 	seen_hints = _to_string_array(d.get("seen_hints", []))
 
-	var lo := _to_string_array(d.get("loadout", ["dash", "grenade"]))
+	var lo := _to_string_array(d.get("loadout", ["dash", "grenade", "nova"]))
 	loadout = _sanitise_loadout(lo)
 
 	keybinds = _parse_keybinds(d.get("keybinds", {}))
+	if int(d.get("version", 1)) < ABILITY_BIND_VERSION:
+		for action: String in _VERSIONED_ABILITY_ACTIONS:
+			keybinds.erase(action)
 
 	for k: String in stats:
 		if d.get("stats", {}).has(k):
@@ -117,7 +131,7 @@ func save_game() -> bool:
 func reset() -> void:
 	essence = 0
 	unlocks = []
-	loadout = ["dash", "grenade"]
+	loadout = ["dash", "grenade", "nova"]
 	seen_hints = []
 	keybinds.clear()
 	InputBinds.apply(keybinds)
@@ -160,8 +174,8 @@ func add_essence(amount: int) -> void:
 	Events.essence_changed.emit(essence, amount)
 
 
-## Abilities the player is allowed to equip: the two defaults plus anything
-## unlocked with Essence.
+## Abilities the player is allowed to equip: the defaults plus anything unlocked
+## with Essence.
 func unlocked_abilities() -> Array[String]:
 	var out: Array[String] = AbilitiesDB.default_unlocked()
 	for id: String in unlocks:
@@ -173,15 +187,35 @@ func unlocked_abilities() -> Array[String]:
 	return out
 
 
+## Abilities that may legally go in a given slot: unlocked, and of that slot's
+## class. Slot 0 is the movement slot and will not take a general ability.
+func unlocked_for_slot(slot: int) -> Array[String]:
+	var owned := unlocked_abilities()
+	var out: Array[String] = []
+	# Walk the class list rather than the unlock list, so the picker's grid stays
+	# in ORDER regardless of the sequence things were bought in.
+	for id: String in AbilitiesDB.ids_of_class(AbilitiesDB.class_for_slot(slot)):
+		if owned.has(id):
+			out.append(id)
+	return out
+
+
 func set_loadout(slot: int, ability_id: String) -> void:
-	if slot < 0 or slot > 1:
+	if slot < 0 or slot >= AbilitiesDB.SLOT_COUNT:
 		return
 	if not unlocked_abilities().has(ability_id):
 		return
-	var other := 1 - slot
-	# both slots must hold different abilities - swap rather than duplicate
-	if loadout[other] == ability_id:
-		loadout[other] = loadout[slot]
+	# A movement ability cannot be put in a general slot, or the reverse - the
+	# classes are the whole point of having a separate movement slot.
+	if not AbilitiesDB.fits_slot(ability_id, slot):
+		return
+	# Slots must hold different abilities. Swap with whichever slot already has
+	# this one rather than duplicating it; only a same-class slot can be holding
+	# it, so the swap is always legal.
+	for other in range(loadout.size()):
+		if other != slot and loadout[other] == ability_id:
+			loadout[other] = loadout[slot]
+			break
 	loadout[slot] = ability_id
 	save_game()
 	Events.ability_equipped.emit(slot, ability_id)
@@ -268,20 +302,29 @@ func _to_string_array(v: Variant) -> Array[String]:
 	return out
 
 
-## Guarantee exactly two distinct, unlocked abilities.
+## Guarantee one distinct, unlocked, class-correct ability per slot.
+##
+## Slot-by-slot rather than as a flat list, because a saved loadout from before
+## the movement slot existed can be the right length but the wrong shape, and
+## padding a general slot with Dash would hand the player two movement
+## abilities.
 func _sanitise_loadout(candidate: Array[String]) -> Array[String]:
-	var allowed := unlocked_abilities()
 	var out: Array[String] = []
-	for id: String in candidate:
-		if allowed.has(id) and not out.has(id):
-			out.append(id)
-		if out.size() == 2:
-			break
-	for id: String in allowed:
-		if out.size() >= 2:
-			break
-		if not out.has(id):
-			out.append(id)
-	while out.size() < 2:
-		out.append("dash")
+	for slot in range(AbilitiesDB.SLOT_COUNT):
+		var allowed := unlocked_for_slot(slot)
+		var pick := ""
+		# Prefer what the save already had, wherever it sat, as long as it fits
+		# this slot and is not already spoken for.
+		for id: String in candidate:
+			if allowed.has(id) and not out.has(id):
+				pick = id
+				break
+		if pick == "":
+			for id: String in allowed:
+				if not out.has(id):
+					pick = id
+					break
+		if pick == "":
+			pick = AbilitiesDB.fallback_for_slot(slot)
+		out.append(pick)
 	return out

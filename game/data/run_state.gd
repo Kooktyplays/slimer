@@ -26,7 +26,7 @@ var money_mul: float = 1.0
 var free_rerolls: int = 0
 
 # loadout
-var abilities: Array[String] = ["dash", "grenade"]
+var abilities: Array[String] = ["dash", "grenade", "nova"]
 
 # bookkeeping
 var upgrades_bought: Dictionary = {}     # id -> count

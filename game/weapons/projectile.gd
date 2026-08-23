@@ -31,7 +31,11 @@ var pierce := 0
 var knockback := 0.0
 var max_range := 900.0
 var from_player := true
-var slow_factor := 1.0          # set by the Torpor ability
+## Torpor's slow. Enemy bullets read Combat.enemy_time_scale live each frame -
+## this used to be a plain field that nothing ever wrote, so Torpor slowed enemy
+## *bodies* while their bullets kept full speed, and the ability's own
+## description ("slow every enemy and enemy bullet") was simply false.
+var slow_factor := 1.0
 
 var _travelled := 0.0
 var _hit: Array[RID] = []
@@ -93,6 +97,9 @@ func launch(at: Vector2, dir: Vector2, cfg: Dictionary) -> void:
 func _physics_process(delta: float) -> void:
 	if not _alive:
 		return
+	# Your own bullets are never slowed - Torpor is a debuff on the forest, not
+	# a global time scale.
+	slow_factor = 1.0 if from_player else Combat.enemy_time_scale
 	var step := velocity * delta * slow_factor
 	var to := global_position + step
 	_sweep(global_position, to)

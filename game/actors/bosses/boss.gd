@@ -306,6 +306,15 @@ func _telegraph_time() -> float:
 	return maxf(0.42, 0.85 - 0.11 * (phase - 1))
 
 
+## Wind-up for a telegraphed attack. Callers chain the hit onto the returned
+## tween, so this must run for exactly `duration` - the ground marker drawn by
+## FX.telegraph fills over that same duration, and the two are a promise to the
+## player that the hit lands when the fill meets the ring.
+##
+## The squash still eases over the first 70%; it used to be the *whole* tween,
+## which meant every attack in the game landed 30% early. At phase 1 that turned
+## a 0.85 s window into 0.595 s - and a slam you could not walk out of either
+## way. The interval is what keeps the visual and the hitbox honest.
 func _wind_up(duration: float) -> Tween:
 	_busy = true
 	velocity = Vector2.ZERO
@@ -313,6 +322,7 @@ func _wind_up(duration: float) -> Tween:
 	var t := create_tween()
 	t.tween_property(_visual, "scale", _visual.scale * Vector2(0.85, 1.18), duration * 0.7) \
 		.set_ease(Tween.EASE_IN)
+	t.tween_interval(duration * 0.3)
 	return t
 
 
@@ -385,7 +395,12 @@ func _atk_charge() -> void:
 	var lead := _telegraph_time() * 1.15
 
 	var line := Line2D.new()
-	line.width = float(def["radius"]) * 1.8
+	# Line2D width is the full thickness, so this has to be twice the real reach.
+	# It used to be radius * 1.8, drawing a half-width of 0.9 * radius while the
+	# charge actually hits at radius + PLAYER_RADIUS - under-reporting its own
+	# hitbox by 33-41 px, which is how the Sovereign one-shot players who
+	# correctly stood just outside the line they were shown.
+	line.width = (float(def["radius"]) + Balance.PLAYER_RADIUS) * 2.0
 	line.default_color = Color(1.0, 0.35, 0.25, 0.28)
 	line.z_index = 12
 	line.add_point(global_position)
@@ -478,13 +493,26 @@ func _atk_rain() -> void:
 	t.tween_callback(_recover)
 
 
-## Expanding ring centred on the boss: outrun it or get clipped.
+## Expanding ring centred on the boss. Outrun it or get clipped.
+##
+## This one needs a tell of its own, and specifically one that does not look like
+## a slam: slam says "leave the spot you are standing on", shockwave says "get
+## further away from me", and they were sharing the same squash and the same
+## sound. Getting that backwards is a free hit either direction. So the ground
+## marker here grows *outward from the boss* to the full radius, rather than
+## filling a circle centred on the player.
 func _atk_shockwave() -> void:
 	var lead := _telegraph_time()
 	var max_radius := 620.0
+
+	# A ring at the final radius, and a fill that races out to meet it - the
+	# opposite reading to slam's marker, and in the boss's own colour rather
+	# than slam's warning orange.
+	FX.telegraph(global_position, max_radius, lead, Color(0.45, 0.75, 1.0))
+
 	var t := _wind_up(lead)
 	t.tween_callback(func() -> void:
-		Audio.play("boss_attack", -2.0)
+		Audio.play("boss_phase", -3.0)
 		Game.shake(7.0, 0.4)
 		FX.ring(global_position, max_radius, def["tint"], 0.55, 0.08)
 		var origin := global_position
