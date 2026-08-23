@@ -22,6 +22,12 @@ var _swap_panel: Control = null
 func open() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	# The shop used to read money exactly once, as it built itself, and only
+	# redraw it on a purchase or a reroll. Anything that credited money while the
+	# shop was already open - a coin still in flight, a late payout - left the
+	# header showing a stale balance the player had no way to refresh. The HUD
+	# has always tracked this signal; the shop should too.
+	Events.money_changed.connect(_on_money_changed)
 	_rng.seed = (Game.run.seed_value if Game.run != null else 0) * 977 + Game.wave() * 13
 	_roll_offers()
 	_build()
@@ -208,6 +214,15 @@ func _category_icon(cat: String) -> String:
 		UpgradesDB.CATEGORY_PROJECTILE: return "res://assets/sprites/gen/icon_ammo.png"
 		UpgradesDB.CATEGORY_SURVIVAL: return "res://assets/sprites/gen/icon_heart.png"
 		_: return "res://assets/sprites/gen/icon_dash.png"
+
+
+## Money moved while the shop is open. Offer affordability is part of the money
+## display, so the rows have to be rebuilt, not just the header - a row that
+## became affordable must stop being greyed out and its button must enable.
+func _on_money_changed(_total: int, _delta: int) -> void:
+	if _rows != null and is_instance_valid(_rows):
+		_refresh_rows()
+	_refresh_money()
 
 
 func _refresh_money() -> void:

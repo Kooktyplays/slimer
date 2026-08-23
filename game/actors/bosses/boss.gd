@@ -19,6 +19,17 @@ signal defeated(boss: Boss)
 @onready var _visual: Node2D = $Visual
 @onready var _shadow: Sprite2D = $Shadow
 @onready var _shape: CollisionShape2D = $Shape
+@onready var _hurtbox: Area2D = $Hurtbox
+@onready var _hurtbox_shape: CollisionShape2D = $Hurtbox/Shape
+
+## Where Visual/Body sits inside Visual, before Visual's own scale. Mirrors
+## boss.tscn. Bosses are drawn a long way above their feet, so aiming at one and
+## hitting nothing was at its worst here.
+const BODY_LOCAL_Y := -78.0
+
+## Offset from the physics origin to the middle of the drawn boss, for this
+## boss's scale.
+var hit_offset := Vector2.ZERO
 
 var id := "bramble"
 var def: Dictionary = {}
@@ -54,7 +65,11 @@ var hit_radius := 110.0
 
 
 func _ready() -> void:
-	collision_layer = Layers.ENEMY
+	# The hurtbox carries the ENEMY layer; the body only collides with the
+	# forest. See Enemy._apply_hit_shapes for why.
+	collision_layer = 0
+	_hurtbox.collision_layer = Layers.ENEMY
+	_hurtbox.collision_mask = 0
 	collision_mask = Layers.WORLD
 	add_to_group("enemies")
 	add_to_group("boss")
@@ -93,7 +108,24 @@ func configure(boss_id: String, for_wave: int, repeat_index: int) -> void:
 	_shadow.scale = Vector2.ONE * s * 2.4
 	_shadow.modulate = Color(0, 0, 0, 0.30)
 	hit_radius = float(def["radius"])
-	(_shape.shape as CircleShape2D).radius = hit_radius
+	# Fresh shapes per boss: a shape declared in a .tscn is shared by every
+	# instance of that scene, so editing it in place resized every boss at once.
+	var circle := CircleShape2D.new()
+	circle.radius = hit_radius
+	_shape.shape = circle
+	# Hurtbox covers the drawn boss, from under the shadow to the top of the
+	# sprite; the body circle stays at the feet for navigation. See
+	# Enemy._apply_hit_shapes for the reasoning.
+	hit_offset = Vector2(0, BODY_LOCAL_Y * s)
+	var drawn_height := 0.0
+	if _body.texture != null:
+		drawn_height = _body.texture.get_height() * s
+	var top := hit_offset.y - drawn_height * 0.5
+	var capsule := CapsuleShape2D.new()
+	capsule.radius = hit_radius
+	capsule.height = maxf(hit_radius - top, hit_radius * 2.0)
+	_hurtbox_shape.shape = capsule
+	_hurtbox_shape.position = Vector2(0, (top + hit_radius) * 0.5)
 	_material.set_shader_parameter("flash", 0.0)
 	_stuck_time = 0.0
 	_unstuck_timer = 0.0
@@ -585,6 +617,11 @@ func take_damage(amount: float, is_crit: bool = false, _from: Vector2 = Vector2.
 	_check_phase()
 	if hp <= 0.0:
 		_die()
+
+
+## Where the boss is actually drawn, relative to its physics origin.
+func hit_center() -> Vector2:
+	return global_position + hit_offset
 
 
 func health_fraction() -> float:

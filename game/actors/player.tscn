@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3 uid="uid://bslimerplayer"]
+[gd_scene load_steps=11 format=3 uid="uid://bslimerplayer"]
 
 [ext_resource type="Script" path="res://actors/player.gd" id="1_s"]
 [ext_resource type="Texture2D" path="res://assets/sprites/ground_shadow.png" id="2_sh"]
@@ -13,8 +13,12 @@
 [sub_resource type="CircleShape2D" id="CircleShape2D_player"]
 radius = 22.0
 
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_player_hurt"]
+radius = 22.0
+height = 72.0
+
 [node name="Player" type="CharacterBody2D"]
-collision_layer = 2
+collision_layer = 0
 collision_mask = 1
 motion_mode = 1
 script = ExtResource("1_s")
@@ -49,6 +53,15 @@ texture = ExtResource("4_f")
 
 [node name="Shape" type="CollisionShape2D" parent="."]
 shape = SubResource("CircleShape2D_player")
+
+[node name="Hurtbox" type="Area2D" parent="."]
+collision_layer = 2
+collision_mask = 0
+monitoring = false
+
+[node name="Shape" type="CollisionShape2D" parent="Hurtbox"]
+position = Vector2(0, -14)
+shape = SubResource("CapsuleShape2D_player_hurt")
 
 [node name="Gun" parent="." instance=ExtResource("5_g")]
 position = Vector2(0, -16)

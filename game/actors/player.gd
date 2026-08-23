@@ -46,7 +46,13 @@ var _shoot_held := false
 
 
 func _ready() -> void:
-	collision_layer = Layers.PLAYER
+	# The hurtbox carries the PLAYER layer so enemy bullets hit the drawn
+	# character rather than the shadow under it; the body only collides with the
+	# forest. See Enemy._apply_hit_shapes for the full reasoning.
+	collision_layer = 0
+	var hurtbox := $Hurtbox as Area2D
+	hurtbox.collision_layer = Layers.PLAYER
+	hurtbox.collision_mask = 0
 	collision_mask = Layers.WORLD
 	_shadow.texture = SHADOW_TEXTURE
 	_shadow.modulate = Color(0, 0, 0, 0.28)
@@ -72,6 +78,7 @@ func _physics_process(delta: float) -> void:
 func _move(delta: float) -> void:
 	if dashing:
 		move_and_slide()
+		_hold_in_bounds()
 		return
 	var input := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var target := input * max_speed()
@@ -80,6 +87,34 @@ func _move(delta: float) -> void:
 	else:
 		velocity = velocity.move_toward(target, Balance.PLAYER_ACCEL * delta)
 	move_and_slide()
+	_hold_in_bounds()
+
+
+## Offset from the physics origin - the feet, where the shadow is drawn - to the
+## middle of the drawn character. Visual/Body sits at y=-28 inside Visual, which
+## player.tscn scales by 1.18.
+const HIT_OFFSET := Vector2(0, -28.0 * 1.18)
+
+
+## Where the player is actually drawn, relative to their physics origin.
+func hit_center() -> Vector2:
+	return global_position + HIT_OFFSET
+
+
+## Backstop behind the forest's boundary wall.
+##
+## The wall does the real work and stops ordinary movement, dashes and vaults,
+## because they all move through the physics engine and respect Layers.WORLD.
+## This exists for anything that sets a position directly instead - a teleport,
+## a knockback resolved outside move_and_slide, a future ability - because being
+## outside the arena is unrecoverable for the player and the cost of preventing
+## it is two comparisons a frame.
+func _hold_in_bounds() -> void:
+	var limit := ForestGenerator.WALL_INSET + Balance.PLAYER_RADIUS
+	var size := ForestGenerator.WORLD_SIZE
+	global_position = Vector2(
+		clampf(global_position.x, limit, size.x - limit),
+		clampf(global_position.y, limit, size.y - limit))
 
 
 func max_speed() -> float:

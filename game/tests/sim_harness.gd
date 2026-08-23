@@ -38,6 +38,9 @@ var _waves_seen: Array[int] = []
 var _boss_waves_seen: Array[int] = []
 var _major_waves_seen: Array[int] = []
 var _shops_opened := 0
+## Money at the moment a boss died, before its reward was dropped. -1 when the
+## shop was opened by something other than a boss clear.
+var _money_before_boss := -1
 var _shops_closed := 0
 var _abilities_fired := {0: 0, 1: 0, 2: 0}
 var _potions := {}
@@ -69,7 +72,14 @@ func _ready() -> void:
 			_major_waves_seen.append(Game.wave())
 		else:
 			_boss_waves_seen.append(Game.wave()))
-	Events.shop_opened.connect(func() -> void: _shops_opened += 1)
+	# Boss payout must be in the bank before the shop can read the balance.
+	# boss_defeated fires before the controller drops the reward, so this is the
+	# pre-reward figure.
+	Events.boss_defeated.connect(func(_b: Node2D) -> void:
+		_money_before_boss = Game.run.money if Game.run != null else 0)
+	Events.shop_opened.connect(func() -> void:
+		_shops_opened += 1
+		_check_payout_banked())
 	Events.shop_closed.connect(func() -> void: _shops_closed += 1)
 	Events.ability_used.connect(func(slot: int, _id: String) -> void:
 		_abilities_fired[slot] = int(_abilities_fired[slot]) + 1)
@@ -481,6 +491,30 @@ func _dump_state() -> void:
 				b.id, b.hp, b.max_hp, b.phase, b.active, b.dying, b.get("_busy"),
 				b.global_position.distance_to(Combat.player_position())]
 	print(line)
+
+
+## The shop opens on the same frame a boss dies. Its reward is dropped as a
+## shower of coins, and those coins used to still be flying when the shop read
+## Game.run.money to draw the header - so beating a boss for 300 with 400 in
+## hand offered you a 400 balance to spend, and the number only corrected itself
+## if you happened to buy something.
+##
+## Two assertions, because either alone can pass while the bug is present: the
+## coins must be gone from the forest, and the balance must actually have grown.
+func _check_payout_banked() -> void:
+	if _money_before_boss < 0 or Game.run == null:
+		return
+	var loose := 0
+	for node: Node in get_tree().get_nodes_in_group(Pickup.GROUP):
+		var pickup := node as Pickup
+		if pickup != null and pickup.kind == Pickup.COIN and not pickup.collected:
+			loose += 1
+	if loose > 0:
+		_fail("%d boss coins were still on the ground when the shop opened" % loose)
+	if Game.run.money <= _money_before_boss:
+		_fail("shop opened with %d money, unchanged from %d before the boss died"
+			% [Game.run.money, _money_before_boss])
+	_money_before_boss = -1
 
 
 func _fail(message: String) -> void:

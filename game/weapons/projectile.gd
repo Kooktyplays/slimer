@@ -50,7 +50,11 @@ func _ready() -> void:
 	monitoring = false
 	monitorable = false
 	_query.shape = _query_shape
-	_query.collide_with_areas = false
+	# Actors are hit through a Hurtbox Area2D that covers the drawn sprite, not
+	# through their CharacterBody2D - the body's shape sits at the feet, where
+	# the shadow is, which is why shots aimed at a slime used to sail through it.
+	# Bodies still matter for the forest's static geometry.
+	_query.collide_with_areas = true
 	_query.collide_with_bodies = true
 
 
@@ -135,7 +139,13 @@ func _sweep(from: Vector2, to: Vector2) -> void:
 
 
 ## Returns true if the bullet should stop here.
-func _resolve(body: Object, rid: RID, at: Vector2) -> bool:
+func _resolve(collider: Object, rid: RID, at: Vector2) -> bool:
+	# A hurtbox is an Area2D whose owner is the actor that takes the damage.
+	var body: Object = collider
+	if collider is Area2D:
+		body = (collider as Area2D).get_parent()
+		if body == null:
+			return false
 	if body is StaticBody2D:
 		FX.impact(at, Color(0.85, 0.85, 0.8, 0.8), 0.7)
 		Audio.play_throttled("hit", 0.05, -16.0, 0.12)

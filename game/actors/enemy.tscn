@@ -1,4 +1,4 @@
-[gd_scene load_steps=6 format=3 uid="uid://bslimerenemy"]
+[gd_scene load_steps=7 format=3 uid="uid://bslimerenemy"]
 
 [ext_resource type="Script" path="res://actors/enemy.gd" id="1_s"]
 [ext_resource type="Texture2D" path="res://assets/sprites/ground_shadow.png" id="2_sh"]
@@ -8,8 +8,12 @@
 [sub_resource type="CircleShape2D" id="CircleShape2D_enemy"]
 radius = 26.0
 
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_enemy_hurt"]
+radius = 26.0
+height = 92.0
+
 [node name="Enemy" type="CharacterBody2D"]
-collision_layer = 4
+collision_layer = 0
 collision_mask = 1
 motion_mode = 1
 script = ExtResource("1_s")
@@ -35,3 +39,12 @@ position = Vector2(0, -34)
 
 [node name="Shape" type="CollisionShape2D" parent="."]
 shape = SubResource("CircleShape2D_enemy")
+
+[node name="Hurtbox" type="Area2D" parent="."]
+collision_layer = 4
+collision_mask = 0
+monitoring = false
+
+[node name="Shape" type="CollisionShape2D" parent="Hurtbox"]
+position = Vector2(0, -16)
+shape = SubResource("CapsuleShape2D_enemy_hurt")

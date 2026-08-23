@@ -134,6 +134,130 @@ func _run() -> void:
 	_expect(not _sample_enemy().is_equal_approx(enemy_before),
 		"enemies stayed frozen after resuming")
 
+	# --- 7b2. the arena is physically closed --------------------------------
+	# The grid has always claimed the border is solid; the player moves by
+	# physics, not by the grid, and that is the gap play-testers escaped
+	# through. This asserts the real collision geometry, then actually drives
+	# the player into it.
+	# One ray per side proves nothing: it would hit a border tree and pass. The
+	# tree band is a scatter with gaps everywhere, so the only honest question is
+	# whether ANY line out of the arena is unobstructed. Sweep the whole
+	# perimeter and count the ones that escape.
+	var space := player.get_world_2d().direct_space_state
+	var wsize := ForestGenerator.WORLD_SIZE
+	var inset := ForestGenerator.WALL_INSET
+	var escapes := 0
+	var first_escape := Vector2.ZERO
+	var probe_step := 40.0
+
+	var py := inset + 30.0
+	while py <= wsize.y - inset - 30.0:
+		for pair: Array in [
+			[Vector2(inset + 30.0, py), Vector2(-800.0, py)],
+			[Vector2(wsize.x - inset - 30.0, py), Vector2(wsize.x + 800.0, py)],
+		]:
+			var q := PhysicsRayQueryParameters2D.create(pair[0], pair[1])
+			q.collision_mask = Layers.WORLD
+			q.collide_with_areas = false
+			if space.intersect_ray(q).is_empty():
+				if escapes == 0:
+					first_escape = pair[0]
+				escapes += 1
+		py += probe_step
+
+	var px := inset + 30.0
+	while px <= wsize.x - inset - 30.0:
+		for pair: Array in [
+			[Vector2(px, inset + 30.0), Vector2(px, -800.0)],
+			[Vector2(px, wsize.y - inset - 30.0), Vector2(px, wsize.y + 800.0)],
+		]:
+			var q := PhysicsRayQueryParameters2D.create(pair[0], pair[1])
+			q.collision_mask = Layers.WORLD
+			q.collide_with_areas = false
+			if space.intersect_ray(q).is_empty():
+				if escapes == 0:
+					first_escape = pair[0]
+				escapes += 1
+		px += probe_step
+
+	_expect(escapes == 0,
+		"%d unobstructed lines out of the arena, first at %s" % [escapes, first_escape])
+
+	# and walking hard into a corner has to leave the player inside it
+	player.global_position = Vector2(
+		ForestGenerator.WALL_INSET + 90.0, ForestGenerator.WALL_INSET + 90.0)
+	await _settle(0.2)
+	for _push in 30:
+		player.velocity = Vector2(-4000.0, -4000.0)
+		player.move_and_slide()
+		await get_tree().physics_frame
+	_expect(player.global_position.x >= ForestGenerator.WALL_INSET - 1.0
+			and player.global_position.y >= ForestGenerator.WALL_INSET - 1.0,
+		"the player was pushed out of the arena to %s" % player.global_position)
+	player.velocity = Vector2.ZERO
+	player.global_position = run.layout.nearest_open(run.layout.spawn_point)
+	await _settle(0.3)
+
+	# --- 7b3. shots land on the slime, not on its shadow --------------------
+	# Every actor's physics origin is at its feet, which is exactly where the
+	# shadow is drawn; the sprite sits 32px above it. Aiming at the slime you can
+	# see used to miss it entirely, which play-testers reported as bullets
+	# passing through enemies.
+	waves.clear_all_enemies()
+	await _settle(0.3)
+	var mark := waves.spawn_at(EnemyTypes.GREEN,
+		player.global_position + Vector2(300, 0), 1)
+	_expect(mark != null, "could not spawn a slime for the hitbox check")
+	if mark != null:
+		await _settle(0.2)
+		var hit_space := player.get_world_2d().direct_space_state
+		var probe := PhysicsShapeQueryParameters2D.new()
+		var probe_shape := CircleShape2D.new()
+		probe_shape.radius = 7.0            # a bullet
+		probe.shape = probe_shape
+		probe.collision_mask = Layers.ENEMY
+		probe.collide_with_areas = true
+		probe.collide_with_bodies = true
+
+		# The upper body of the drawn slime. Its *centre* sits only marginally
+		# outside the old feet circle, so probing there proves nothing; the dead
+		# zone was the top of the sprite, which is most of what you aim at when a
+		# slime is coming towards you.
+		#
+		# Scale comes from the type definition, not from Visual.scale - the
+		# squash-and-stretch animation drives that live, and reading it made this
+		# probe land in a different place every run.
+		var body_sprite := mark.get_node("Visual/Body") as Sprite2D
+		var base_scale: float = float(EnemyTypes.get_def(EnemyTypes.GREEN)["scale"])
+		var drawn_h: float = body_sprite.texture.get_height() * base_scale
+		var upper := mark.hit_center() - Vector2(0, drawn_h * 0.42)
+		probe.transform = Transform2D(0.0, upper)
+		_expect(not hit_space.intersect_shape(probe, 4).is_empty(),
+			"a shot at the top of the slime's sprite hits nothing (probe %s, feet %s)"
+				% [upper, mark.global_position])
+
+		# and the feet, so players who learned to aim low are not punished
+		probe.transform = Transform2D(0.0, mark.global_position)
+		_expect(not hit_space.intersect_shape(probe, 4).is_empty(),
+			"a shot at the slime's feet hits nothing")
+
+		# a Brute and a Darter must not share one hitbox: the shape lives in the
+		# .tscn and used to be edited in place, so the last spawn resized them all
+		var brute := waves.spawn_at(EnemyTypes.RED,
+			player.global_position + Vector2(-300, 0), 1)
+		await _settle(0.2)
+		if brute != null:
+			_expect(not is_equal_approx(brute.hit_radius, mark.hit_radius),
+				"Brute and Slime report the same hit radius (%.1f)" % mark.hit_radius)
+			probe_shape.radius = 2.0
+			# a point just outside the small slime but inside the big brute
+			probe.transform = Transform2D(0.0,
+				brute.hit_center() + Vector2(mark.hit_radius + 6.0, 0))
+			_expect(not hit_space.intersect_shape(probe, 4).is_empty(),
+				"the Brute's hitbox is no bigger than the Slime's")
+	waves.clear_all_enemies()
+	await _settle(0.3)
+
 	# --- 7c. clearing a wave vacuums the coins in ---------------------------
 	var coin_scene: PackedScene = preload("res://actors/pickup.tscn")
 	var far: Array[Pickup] = []

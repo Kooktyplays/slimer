@@ -138,8 +138,38 @@ func _on_boss_cleared(_boss: Node2D) -> void:
 		return
 	# sweep up any adds the boss left behind before the shop opens
 	waves.clear_all_enemies()
+	# ...and bank the payout before anything can read the balance. This has to
+	# happen before notify_wave_cleared(), because for a boss wave that call
+	# opens the shop itself - see Game.notify_wave_cleared.
+	_bank_loose_coins()
 	Game.notify_wave_cleared()
 	_open_shop()
+
+
+## Instantly credit every coin still lying in the forest.
+##
+## A boss drops its reward as a shower of coins that fly to the player over
+## about half a second. The shop opens on the same frame the boss dies and reads
+## Game.run.money as it builds, so it showed the balance from *before* the kill:
+## beat a boss for 300 with 400 in hand and the shop offered you 400, not 700.
+## The coins did arrive a moment later, but by then the number was already
+## drawn, and it stayed wrong until a purchase happened to redraw it.
+##
+## Banking is instant rather than accelerated because any flight time at all
+## re-opens the same race.
+func _bank_loose_coins() -> void:
+	var total := 0
+	var at := player.global_position if is_instance_valid(player) else Vector2.ZERO
+	for node: Node in get_tree().get_nodes_in_group(Pickup.GROUP):
+		var pickup := node as Pickup
+		if pickup != null and pickup.kind == Pickup.COIN and not pickup.collected:
+			total += pickup.collect_instantly()
+	if total <= 0:
+		return
+	# One report for the whole payout - five separate "+14" numbers stacked on
+	# the same pixel is noise, not feedback.
+	Audio.play("coin", -10.0)
+	FX.floating_text(at + Vector2(0, -140), "+%d" % total, Color(1.0, 0.86, 0.35))
 
 
 func _queue_next_wave() -> void:

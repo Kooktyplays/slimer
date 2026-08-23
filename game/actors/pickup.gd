@@ -86,6 +86,29 @@ func attract() -> void:
 	_velocity = Vector2.ZERO
 
 
+## Bank this pickup where it lies, with no flight and no collection tween.
+##
+## The shop reads Game.run.money when it builds, and a boss payout is a shower
+## of coins that takes about half a second to fly in - so the shop used to open
+## showing the total from *before* the boss died. Coins the player has visibly
+## earned have to be in the bank before anything can read the balance.
+##
+## Only the money moves here: no per-coin audio or floating text, because five
+## coins banking on one frame is a burst of noise, not five rewards. The caller
+## reports the total instead.
+func collect_instantly() -> int:
+	if collected or kind != COIN:
+		return 0
+	collected = true
+	set_process(false)
+	var banked := value
+	if Game.run != null:
+		Game.run.add_money(value)
+	Events.pickup_collected.emit(kind, global_position)
+	Pools.release(self)
+	return banked
+
+
 func _process(delta: float) -> void:
 	if collected:
 		return

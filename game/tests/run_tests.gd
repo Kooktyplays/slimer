@@ -29,6 +29,7 @@ func _run() -> void:
 	_test_loadout()
 	_test_meta_progression()
 	_test_forest_smoke()
+	_test_arena_is_sealed()
 	_report()
 
 
@@ -517,6 +518,48 @@ func _test_forest_smoke() -> void:
 		var boss_spot := g.nearest_open_for(g.spawn_point + Vector2(620, 0), 240.0)
 		_check(g.has_clearance(boss_spot, 240.0),
 			"seed %d has nowhere for a boss to stand" % g.seed_value)
+
+
+## The navigation grid and the physics wall must agree about where the arena
+## ends.
+##
+## This is the grid half only. The grid already sealed the border band before
+## the wall existed - _rasterise() force-blocks it - which is exactly why the
+## escape bug was so easy to miss: spawning and steering behaved, while the
+## player, who moves by physics rather than by the grid, walked straight out
+## through a gap in the tree scatter. The physics half is covered in the visual
+## pass, which can query real collision shapes.
+##
+## What this guards is the two staying consistent. If WALL_INSET ever grows past
+## BORDER, the grid would call cells walkable that sit outside the physics wall,
+## and enemies would spawn in a pocket the player can never reach.
+func _test_arena_is_sealed() -> void:
+	var size := ForestGenerator.WORLD_SIZE
+	var inset := ForestGenerator.WALL_INSET
+	for i in 24:
+		var g := ForestGenerator.generate(9000 + i * 577)
+		var leaks := 0
+		# sample densely enough that a one-cell gap cannot hide between samples
+		var step := ForestGenerator.CELL * 0.5
+		var x := 0.0
+		while x <= size.x:
+			if g.is_open(Vector2(x, inset * 0.5)) \
+					or g.is_open(Vector2(x, size.y - inset * 0.5)):
+				leaks += 1
+			x += step
+		var y := 0.0
+		while y <= size.y:
+			if g.is_open(Vector2(inset * 0.5, y)) \
+					or g.is_open(Vector2(size.x - inset * 0.5, y)):
+				leaks += 1
+			y += step
+		_check(leaks == 0,
+			"seed %d has %d walkable points outside the wall" % [g.seed_value, leaks])
+		# and the spawn point must be comfortably inside it, not tucked in the band
+		_check(g.spawn_point.x > inset and g.spawn_point.y > inset
+				and g.spawn_point.x < size.x - inset
+				and g.spawn_point.y < size.y - inset,
+			"seed %d spawns the player outside the wall" % g.seed_value)
 
 
 # ---------------------------------------------------------------------------

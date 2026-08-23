@@ -81,12 +81,23 @@ func _clear() -> void:
 # ground
 # ---------------------------------------------------------------------------
 func _build_ground() -> void:
-	# base floor - one repeating sprite stretched over the world
+	# Base floor - one repeating sprite stretched over the world, and then some.
+	#
+	# It used to stop exactly at WORLD_SIZE, so anything the camera showed past
+	# the arena edge was unpainted viewport: the grey players reported falling
+	# into. The wall now stops them well inside this, but the camera still looks
+	# past the edge when you fight along it, and grass is what should be there.
+	#
+	# The region origin is offset to match, so the tiling stays aligned to world
+	# coordinates and the extension does not seam against the rest of the ground.
+	var over := ForestGenerator.OVERDRAW
 	var base := Sprite2D.new()
 	base.texture = TEX_GRASS
 	base.centered = false
+	base.position = Vector2(-over, -over)
 	base.region_enabled = true
-	base.region_rect = Rect2(Vector2.ZERO, ForestGenerator.WORLD_SIZE)
+	base.region_rect = Rect2(Vector2(-over, -over),
+		ForestGenerator.WORLD_SIZE + Vector2(over, over) * 2.0)
 	base.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	ground_layer.add_child(base)
 
@@ -219,6 +230,44 @@ func _build_collision() -> void:
 		circle.radius = float(b["radius"])
 		shape.shape = circle
 		shape.position = b["pos"]
+		body.add_child(shape)
+	_build_boundary(body)
+
+
+## Four slabs that close the arena.
+##
+## The tree band was the only thing holding the player in, and it is a random
+## scatter - gaps through it exist by construction, and play-testers who found
+## one walked into empty space and could not walk back, which ends the run with
+## no way out but abandoning it.
+##
+## These go on the same StaticBody2D as every other blocker, so they cost four
+## shapes rather than four bodies, and they sit on Layers.WORLD - the layer the
+## player, enemies and bullets all already respect, so no ability gets a special
+## case. Vault and Dash are stopped by this for free.
+##
+## Deliberately thick rather than thin: a slab a thousand pixels deep cannot be
+## crossed by a teleport that overshoots, where a thin one could be stepped
+## straight over.
+func _build_boundary(body: StaticBody2D) -> void:
+	const THICKNESS := 1000.0
+	var size := ForestGenerator.WORLD_SIZE
+	var inset := ForestGenerator.WALL_INSET
+	var span := size.x - inset * 2.0
+
+	# left, right, top, bottom - each centred just outside its own edge
+	var slabs := [
+		[Vector2(inset - THICKNESS * 0.5, size.y * 0.5), Vector2(THICKNESS, size.y + THICKNESS * 2.0)],
+		[Vector2(size.x - inset + THICKNESS * 0.5, size.y * 0.5), Vector2(THICKNESS, size.y + THICKNESS * 2.0)],
+		[Vector2(size.x * 0.5, inset - THICKNESS * 0.5), Vector2(span + THICKNESS * 2.0, THICKNESS)],
+		[Vector2(size.x * 0.5, size.y - inset + THICKNESS * 0.5), Vector2(span + THICKNESS * 2.0, THICKNESS)],
+	]
+	for slab: Array in slabs:
+		var shape := CollisionShape2D.new()
+		var rect := RectangleShape2D.new()
+		rect.size = slab[1]
+		shape.shape = rect
+		shape.position = slab[0]
 		body.add_child(shape)
 
 
