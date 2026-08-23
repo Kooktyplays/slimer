@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://htey3vxy3psl"
-path="res://.godot/imported/boo_face.png-2b7c4baf7ad97f1f3f2827b6567c19f4.ctex"
+uid="uid://dul41wvfqjtcl"
+path="res://.godot/imported/slime_body.png-246bd3d251ef44993672b6f612ad1007.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/boo_face.png"
-dest_files=["res://.godot/imported/boo_face.png-2b7c4baf7ad97f1f3f2827b6567c19f4.ctex"]
+source_file="res://assets/sprites/gen/slime_body.png"
+dest_files=["res://.godot/imported/slime_body.png-246bd3d251ef44993672b6f612ad1007.ctex"]
 
 [params]
 

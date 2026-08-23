@@ -1,9 +1,9 @@
 [gd_scene load_steps=11 format=3 uid="uid://bslimerplayer"]
 
 [ext_resource type="Script" path="res://actors/player.gd" id="1_s"]
-[ext_resource type="Texture2D" path="res://assets/sprites/ground_shadow.png" id="2_sh"]
-[ext_resource type="Texture2D" path="res://assets/sprites/boo_body.png" id="3_b"]
-[ext_resource type="Texture2D" path="res://assets/sprites/boo_face.png" id="4_f"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/ground_shadow.png" id="2_sh"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/boo_body.png" id="3_b"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/boo_face.png" id="4_f"]
 [ext_resource type="PackedScene" path="res://weapons/gun.tscn" id="5_g"]
 [ext_resource type="Script" path="res://abilities/ability_controller.gd" id="6_a"]
 [ext_resource type="Script" path="res://actors/game_camera.gd" id="7_c"]

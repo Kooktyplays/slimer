@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://s47xdkdewcuo"
-path="res://.godot/imported/ground_shadow.png-72d634d8aa70a8e89c982e749b7e30fd.ctex"
+uid="uid://bh55f06kuq766"
+path="res://.godot/imported/slime_face.png-e2f9de1424ab88c094a954c6dccf75d9.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/ground_shadow.png"
-dest_files=["res://.godot/imported/ground_shadow.png-72d634d8aa70a8e89c982e749b7e30fd.ctex"]
+source_file="res://assets/sprites/gen/slime_face.png"
+dest_files=["res://.godot/imported/slime_face.png-e2f9de1424ab88c094a954c6dccf75d9.ctex"]
 
 [params]
 

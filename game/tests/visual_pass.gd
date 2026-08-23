@@ -42,7 +42,7 @@ func _run() -> void:
 	await _settle(0.5)
 	await _shot("meta_upgrades")
 
-	# --- 3b. credits (CC BY-NC-SA attribution must be legible here) ---------
+	# --- 3b. credits --------------------------------------------------------
 	Game.go_to_credits()
 	await _settle(0.6)
 	_expect(Game.state == Game.State.CREDITS, "credits screen did not open")

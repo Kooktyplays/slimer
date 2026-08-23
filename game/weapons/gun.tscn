@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=3 uid="uid://bslimergun"]
 
 [ext_resource type="Script" path="res://weapons/gun.gd" id="1_s"]
-[ext_resource type="Texture2D" path="res://assets/sprites/pistol.png" id="2_t"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/pistol.png" id="2_t"]
 
 [node name="Gun" type="Node2D"]
 script = ExtResource("1_s")

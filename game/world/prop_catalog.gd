@@ -22,7 +22,7 @@ const DEFS := {
 		"sway": 0.55, "layer": "canopy",
 	},
 	"pine_tree": {
-		"texture": "pine_tree", "blocks": true, "anchor": 8,
+		"texture": "gen/pine_tree", "blocks": true, "anchor": 8,
 		"blockers": [{"offset": Vector2(0, -6), "radius": 26.0}],
 		"sway": 0.40, "layer": "canopy",
 	},

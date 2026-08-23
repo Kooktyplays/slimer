@@ -1,7 +1,7 @@
 [gd_scene load_steps=7 format=3 uid="uid://bslimerboss"]
 
 [ext_resource type="Script" path="res://actors/bosses/boss.gd" id="1_s"]
-[ext_resource type="Texture2D" path="res://assets/sprites/ground_shadow.png" id="2_sh"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/ground_shadow.png" id="2_sh"]
 [ext_resource type="Texture2D" path="res://assets/sprites/gen/boss_bramble_body.png" id="3_b"]
 [ext_resource type="Texture2D" path="res://assets/sprites/gen/boss_bramble_eyes.png" id="4_e"]
 

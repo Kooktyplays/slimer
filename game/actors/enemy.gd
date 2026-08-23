@@ -17,7 +17,7 @@ extends CharacterBody2D
 
 const FLASH_SHADER := preload("res://assets/shaders/flash.gdshader")
 const PROJECTILE := preload("res://weapons/projectile.tscn")
-const FACE_NORMAL := preload("res://assets/sprites/slime_face.png")
+const FACE_NORMAL := preload("res://assets/sprites/gen/slime_face.png")
 const FACE_ANGRY := preload("res://assets/sprites/gen/eyes_angry.png")
 
 ## Distant enemies think less often. At 55 enemies this is the difference

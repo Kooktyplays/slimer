@@ -11,7 +11,7 @@ extends CharacterBody2D
 ##  * the body squashes and stretches with speed, which sells motion without
 ##    needing walk-cycle art
 
-const SHADOW_TEXTURE := preload("res://assets/sprites/ground_shadow.png")
+const SHADOW_TEXTURE := preload("res://assets/sprites/gen/ground_shadow.png")
 ## Base size of the character. The squash-and-stretch below multiplies this,
 ## so it must be applied there too - setting it only in the scene would be
 ## overwritten on the first animated frame.

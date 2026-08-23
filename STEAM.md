@@ -2,21 +2,18 @@
 
 Everything from "I have a game" to "it is on the store", in order.
 
-> ## Read this first
+> ## Licensing: cleared
 >
-> The GDQuest art pack is **CC BY-NC-SA 4.0 — NonCommercial**. Modified assets
-> are covered too, so the recoloured enemies are just as restricted as the
-> originals.
+> Slimer's art was CC BY-NC-SA (GDQuest's pack) and could not be sold at any
+> price. All thirteen pack sprites have been replaced with originals generated
+> by `game/tools/gen_art.py`, and the pack is gone from the project.
 >
-> **You cannot sell this game while any of that art is in it.** A **free**
-> Steam release is workable and the licence compliance is already done; the
-> $100 Steam Direct fee still applies to free games.
+> **A paid release is now permitted.** The only third-party material left is
+> MIT — the engine, and tween choreography in two effect scripts.
 >
-> To sell it, ten pack-derived files need replacing — see `RIGHTS.md`, which
-> lists them and scopes the work. Or email GDQuest and ask for a commercial
-> licence.
->
-> Everything below applies to either path.
+> Before a paid launch, still worth checking: the name "Slimer" against the
+> Ghostbusters trademark and the Steam catalogue, and the terms on anything
+> your music was built from. See `RIGHTS.md`.
 
 ---
 

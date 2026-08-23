@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dhg1x1cx0ltwa"
-path="res://.godot/imported/potion_purple_full.png-b81bc67b63e588279dd7765770d27f6b.ctex"
+uid="uid://b8l5lrio6uci6"
+path="res://.godot/imported/pine_tree.png-0050ffda20fdd11faf565008b22a4970.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/potion_purple_full.png"
-dest_files=["res://.godot/imported/potion_purple_full.png-b81bc67b63e588279dd7765770d27f6b.ctex"]
+source_file="res://assets/sprites/gen/pine_tree.png"
+dest_files=["res://.godot/imported/pine_tree.png-0050ffda20fdd11faf565008b22a4970.ctex"]
 
 [params]
 
