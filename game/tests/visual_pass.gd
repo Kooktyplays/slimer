@@ -134,6 +134,20 @@ func _run() -> void:
 	_expect(not _sample_enemy().is_equal_approx(enemy_before),
 		"enemies stayed frozen after resuming")
 
+	# Stop the spawner for the deterministic checks that follow.
+	#
+	# The wave started back in section 6 is still feeding enemies in the whole
+	# time, so clear_all_enemies() only empties the arena for a moment before the
+	# next one walks in. That is what made the coin-vacuum and potion checks
+	# below fail at random: an enemy nobody asked for would wander into the
+	# measurement, drop coins into it or hit the player mid-assertion. Every
+	# section from here on spawns exactly what it needs with spawn_at.
+	waves.stop()
+	waves.clear_all_enemies()
+	await _settle(0.4)
+	_expect(Combat.enemy_count() == 0,
+		"%d enemies survived the spawner being stopped" % Combat.enemy_count())
+
 	# --- 7b2. the arena is physically closed --------------------------------
 	# The grid has always claimed the border is solid; the player moves by
 	# physics, not by the grid, and that is the gap play-testers escaped
@@ -257,6 +271,54 @@ func _run() -> void:
 				"the Brute's hitbox is no bigger than the Slime's")
 	waves.clear_all_enemies()
 	await _settle(0.3)
+
+	# --- 7b4. buffs and debuffs behave over time ----------------------------
+	# A second Swift potion used to end the boost early: the first one's tween
+	# callback fired mid-way through the second and reset the multiplier.
+	player.apply_speed_boost(Balance.SPEED_POTION_MULTIPLIER, 2.0)
+	await _settle(1.4)
+	player.apply_speed_boost(Balance.SPEED_POTION_MULTIPLIER, 2.0)
+	await _settle(1.0)
+	_expect(player.speed_multiplier > 1.0,
+		"a refreshed speed boost expired early (multiplier %.2f, %.2fs left)"
+			% [player.speed_multiplier, player.speed_boost_left])
+	_expect(player.speed_boost_fraction() > 0.0, "the speed boost bar reads empty while boosted")
+	player.speed_boost_left = 0.01
+	await _settle(0.4)
+	_expect(is_equal_approx(player.speed_multiplier, 1.0),
+		"the speed boost never ended (multiplier %.2f)" % player.speed_multiplier)
+
+	# Slime poison has to tick through i-frames without granting any, or it
+	# either does nothing or leaves the player permanently invulnerable.
+	_keep_alive = false
+	# Clear the ground first. A health potion lying nearby becomes "useful" the
+	# instant poison damages the player, flies in and heals them, which reads as
+	# poison not working.
+	for node: Node in get_tree().get_nodes_in_group(Pickup.GROUP):
+		var stray := node as Pickup
+		if stray != null and not stray.collected:
+			stray.queue_free()
+	Game.run.hp = Game.run.max_hp
+	player.invulnerable_until = 0.0
+	var hp_before: float = Game.run.hp
+	player.apply_poison(12.0, Balance.CONTACT_POISON_DURATION)
+	await _settle(1.2)
+	_expect(Game.run.hp < hp_before,
+		"poison did no damage (%.1f -> %.1f)" % [hp_before, Game.run.hp])
+	_expect(not player.is_invulnerable(),
+		"poison left the player invulnerable, which would block all real damage")
+	player.poison_left = 0.0
+	await _settle(0.3)
+	var hp_after_expiry: float = Game.run.hp
+	await _settle(0.8)
+	_expect(Game.run.hp >= hp_after_expiry - 0.01,
+		"poison kept ticking after it expired (%.1f -> %.1f)"
+			% [hp_after_expiry, Game.run.hp])
+	_expect(player.poison_stacks == 0,
+		"poison stacks survived expiry (%d left)" % player.poison_stacks)
+	_keep_alive = true
+	Game.run.hp = Game.run.max_hp
+	await _settle(0.2)
 
 	# --- 7c. clearing a wave vacuums the coins in ---------------------------
 	var coin_scene: PackedScene = preload("res://actors/pickup.tscn")

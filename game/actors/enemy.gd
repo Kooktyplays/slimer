@@ -58,6 +58,9 @@ var money_value := 5
 var shield := 0.0
 ## Final collision radius in world pixels, matched to the drawn sprite.
 var hit_radius := 30.0
+## True for the Hoarder. Read by run.gd to drop the payout as a burst of coins
+## rather than the usual handful.
+var hoards := false
 
 # --- state ------------------------------------------------------------------
 var dying := false
@@ -131,6 +134,7 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	contact_damage = float(def["contact_damage"]) * dmg_mul
 	money_value = int(round(randi_range(def["money"].x, def["money"].y)
 		* Balance.money_scale(wave)))
+	hoards = bool(def.get("hoards", false))
 
 	var visual_scale := float(def["scale"])
 	shield = 0.0
@@ -384,7 +388,10 @@ func hit_center() -> Vector2:
 ## close, so this stays cheap even in a big wave.
 func _separation() -> Vector2:
 	var push := Vector2.ZERO
-	var radius := hit_radius * 2.1
+	# Most types keep a loose personal space. Hoarders keep a much wider one, so
+	# a pack of them spreads out instead of clumping into one convenient target -
+	# hunting them down should mean chasing each one.
+	var radius := hit_radius * float(def.get("separation_scale", 2.1))
 	for other: Node2D in Combat.enemies_in_radius(global_position, radius):
 		if other == self:
 			continue
@@ -454,6 +461,13 @@ func _tick_contact(delta: float, _target: Vector2) -> void:
 	var reach := hit_radius + Balance.PLAYER_RADIUS
 	if global_position.distance_to(p.global_position) <= reach:
 		p.call("take_damage", contact_damage, false, global_position, 0.0)
+		# ...and leave poison behind. The instant hit is capped by
+		# Balance.damage_scale; this is what keeps a wall of slimes dangerous
+		# once the player's max HP has outgrown it. See CONTACT_POISON_FRACTION.
+		if p.has_method("apply_poison"):
+			p.call("apply_poison",
+				contact_damage * Balance.CONTACT_POISON_FRACTION,
+				Balance.CONTACT_POISON_DURATION)
 		_contact_timer = 0.85
 		_squash(1.35)
 

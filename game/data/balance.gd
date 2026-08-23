@@ -81,6 +81,22 @@ static func speed_scale(wave: int) -> float:
 static func money_scale(wave: int) -> float:
 	return 1.0 + 0.055 * (wave - 1)
 
+## Slime contact leaves a lingering poison as well as its instant hit.
+##
+## Late runs stack max HP faster than contact damage can scale - hard-capped at
+## 2.4x - and with Bloom healing on top, a wall of slimes stopped being a threat
+## and became scenery you walked through. Raising contact_damage instead would
+## have made wave 3 brutal to fix a wave 30 problem.
+##
+## Poison scales with how many slimes reach you rather than with the wave
+## number, so the pressure arrives exactly when the threat budget is buying
+## crowds, and it keeps ticking through a burst heal instead of being erased by
+## one. Damage per stack per second, as a fraction of the slime's contact hit.
+const CONTACT_POISON_FRACTION := 0.42
+const CONTACT_POISON_DURATION := 3.5
+const CONTACT_POISON_INTERVAL := 0.5
+const CONTACT_POISON_MAX_STACKS := 6
+
 # --- elites -----------------------------------------------------------------
 const ELITE_UNLOCK_WAVE := 13
 const ELITE_THREAT_MULTIPLIER := 2.1

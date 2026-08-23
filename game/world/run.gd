@@ -207,18 +207,27 @@ func _on_enemy_died(enemy: Node2D, at: Vector2) -> void:
 
 	var money := int(enemy.get("money_value"))
 	if money > 0:
-		_drop_coins(at, money)
+		_drop_coins(at, money, bool(enemy.get("hoards")))
 	_maybe_drop_potion(at, enemy)
 
 
 ## Split a payout into a few coins so a big reward reads as a shower rather
 ## than a single sprite worth 90.
-func _drop_coins(at: Vector2, total: int) -> void:
-	var count := clampi(int(ceil(total / 14.0)), 1, 5)
+##
+## A hoarder bursts into far more coins than its payout alone would justify.
+## Killing one is meant to feel like cracking something open, and the reward has
+## to be legible at the moment it happens or the chase never seems worth it.
+func _drop_coins(at: Vector2, total: int, hoard: bool = false) -> void:
+	var cap := 12 if hoard else 5
+	var per_coin := 9.0 if hoard else 14.0
+	var count := clampi(int(ceil(total / per_coin)), 1, cap)
 	var per := maxi(1, int(round(float(total) / count)))
 	for i in count:
 		var p := Pools.acquire(PICKUP_SCENE, forest.sorted_layer) as Pickup
 		p.configure(Pickup.COIN, at, per)
+	if hoard:
+		FX.burst(at, Color(1.0, 0.86, 0.35), 22, 1.1)
+		Audio.play("coin", -4.0)
 
 
 func _maybe_drop_potion(at: Vector2, enemy: Node2D) -> void:

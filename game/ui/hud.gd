@@ -15,6 +15,13 @@ var waves: WaveController = null
 var _hp_fill: ColorRect
 var _hp_label: Label
 var _shield_fill: ColorRect
+var _swift_holder: Control
+var _swift_fill: ColorRect
+var _poison_holder: Control
+var _poison_fill: ColorRect
+var _poison_label: Label
+
+const POISON_COLOR := Color(0.62, 0.85, 0.25)
 var _wave_label: Label
 var _depth_label: Label
 var _enemies_label: Label
@@ -137,6 +144,61 @@ func _build_health() -> void:
 	_hp_label.position = Vector2(52, 6)
 	root.add_child(_hp_label)
 
+	_build_status_bar(root)
+
+
+## Timed buffs, shown under the health bar.
+##
+## The Swift potion had no readout at all: it changed how the player moved for
+## nine seconds with nothing on screen saying so, and no way to tell whether it
+## was about to run out. Sits under health because it is the same question -
+## what is true about me right now - and the player is already looking there.
+func _build_status_bar(root: Control) -> void:
+	_swift_holder = Control.new()
+	_swift_holder.position = Vector2(44, 38)
+	_swift_holder.visible = false
+	_swift_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_swift_holder)
+
+	var back := ColorRect.new()
+	back.color = Color(0.06, 0.09, 0.07, 0.85)
+	back.size = Vector2(200, 14)
+	_swift_holder.add_child(back)
+
+	_swift_fill = ColorRect.new()
+	_swift_fill.color = UITheme.BLUE
+	_swift_fill.position = Vector2(2, 2)
+	_swift_fill.size = Vector2(196, 10)
+	_swift_holder.add_child(_swift_fill)
+
+	var label := UITheme.label("SWIFT", 14, UITheme.BLUE)
+	label.position = Vector2(206, -2)
+	_swift_holder.add_child(label)
+
+	# Poison sits on the same row. The player has to be able to tell the
+	# difference between "I am hurt" and "I am still taking damage right now",
+	# because the answer changes whether they should retreat or push.
+	_poison_holder = Control.new()
+	_poison_holder.position = Vector2(44, 56)
+	_poison_holder.visible = false
+	_poison_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_poison_holder)
+
+	var pback := ColorRect.new()
+	pback.color = Color(0.06, 0.09, 0.07, 0.85)
+	pback.size = Vector2(200, 14)
+	_poison_holder.add_child(pback)
+
+	_poison_fill = ColorRect.new()
+	_poison_fill.color = POISON_COLOR
+	_poison_fill.position = Vector2(2, 2)
+	_poison_fill.size = Vector2(196, 10)
+	_poison_holder.add_child(_poison_fill)
+
+	_poison_label = UITheme.label("POISON", 14, POISON_COLOR)
+	_poison_label.position = Vector2(206, -2)
+	_poison_holder.add_child(_poison_label)
+
 
 func _build_top_bar() -> void:
 	var root := Control.new()
@@ -227,6 +289,8 @@ func _build_abilities() -> void:
 		var slot := AbilitySlot.new()
 		slot.custom_minimum_size = Vector2(74, 74)
 		slot.action = SLOT_ACTIONS[i] if i < SLOT_ACTIONS.size() else "ability_1"
+		slot.is_movement = (AbilitiesDB.class_for_slot(i)
+			== AbilitiesDB.CLASS_MOVEMENT)
 		slot.refresh_hotkey()
 		root.add_child(slot)
 		_slots.append(slot)
@@ -304,6 +368,22 @@ func _process(delta: float) -> void:
 		_reload_holder.visible = player.gun.reloading
 		if player.gun.reloading:
 			_reload_bar.size.x = 216.0 * player.gun.reload_fraction()
+
+		var swift := player.speed_boost_fraction()
+		_swift_holder.visible = swift > 0.0
+		if swift > 0.0:
+			_swift_fill.size.x = 196.0 * swift
+			# flash the last second so it is obvious the boost is about to end
+			_swift_fill.color = (UITheme.BLUE if player.speed_boost_left > 1.0
+				else UITheme.BLUE.lerp(UITheme.TEXT,
+					0.5 + 0.5 * sin(Time.get_ticks_msec() / 60.0)))
+
+		var poison := player.poison_fraction()
+		_poison_holder.visible = poison > 0.0
+		if poison > 0.0:
+			_poison_fill.size.x = 196.0 * poison
+			_poison_label.text = ("POISON x%d" % player.poison_stacks
+				if player.poison_stacks > 1 else "POISON")
 
 		for i in _slots.size():
 			(_slots[i] as AbilitySlot).set_progress(player.abilities.charge_fraction(i))
@@ -445,6 +525,8 @@ func _on_hint(_id: String, text: String) -> void:
 # ---------------------------------------------------------------------------
 class AbilitySlot extends Control:
 	var action := "ability_1"
+	## True for the dedicated movement slot, which gets its own marking.
+	var is_movement := false
 	var hotkey := ""
 	var _progress := 1.0
 	var _charges := 1
@@ -514,3 +596,12 @@ class AbilitySlot extends Control:
 		var f := ThemeDB.fallback_font
 		draw_string(f, c + Vector2(-r, r + 20.0), hotkey,
 			HORIZONTAL_ALIGNMENT_CENTER, size.x, 15, Color(0.62, 0.70, 0.62))
+
+		# A second ring and a caption on the movement slot, so which key is the
+		# dedicated movement one is readable at a glance. The picker and the shop
+		# already label MOVEMENT vs GENERAL; in the run itself the three slots were
+		# indistinguishable.
+		if is_movement:
+			draw_arc(c, r + 5.0, 0, TAU, 46, Color(0.45, 0.78, 1.0, 0.75), 2.0, true)
+			draw_string(f, c + Vector2(-r, -r - 9.0), "MOVE",
+				HORIZONTAL_ALIGNMENT_CENTER, size.x, 12, Color(0.45, 0.78, 1.0, 0.9))

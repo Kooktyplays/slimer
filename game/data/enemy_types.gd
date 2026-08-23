@@ -88,13 +88,22 @@ const DEFS := {
 		"speed": 145.0,
 		"contact_damage": 7.0,
 		"threat": 1.8,
-		"money": Vector2i(34, 52),
+		# Hoarders are the reason to break off what you are doing and commit to a
+		# chase, so the payout has to be worth abandoning position for. At 34-52
+		# they paid about three times a Green, which is not enough to change what
+		# the player does.
+		"money": Vector2i(70, 105),
 		"scale": 0.66,
 		"radius": 32.0,
 		"unlock_wave": 11,
 		"weight": 0.55,
-		"hint": "Yellow hoarders run from you and pay out big. Worth the chase.",
-		"flee_range": 340.0,
+		"hint": "Yellow hoarders hoard the gold and run. Hunt them down first.",
+		# They break away sooner and keep more distance, so catching one is a
+		# decision with a cost rather than something that happens incidentally.
+		"flee_range": 520.0,
+		"separation_scale": 3.4,
+		# Marks the payout as a hoard: it drops as a bigger, brighter shower.
+		"hoards": true,
 	},
 	ORANGE: {
 		"name": "Bloater",

@@ -36,6 +36,19 @@ var invulnerable_until := 0.0
 
 ## Set by abilities / potions.
 var speed_multiplier := 1.0
+## Seconds left on the Swift potion / Surge speed boost, and the duration it
+## started from. Tracked as plain state rather than hidden inside a tween so the
+## HUD can draw how long is left - and so a second pickup mid-boost refreshes it
+## instead of the first one's callback cutting the second one short.
+var speed_boost_left := 0.0
+var speed_boost_total := 0.0
+
+## Lingering slime poison. Stacks with each slime that reaches you, ticks
+## through healing, and expires on its own.
+var poison_stacks := 0
+var poison_left := 0.0
+var poison_dps := 0.0
+var _poison_tick := 0.0
 var shield_absorb := 0.0
 var lifesteal_bonus := 0.0
 var dashing := false
@@ -66,6 +79,8 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if not alive:
 		return
+	_tick_speed_boost(delta)
+	_tick_poison(delta)
 	_move(delta)
 	_aim()
 	_handle_shooting()
@@ -253,6 +268,69 @@ func take_damage(amount: float, _crit: bool = false, from: Vector2 = Vector2.ZER
 		_die()
 
 
+## Add a stack of slime poison, or refresh the ones already running.
+##
+## Deliberately not routed through take_damage: that grants i-frames, so a DoT
+## ticking through it would either do nothing at all (blocked by the i-frames it
+## just granted) or leave the player permanently invulnerable between ticks.
+func apply_poison(dps_per_stack: float, duration: float) -> void:
+	if not alive:
+		return
+	poison_dps = maxf(poison_dps, dps_per_stack)
+	poison_stacks = mini(poison_stacks + 1, Balance.CONTACT_POISON_MAX_STACKS)
+	poison_left = maxf(poison_left, duration)
+
+
+## Fraction of the current poison left, 0..1, for the HUD.
+func poison_fraction() -> float:
+	if poison_left <= 0.0:
+		return 0.0
+	return clampf(poison_left / Balance.CONTACT_POISON_DURATION, 0.0, 1.0)
+
+
+func _tick_poison(delta: float) -> void:
+	if poison_left <= 0.0:
+		# Clear any residue. poison_left can reach zero without this function
+		# being the one that took it there, and leaving stacks behind would make
+		# the next single stack hit for the strength of the last full pile.
+		if poison_stacks > 0:
+			poison_stacks = 0
+			poison_dps = 0.0
+		return
+	if Game.run == null:
+		return
+	poison_left -= delta
+	_poison_tick -= delta
+	if _poison_tick <= 0.0:
+		_poison_tick = Balance.CONTACT_POISON_INTERVAL
+		_take_poison_damage(poison_dps * poison_stacks
+			* Balance.CONTACT_POISON_INTERVAL)
+	if poison_left <= 0.0:
+		poison_stacks = 0
+		poison_dps = 0.0
+
+
+## Poison damage. Reduced by armour and eaten by a shield like anything else,
+## but it grants no i-frames, does not shake the camera and does not hit-stop -
+## four of these a second doing any of that would read as the game stuttering.
+func _take_poison_damage(amount: float) -> void:
+	if not alive or Game.run == null or amount <= 0.0:
+		return
+	var incoming := amount * (1.0 - Game.run.damage_reduction)
+	if shield_absorb > 0.0:
+		var absorbed := minf(shield_absorb, incoming)
+		shield_absorb -= absorbed
+		incoming -= absorbed
+		if incoming <= 0.01:
+			return
+	Game.run.hp = maxf(0.0, Game.run.hp - incoming)
+	Events.player_damaged.emit(incoming, global_position)
+	_emit_health()
+	Game.notify_health_changed()
+	if Game.run.hp <= 0.0:
+		_die()
+
+
 func heal(amount: float) -> void:
 	if not alive or Game.run == null:
 		return
@@ -302,8 +380,35 @@ func _emit_health() -> void:
 # ---------------------------------------------------------------------------
 # used by abilities
 # ---------------------------------------------------------------------------
+## Apply or refresh the speed boost.
+##
+## This used to set speed_multiplier and start a tween that reset it to 1.0 when
+## it finished. Drinking a second Swift potion part-way through the first left
+## two tweens running, and the *first* one's callback would fire mid-way through
+## the second boost and end it early - the potion visibly did nothing.
+##
+## Refresh, never stack: the stronger multiplier and the longer of the two
+## remaining times win, so a second potion always extends and never shortens.
 func apply_speed_boost(multiplier: float, duration: float) -> void:
-	speed_multiplier = multiplier
-	var t := create_tween()
-	t.tween_interval(duration)
-	t.tween_callback(func() -> void: speed_multiplier = 1.0)
+	if speed_boost_left <= 0.0:
+		speed_multiplier = multiplier
+	else:
+		speed_multiplier = maxf(speed_multiplier, multiplier)
+	speed_boost_left = maxf(speed_boost_left, duration)
+	speed_boost_total = speed_boost_left
+
+
+## How much of the current speed boost is left, 0..1. Zero when none is running.
+func speed_boost_fraction() -> float:
+	if speed_boost_left <= 0.0 or speed_boost_total <= 0.0:
+		return 0.0
+	return clampf(speed_boost_left / speed_boost_total, 0.0, 1.0)
+
+
+func _tick_speed_boost(delta: float) -> void:
+	if speed_boost_left <= 0.0:
+		return
+	speed_boost_left = maxf(0.0, speed_boost_left - delta)
+	if speed_boost_left <= 0.0:
+		speed_multiplier = 1.0
+		speed_boost_total = 0.0

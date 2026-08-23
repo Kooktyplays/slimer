@@ -27,6 +27,10 @@ const TINTS := {
 	ABILITY: Color(0.72, 0.45, 1.0),
 }
 
+## Draw scale for potions. Coins sit at 1.0; a potion is a rarer and more
+## valuable thing and should read as one from across a clearing.
+const POTION_SCALE := 1.35
+
 const BASE_MAGNET := 165.0
 const PICKUP_RADIUS := 34.0
 const MAGNET_SPEED := 900.0
@@ -65,9 +69,12 @@ func configure(pickup_kind: String, at: Vector2, amount: int = 1) -> void:
 	_sprite.texture = load(TEXTURES[kind])
 	_sprite.hframes = 6 if kind == COIN else 1
 	_sprite.frame = 0
-	_sprite.scale = Vector2.ONE * (1.0 if kind == COIN else 0.85)
+	# Potions are drawn larger than the coins, not smaller. They were at 0.85
+	# against a coin's 1.0, which made the rarest and most valuable drop in the
+	# game the least visible thing on the ground - play-testers walked past them.
+	_sprite.scale = Vector2.ONE * (1.0 if kind == COIN else POTION_SCALE)
 	_glow.modulate = Color(TINTS[kind].r, TINTS[kind].g, TINTS[kind].b, 0.35)
-	_glow.scale = Vector2.ONE * (0.45 if kind == COIN else 0.7)
+	_glow.scale = Vector2.ONE * (0.45 if kind == COIN else 1.05)
 	_vacuum = false
 	if not is_in_group(GROUP):
 		add_to_group(GROUP)
