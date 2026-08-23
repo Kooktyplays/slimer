@@ -105,10 +105,10 @@ func go_to_credits() -> void:
 
 ## Begin a fresh run. Everything temporary is discarded here - this single
 ## line is the whole of "death resets the run".
-func start_run(seed_value: int = 0) -> void:
+func start_run(seed_value: int = 0, nightmare: bool = false) -> void:
 	var s := seed_value if seed_value != 0 else int(Time.get_unix_time_from_system() * 1000) ^ randi()
 	rng.seed = s
-	run = RunState.create(s, Save.unlocks, Save.loadout.duplicate())
+	run = RunState.create(s, Save.unlocks, Save.loadout.duplicate(), nightmare)
 	run.wave = 0
 	_was_low_health = false
 	set_paused(false)
@@ -126,6 +126,11 @@ func abandon_run() -> void:
 # --------------------------------------------------------------------------
 # run flow
 # --------------------------------------------------------------------------
+## Is the current run on nightmare? Safe to call with no run in progress.
+func is_nightmare() -> bool:
+	return run != null and run.nightmare
+
+
 func depth() -> int:
 	if run == null:
 		return 1
@@ -208,7 +213,8 @@ func finish_run() -> void:
 		return
 	var summary := run.summary()
 	var base := Balance.essence_for_run(
-		int(summary["wave"]), int(summary["minis"]), int(summary["majors"]))
+		int(summary["wave"]), int(summary["minis"]), int(summary["majors"]),
+		run.nightmare)
 	last_essence_gained = int(round(base * run.essence_multiplier()))
 	last_run_was_best = Save.record_run(summary, last_essence_gained)
 	last_results = summary

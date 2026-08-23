@@ -74,6 +74,56 @@ func _refresh() -> void:
 	_add_section("NEW ABILITIES", MetaDB.KIND_ABILITY)
 	_add_section("NEW SHOP UPGRADES", MetaDB.KIND_UPGRADE)
 	_add_section("STARTING BONUSES", MetaDB.KIND_PASSIVE)
+	_add_achievements()
+
+
+## Achievements live on this screen rather than getting their own, because this
+## is already the place the player comes to see what persists between runs.
+func _add_achievements() -> void:
+	var earned := 0
+	for id: String in AchievementsDB.ORDER:
+		if Save.has_achievement(id):
+			earned += 1
+
+	_scroll.add_child(UITheme.spacer(14))
+	_scroll.add_child(UITheme.label(
+		"ACHIEVEMENTS   %d / %d" % [earned, AchievementsDB.ORDER.size()],
+		24, UITheme.GOLD, 5))
+
+	for id: String in AchievementsDB.ORDER:
+		_scroll.add_child(_achievement_row(id))
+
+
+func _achievement_row(id: String) -> Control:
+	var def := AchievementsDB.get_def(id)
+	var got := Save.has_achievement(id)
+
+	var row := PanelContainer.new()
+	row.add_theme_stylebox_override("panel", UITheme.panel_style(
+		UITheme.PANEL if got else Color(0.10, 0.12, 0.10, 0.9),
+		UITheme.GOLD if got else Color(0.22, 0.26, 0.22), 2, 8))
+
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 14)
+	row.add_child(h)
+	h.add_child(UITheme.icon(AchievementsDB.icon_path(id), 30,
+		UITheme.GOLD if got else Color(0.30, 0.34, 0.30)))
+
+	var text := VBoxContainer.new()
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.add_theme_constant_override("separation", 0)
+	h.add_child(text)
+	text.add_child(UITheme.label(String(def["name"]), 21,
+		UITheme.TEXT if got else UITheme.TEXT_DIM, 5))
+	text.add_child(UITheme.label(String(def["desc"]), 16, UITheme.TEXT_DIM, 3))
+
+	var state := UITheme.label("EARNED" if got else "LOCKED", 18,
+		UITheme.GOLD if got else Color(0.35, 0.38, 0.35))
+	state.custom_minimum_size = Vector2(150, 0)
+	state.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	state.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	h.add_child(state)
+	return row
 
 
 func _add_section(heading: String, kind: String) -> void:

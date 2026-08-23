@@ -30,6 +30,8 @@ func _run() -> void:
 	_test_meta_progression()
 	_test_forest_smoke()
 	_test_arena_is_sealed()
+	_test_nightmare()
+	_test_achievements()
 	_report()
 
 
@@ -560,6 +562,136 @@ func _test_arena_is_sealed() -> void:
 				and g.spawn_point.x < size.x - inset
 				and g.spawn_point.y < size.y - inset,
 			"seed %d spawns the player outside the wall" % g.seed_value)
+
+
+## Nightmare is one flag, threaded through three curves. Each has to actually
+## move, and normal play has to be left exactly as it was.
+func _test_nightmare() -> void:
+	for wave in [1, 7, 20, 45]:
+		_check(Balance.wave_budget(wave, true) > Balance.wave_budget(wave) * 1.3,
+			"nightmare budget is not meaningfully higher at wave %d" % wave)
+		_check(Balance.damage_scale(wave, true) > Balance.damage_scale(wave) * 1.3,
+			"nightmare damage is not meaningfully higher at wave %d" % wave)
+		_check(Balance.spawn_rate(wave, true) > Balance.spawn_rate(wave),
+			"nightmare spawn rate is not higher at wave %d" % wave)
+		# normal must be untouched by the parameter existing
+		_close(Balance.wave_budget(wave, false), Balance.wave_budget(wave),
+			"normal budget changed at wave %d" % wave)
+		_close(Balance.damage_scale(wave, false), Balance.damage_scale(wave),
+			"normal damage changed at wave %d" % wave)
+
+	# the whole roster from wave 1, which is most of what makes the mode
+	var night_one := EnemyTypes.unlocked_for_wave(1, true)
+	_check(night_one.size() == EnemyTypes.ORDER.size(),
+		"nightmare wave 1 offers %d of %d enemy types"
+			% [night_one.size(), EnemyTypes.ORDER.size()])
+	_check(night_one.has(EnemyTypes.ORANGE),
+		"nightmare wave 1 is missing the Bloater, which normally unlocks at 15")
+	_check(EnemyTypes.unlocked_for_wave(1) == [EnemyTypes.GREEN],
+		"normal wave 1 stopped being green-only")
+	_check(EnemyTypes.weights_for_wave(1, true).size() == EnemyTypes.ORDER.size(),
+		"nightmare wave 1 weights do not cover the full roster")
+
+	# end to end: a nightmare wave 1 really is built from the whole roster and
+	# is materially bigger than the normal one
+	var normal_one := WaveController.preview_composition(1, 4242, false)
+	var night_comp := WaveController.preview_composition(1, 4242, true)
+	_check(float(night_comp["budget"]) > float(normal_one["budget"]) * 1.3,
+		"nightmare wave 1 is not built from a bigger budget")
+	_check((night_comp["counts"] as Dictionary).size()
+			>= (normal_one["counts"] as Dictionary).size(),
+		"nightmare wave 1 draws from no more enemy types than normal")
+
+	# and it has to pay, or nobody would choose it
+	_check(Balance.essence_for_run(20, 3, 1, true)
+			> Balance.essence_for_run(20, 3, 1), "nightmare pays no more essence")
+
+	# the flag has to survive onto the run and into its summary
+	var rs := RunState.create(1, [], ["dash", "grenade", "nova"], true)
+	_check(rs.nightmare, "RunState dropped the nightmare flag")
+	rs.wave = 12
+	_check(bool(rs.summary()["nightmare"]),
+		"the run summary dropped the nightmare flag")
+	var normal := RunState.create(1, [], ["dash", "grenade", "nova"])
+	_check(not normal.nightmare, "a normal run came back marked nightmare")
+
+
+## Achievements resolve off permanent stats plus the run that just ended, and a
+## save written before they existed has to load without losing anything.
+func _test_achievements() -> void:
+	for id: String in AchievementsDB.ORDER:
+		var def := AchievementsDB.get_def(id)
+		_check(not def.is_empty(), "achievement %s has no definition" % id)
+		_check(not String(def["name"]).is_empty(), "achievement %s has no name" % id)
+		_check(ResourceLoader.exists(AchievementsDB.icon_path(id)),
+			"achievement %s points at a missing icon" % id)
+	_check(AchievementsDB.ORDER.size() == AchievementsDB.DEFS.size(),
+		"AchievementsDB.ORDER and DEFS disagree on how many there are")
+
+	var blank := {}
+	for key: String in Save.stats:
+		blank[key] = 0
+
+	# nothing is earned from nothing
+	for id: String in AchievementsDB.ORDER:
+		_check(not AchievementsDB.is_earned(id, blank, {}),
+			"achievement %s is earned on a fresh save" % id)
+
+	# feats need the run that just ended, and respect difficulty
+	_check(AchievementsDB.is_earned("no_gods", blank,
+			{"wave": 40, "nightmare": true}),
+		"reaching wave 40 on nightmare did not earn No Gods")
+	_check(not AchievementsDB.is_earned("no_gods", blank,
+			{"wave": 40, "nightmare": false}),
+		"reaching wave 40 on normal wrongly earned a nightmare achievement")
+	_check(not AchievementsDB.is_earned("unmaker", blank,
+			{"wave": 99, "nightmare": true}),
+		"Unmaker was earned one wave early")
+
+	# "every boss" needs every counter, not just a total
+	var most := blank.duplicate()
+	for key: String in AchievementsDB.BOSS_STAT_KEYS:
+		most[key] = 1
+	_check(AchievementsDB.is_earned("clean_sweep", most, {}),
+		"beating every boss did not earn Clean Sweep")
+	most["boss_sovereign"] = 0
+	_check(not AchievementsDB.is_earned("clean_sweep", most, {}),
+		"Clean Sweep was earned with a boss still unbeaten")
+
+	# a version-2 save has to load into version 3 with its stats intact
+	var v2 := {
+		"version": 2,
+		"essence": 410,
+		"unlocks": ["ab_surge"],
+		"loadout": ["dash", "grenade", "nova"],
+		"stats": {"runs": 9, "best_wave": 24, "total_kills": 1200,
+			"total_money": 700, "minis_killed": 4, "majors_killed": 1},
+		"settings": {},
+		"keybinds": {},
+	}
+	var essence_before := Save.essence
+	var stats_before := Save.stats.duplicate()
+	var achievements_before := Save.achievements.duplicate()
+	Save.from_dict(v2)
+	_check(Save.essence == 410, "a version-2 save lost its essence")
+	_check(int(Save.stats["best_wave"]) == 24, "a version-2 save lost best_wave")
+	_check(int(Save.stats["total_kills"]) == 1200, "a version-2 save lost kills")
+	_check(int(Save.stats["boss_bramble"]) == 0,
+		"a version-2 save did not default the new per-boss counters to zero")
+	_check(Save.achievements.is_empty(),
+		"a version-2 save came back with achievements it never earned")
+	# and the new fields round-trip
+	Save.achievements = ["first_blood"]
+	Save.stats["boss_toad"] = 2
+	var round_trip := Save.to_dict()
+	_check(int(round_trip["version"]) == 3, "to_dict did not write version 3")
+	Save.from_dict(round_trip)
+	_check(Save.achievements.has("first_blood"), "achievements did not round-trip")
+	_check(int(Save.stats["boss_toad"]) == 2, "per-boss counters did not round-trip")
+
+	Save.essence = essence_before
+	Save.stats = stats_before
+	Save.achievements = achievements_before
 
 
 # ---------------------------------------------------------------------------

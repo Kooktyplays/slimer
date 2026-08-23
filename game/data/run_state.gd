@@ -9,6 +9,8 @@ extends RefCounted
 var seed_value: int = 0
 var wave: int = 0
 var money: int = 0
+## Nightmare difficulty, chosen before the run and fixed for its lifetime.
+var nightmare: bool = false
 
 # gun stats, copied from Balance.GUN_BASE then mutated by upgrades
 var gun: Dictionary = {}
@@ -46,9 +48,11 @@ func _init() -> void:
 
 
 ## Build a run from the player's permanent unlocks.
-static func create(seed_v: int, save_unlocks: Array, loadout: Array[String]) -> RunState:
+static func create(seed_v: int, save_unlocks: Array, loadout: Array[String],
+		nightmare_mode: bool = false) -> RunState:
 	var rs := RunState.new()
 	rs.seed_value = seed_v
+	rs.nightmare = nightmare_mode
 	rs.abilities = loadout.duplicate()
 	var essence_mul := 0.0
 	for id: String in save_unlocks:
@@ -189,6 +193,13 @@ func stat_value(stat: String) -> float:
 		_: return 0.0
 
 
+func _total_upgrades_bought() -> int:
+	var n := 0
+	for id: String in upgrades_bought:
+		n += int(upgrades_bought[id])
+	return n
+
+
 func times_bought(id: String) -> int:
 	return int(upgrades_bought.get(id, 0))
 
@@ -215,4 +226,8 @@ func summary() -> Dictionary:
 		"seed": seed_value,
 		"duration_ms": Time.get_ticks_msec() - started_at_ms,
 		"abilities": abilities.duplicate(),
+		"nightmare": nightmare,
+		# Total purchases, not the per-id breakdown: achievements ask "did you
+		# buy anything at all", and the breakdown is not worth serialising.
+		"upgrades_bought": _total_upgrades_bought(),
 	}

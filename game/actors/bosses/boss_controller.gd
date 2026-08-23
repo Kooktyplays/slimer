@@ -54,6 +54,9 @@ func _on_boss_defeated(boss: Boss) -> void:
 			Game.run.majors_killed += 1
 		else:
 			Game.run.minis_killed += 1
+	# Per-boss, so "defeat every boss in the forest" can be answered. The run
+	# summary only carries mini/major totals.
+	Save.record_boss_kill(String(boss.id))
 
 	var run := get_parent()
 	if run != null and run.has_method("drop_reward"):

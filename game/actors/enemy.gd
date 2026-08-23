@@ -126,7 +126,7 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	dying = false
 
 	var hp_mul := Balance.hp_scale(wave)
-	var dmg_mul := Balance.damage_scale(wave)
+	var dmg_mul := Balance.damage_scale(wave, Game.is_nightmare())
 	var spd_mul := Balance.speed_scale(wave)
 
 	max_hp = float(def["hp"]) * hp_mul
@@ -424,7 +424,8 @@ func _spawn_bullet(dir: Vector2) -> void:
 		return
 	var b := Pools.acquire(PROJECTILE, _container()) as Node2D
 	b.call("launch", global_position + dir * 26.0, dir, {
-		"damage": float(def["projectile_damage"]) * Balance.damage_scale(spawn_wave),
+		"damage": (float(def["projectile_damage"])
+			* Balance.damage_scale(spawn_wave, Game.is_nightmare())),
 		"speed": float(def["projectile_speed"]),
 		"range": float(def["preferred_range"]) * 2.2,
 		"from_player": false,
@@ -474,7 +475,8 @@ func _tick_contact(delta: float, _target: Vector2) -> void:
 
 func _detonate() -> void:
 	var radius := float(def["blast_radius"])
-	var damage := float(def["blast_damage"]) * Balance.damage_scale(spawn_wave)
+	var damage := (float(def["blast_damage"])
+		* Balance.damage_scale(spawn_wave, Game.is_nightmare()))
 	if is_elite:
 		damage *= Balance.ELITE_DAMAGE_MULTIPLIER
 	FX.explosion(global_position, radius)

@@ -6,7 +6,11 @@ extends Node
 
 const PATH := "user://slimer_save.json"
 const TMP_PATH := "user://slimer_save.json.tmp"
-const VERSION := 2
+## Version 3 added per-boss kill counters and the earned-achievement list. Both
+## are additive - a version-2 save loads with the counters at zero and simply has
+## not earned the achievements depending on them, which is the right answer for a
+## save from before they were tracked.
+const VERSION := 3
 
 ## Bumped when the *meaning* of an ability binding changes, not when a binding
 ## is added. Version 2 introduced the movement slot: it moved Space from
@@ -26,11 +30,20 @@ var seen_hints: Array[String] = []
 var stats := {
 	"runs": 0,
 	"best_wave": 0,
+	"best_wave_nightmare": 0,
 	"total_kills": 0,
 	"total_money": 0,
 	"minis_killed": 0,
 	"majors_killed": 0,
+	# one counter per boss, so "beat every boss" is answerable
+	"boss_bramble": 0,
+	"boss_toad": 0,
+	"boss_wisp": 0,
+	"boss_oak": 0,
+	"boss_sovereign": 0,
 }
+## Achievement ids the player has earned. Never revoked once given.
+var achievements: Array[String] = []
 ## action -> array of serialised bindings. Only actions the player actually
 ## rebound are stored; anything absent falls back to InputBinds.DEFAULTS.
 var keybinds: Dictionary = {}
@@ -49,6 +62,11 @@ var disable_writes: bool = false
 
 func _ready() -> void:
 	load_game()
+	# Grant retroactively on load, so an achievement added in a later build goes
+	# to a player who already met its condition instead of asking them to do it
+	# again. Progress achievements read stats, which survive; feat achievements
+	# need a run summary and simply stay unearned here.
+	check_achievements()
 	# Bindings have to reach the InputMap before anything reads input. Save is
 	# the second autoload, so this runs before Main or any scene exists.
 	InputBinds.apply(keybinds)
@@ -67,6 +85,7 @@ func to_dict() -> Dictionary:
 		"stats": stats,
 		"settings": settings,
 		"keybinds": keybinds,
+		"achievements": achievements,
 	}
 
 
@@ -74,6 +93,7 @@ func from_dict(d: Dictionary) -> void:
 	essence = int(d.get("essence", 0))
 	unlocks = _to_string_array(d.get("unlocks", []))
 	seen_hints = _to_string_array(d.get("seen_hints", []))
+	achievements = _to_string_array(d.get("achievements", []))
 
 	var lo := _to_string_array(d.get("loadout", ["dash", "grenade", "nova"]))
 	loadout = _sanitise_loadout(lo)
@@ -133,6 +153,7 @@ func reset() -> void:
 	unlocks = []
 	loadout = ["dash", "grenade", "nova"]
 	seen_hints = []
+	achievements = []
 	keybinds.clear()
 	InputBinds.apply(keybinds)
 	for k: String in stats:
@@ -234,9 +255,45 @@ func record_run(summary: Dictionary, essence_gained: int) -> bool:
 	var is_best := wave > int(stats["best_wave"])
 	if is_best:
 		stats["best_wave"] = wave
+	if bool(summary.get("nightmare", false)) \
+			and wave > int(stats["best_wave_nightmare"]):
+		stats["best_wave_nightmare"] = wave
 	add_essence(essence_gained)
+	check_achievements(summary)
 	save_game()
 	return is_best
+
+
+## Record that a particular boss was beaten, so "defeat every boss" is
+## answerable. Called by the boss controller rather than inferred from the run
+## summary, which only counts minis and majors in aggregate.
+func record_boss_kill(boss_id: String) -> void:
+	var key := "boss_%s" % boss_id
+	if not stats.has(key):
+		return
+	stats[key] = int(stats[key]) + 1
+
+
+## Grant anything newly earned, and announce it.
+##
+## Run on every run end and also on load, so an achievement added in a later
+## build is granted retroactively to a player who already met its condition
+## rather than requiring them to do it again.
+func check_achievements(summary: Dictionary = {}) -> Array[String]:
+	var granted: Array[String] = []
+	for id: String in AchievementsDB.ORDER:
+		if achievements.has(id):
+			continue
+		if not AchievementsDB.is_earned(id, stats, summary):
+			continue
+		achievements.append(id)
+		granted.append(id)
+		Events.achievement_unlocked.emit(id)
+	return granted
+
+
+func has_achievement(id: String) -> bool:
+	return achievements.has(id)
 
 
 func has_seen_hint(id: String) -> bool:

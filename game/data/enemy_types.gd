@@ -163,10 +163,15 @@ static func crown_path(id: String) -> String:
 
 
 ## Types legal for a given wave, respecting unlock gates.
-static func unlocked_for_wave(wave: int) -> Array[String]:
+##
+## Nightmare ignores the gates entirely: Bloaters normally arrive at wave 15,
+## and meeting one on wave 1 alongside everything else is most of what makes the
+## mode different. The staggered roster is a teaching tool, and nightmare is for
+## players who have already been taught.
+static func unlocked_for_wave(wave: int, nightmare: bool = false) -> Array[String]:
 	var out: Array[String] = []
 	for id: String in ORDER:
-		if wave >= int(DEFS[id]["unlock_wave"]):
+		if nightmare or wave >= int(DEFS[id]["unlock_wave"]):
 			out.append(id)
 	return out
 
@@ -174,9 +179,9 @@ static func unlocked_for_wave(wave: int) -> Array[String]:
 ## Spawn weights for a wave. Newly unlocked types get a temporary boost so the
 ## player meets them clearly instead of losing one in a crowd, and the basic
 ## green fades back as the roster fills out.
-static func weights_for_wave(wave: int) -> Dictionary:
+static func weights_for_wave(wave: int, nightmare: bool = false) -> Dictionary:
 	var out := {}
-	for id: String in unlocked_for_wave(wave):
+	for id: String in unlocked_for_wave(wave, nightmare):
 		var def: Dictionary = DEFS[id]
 		var w: float = float(def["weight"])
 		var since: int = wave - int(def["unlock_wave"])

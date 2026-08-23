@@ -80,6 +80,10 @@ func _connect_events() -> void:
 	Events.player_damaged.connect(_on_player_damaged)
 	Events.toast.connect(show_toast)
 	Events.tutorial_hint.connect(_on_hint)
+	Events.achievement_unlocked.connect(func(id: String) -> void:
+		var def := AchievementsDB.get_def(id)
+		if not def.is_empty():
+			show_toast("ACHIEVEMENT\n%s" % def["name"], UITheme.GOLD))
 	# swap SPACE/SHIFT for A/B when the player picks up a controller
 	Game.input_device_changed.connect(func(_d: String) -> void:
 		for slot: AbilitySlot in _slots:

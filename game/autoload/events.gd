@@ -41,6 +41,7 @@ signal ability_used(slot: int, id: String)
 signal ability_ready(slot: int, id: String)
 signal ability_equipped(slot: int, id: String)
 signal unlock_granted(kind: String, id: String)
+signal achievement_unlocked(id: String)
 
 # --- presentation -----------------------------------------------------------
 signal screen_shake(strength: float, duration: float)
