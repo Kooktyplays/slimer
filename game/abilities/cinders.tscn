@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://cc7bp1d8bp0wu"]
+
+[ext_resource type="Script" path="res://abilities/cinders.gd" id="1_c"]
+
+[node name="Cinders" type="Node2D"]
+script = ExtResource("1_c")

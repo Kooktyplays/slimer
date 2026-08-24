@@ -27,6 +27,10 @@ const TINTS := {
 	ABILITY: Color(0.72, 0.45, 1.0),
 }
 
+## Draw scale for potions. Coins sit at 1.0; a potion is a rarer and more
+## valuable thing and should read as one from across a clearing.
+const POTION_SCALE := 1.35
+
 const BASE_MAGNET := 165.0
 const PICKUP_RADIUS := 34.0
 const MAGNET_SPEED := 900.0
@@ -65,9 +69,12 @@ func configure(pickup_kind: String, at: Vector2, amount: int = 1) -> void:
 	_sprite.texture = load(TEXTURES[kind])
 	_sprite.hframes = 6 if kind == COIN else 1
 	_sprite.frame = 0
-	_sprite.scale = Vector2.ONE * (1.0 if kind == COIN else 0.85)
+	# Potions are drawn larger than the coins, not smaller. They were at 0.85
+	# against a coin's 1.0, which made the rarest and most valuable drop in the
+	# game the least visible thing on the ground - play-testers walked past them.
+	_sprite.scale = Vector2.ONE * (1.0 if kind == COIN else POTION_SCALE)
 	_glow.modulate = Color(TINTS[kind].r, TINTS[kind].g, TINTS[kind].b, 0.35)
-	_glow.scale = Vector2.ONE * (0.45 if kind == COIN else 0.7)
+	_glow.scale = Vector2.ONE * (0.45 if kind == COIN else 1.05)
 	_vacuum = false
 	if not is_in_group(GROUP):
 		add_to_group(GROUP)
@@ -84,6 +91,29 @@ func attract() -> void:
 	_settle = 0.0            # cancel the scatter, redirect immediately
 	_life = maxf(_life, 6.0) # don't let one expire mid-flight
 	_velocity = Vector2.ZERO
+
+
+## Bank this pickup where it lies, with no flight and no collection tween.
+##
+## The shop reads Game.run.money when it builds, and a boss payout is a shower
+## of coins that takes about half a second to fly in - so the shop used to open
+## showing the total from *before* the boss died. Coins the player has visibly
+## earned have to be in the bank before anything can read the balance.
+##
+## Only the money moves here: no per-coin audio or floating text, because five
+## coins banking on one frame is a burst of noise, not five rewards. The caller
+## reports the total instead.
+func collect_instantly() -> int:
+	if collected or kind != COIN:
+		return 0
+	collected = true
+	set_process(false)
+	var banked := value
+	if Game.run != null:
+		Game.run.add_money(value)
+	Events.pickup_collected.emit(kind, global_position)
+	Pools.release(self)
+	return banked
 
 
 func _process(delta: float) -> void:

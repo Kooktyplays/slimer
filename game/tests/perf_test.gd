@@ -26,8 +26,8 @@ func _ready() -> void:
 func _boot() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
-	Save.loadout = ["nova", "orbital"]
-	Save.unlocks = ["ab_nova", "ab_orbital"]
+	Save.loadout = ["dash", "nova", "orbital"]
+	Save.unlocks = ["ab_shield", "ab_orbital"]
 	Game.start_run(2468)
 	_stage = "warmup"
 
@@ -56,7 +56,7 @@ func _process(delta: float) -> void:
 		player.aim_override = target.global_position
 		player.gun.try_fire((target.global_position - player.global_position).normalized())
 	if int(_elapsed * 60) % 90 == 0:
-		player.abilities.use(int(_elapsed) % 2)
+		player.abilities.use(int(_elapsed) % AbilitiesDB.SLOT_COUNT)
 
 	if _stage == "warmup" and _elapsed > WARMUP:
 		_stage = "measuring"

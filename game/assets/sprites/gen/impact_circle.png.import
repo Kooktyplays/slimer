@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c4b11k2wtyw8e"
-path="res://.godot/imported/boo_body.png-0190cf804f1a3382abd2d06946db34e0.ctex"
+uid="uid://cvnstyi1caky4"
+path="res://.godot/imported/impact_circle.png-16fa3628acb696a261507ff7577e7a8f.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/boo_body.png"
-dest_files=["res://.godot/imported/boo_body.png-0190cf804f1a3382abd2d06946db34e0.ctex"]
+source_file="res://assets/sprites/gen/impact_circle.png"
+dest_files=["res://.godot/imported/impact_circle.png-16fa3628acb696a261507ff7577e7a8f.ctex"]
 
 [params]
 

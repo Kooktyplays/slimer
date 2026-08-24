@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c0gmkn5bo4ghf"
-path="res://.godot/imported/slime_body.png-dea8f63e51127499a8310b60991ed9ee.ctex"
+uid="uid://2h6nax7lktxy"
+path="res://.godot/imported/muzzle_flash.png-0849338b6c62c890bd22ca14d83c7d25.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/slime_body.png"
-dest_files=["res://.godot/imported/slime_body.png-dea8f63e51127499a8310b60991ed9ee.ctex"]
+source_file="res://assets/sprites/gen/muzzle_flash.png"
+dest_files=["res://.godot/imported/muzzle_flash.png-0849338b6c62c890bd22ca14d83c7d25.ctex"]
 
 [params]
 

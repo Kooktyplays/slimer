@@ -88,13 +88,22 @@ const DEFS := {
 		"speed": 145.0,
 		"contact_damage": 7.0,
 		"threat": 1.8,
-		"money": Vector2i(34, 52),
+		# Hoarders are the reason to break off what you are doing and commit to a
+		# chase, so the payout has to be worth abandoning position for. At 34-52
+		# they paid about three times a Green, which is not enough to change what
+		# the player does.
+		"money": Vector2i(70, 105),
 		"scale": 0.66,
 		"radius": 32.0,
 		"unlock_wave": 11,
 		"weight": 0.55,
-		"hint": "Yellow hoarders run from you and pay out big. Worth the chase.",
-		"flee_range": 340.0,
+		"hint": "Yellow hoarders hoard the gold and run. Hunt them down first.",
+		# They break away sooner and keep more distance, so catching one is a
+		# decision with a cost rather than something that happens incidentally.
+		"flee_range": 520.0,
+		"separation_scale": 3.4,
+		# Marks the payout as a hoard: it drops as a bigger, brighter shower.
+		"hoards": true,
 	},
 	ORANGE: {
 		"name": "Bloater",
@@ -154,10 +163,15 @@ static func crown_path(id: String) -> String:
 
 
 ## Types legal for a given wave, respecting unlock gates.
-static func unlocked_for_wave(wave: int) -> Array[String]:
+##
+## Nightmare ignores the gates entirely: Bloaters normally arrive at wave 15,
+## and meeting one on wave 1 alongside everything else is most of what makes the
+## mode different. The staggered roster is a teaching tool, and nightmare is for
+## players who have already been taught.
+static func unlocked_for_wave(wave: int, nightmare: bool = false) -> Array[String]:
 	var out: Array[String] = []
 	for id: String in ORDER:
-		if wave >= int(DEFS[id]["unlock_wave"]):
+		if nightmare or wave >= int(DEFS[id]["unlock_wave"]):
 			out.append(id)
 	return out
 
@@ -165,9 +179,9 @@ static func unlocked_for_wave(wave: int) -> Array[String]:
 ## Spawn weights for a wave. Newly unlocked types get a temporary boost so the
 ## player meets them clearly instead of losing one in a crowd, and the basic
 ## green fades back as the roster fills out.
-static func weights_for_wave(wave: int) -> Dictionary:
+static func weights_for_wave(wave: int, nightmare: bool = false) -> Dictionary:
 	var out := {}
-	for id: String in unlocked_for_wave(wave):
+	for id: String in unlocked_for_wave(wave, nightmare):
 		var def: Dictionary = DEFS[id]
 		var w: float = float(def["weight"])
 		var since: int = wave - int(def["unlock_wave"])

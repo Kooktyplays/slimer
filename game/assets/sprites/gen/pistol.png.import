@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cfbxo02vujj2o"
-path="res://.godot/imported/potion_blue_full.png-fa99d3e02fb783823f3f8c272eed6dce.ctex"
+uid="uid://cq4ipq1sbaupd"
+path="res://.godot/imported/pistol.png-0831a4de24d7e8ac0788794e8db74f5f.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/potion_blue_full.png"
-dest_files=["res://.godot/imported/potion_blue_full.png-fa99d3e02fb783823f3f8c272eed6dce.ctex"]
+source_file="res://assets/sprites/gen/pistol.png"
+dest_files=["res://.godot/imported/pistol.png-0831a4de24d7e8ac0788794e8db74f5f.ctex"]
 
 [params]
 

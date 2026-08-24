@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=3 uid="uid://bslimerfxmuzzle"]
 
 [ext_resource type="Script" path="res://fx/muzzle_flash.gd" id="1_s"]
-[ext_resource type="Texture2D" path="res://assets/sprites/muzzle_flash.png" id="2_t"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/muzzle_flash.png" id="2_t"]
 
 [node name="MuzzleFlash" type="Node2D"]
 z_index = 62

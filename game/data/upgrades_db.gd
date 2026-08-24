@@ -133,7 +133,7 @@ const DEFS := {
 	"ability_charge": {
 		"name": "Deep Reserves", "cat": CATEGORY_UTILITY,
 		"stat": "ability_extra_charges", "kind": Kind.ADD, "amount": 1.0,
-		"desc": "+1 charge on both abilities", "cost": 330, "weight": 0.5,
+		"desc": "+1 charge on every ability", "cost": 330, "weight": 0.5,
 	},
 	"money_bonus": {
 		"name": "Keen Eye", "cat": CATEGORY_UTILITY,

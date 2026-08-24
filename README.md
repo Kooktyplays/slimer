@@ -103,19 +103,20 @@ are easy to reintroduce.
 
 ## Licensing
 
-**The code is MIT. The art is not.**
+**The code is MIT and the art is original.** The game can be sold.
 
-Some sprites derive from GDQuest's *Your First 2D Game With Godot 4 — 2D project
-assets*, licensed **CC BY-NC-SA 4.0**. NonCommercial covers modified assets too,
-so the six hue-rotated enemy colours are as restricted as the original slime.
+Slimer previously used thirteen sprites from GDQuest's *Your First 2D Game With
+Godot 4 — 2D project assets*, licensed CC BY-NC-SA 4.0. NonCommercial covers
+modified assets too, so the six hue-rotated enemy colours were as restricted as
+the original slime, and selling the game was not permitted at any price.
 
-**This game may be shared freely but may not be sold**, and may not carry ads or
-any other monetisation, while those assets remain in the build. Free
-distribution — including free on Steam — is fine and compliance is already done.
+Those thirteen have been replaced with originals authored in
+`game/tools/gen_art.py`, and the pack files are gone from the project. Every
+sprite in `game/assets/sprites/gen/` and all 46 sound effects are generated,
+deterministically, from `tools/gen_art.py` and `tools/gen_sfx.py`.
 
-Ten files are pack-derived. Everything else — all five bosses, every other prop,
-the ground tiles, every UI icon, and all 46 sound effects — is original generated
-work and carries no such restriction.
+The only third-party material left is MIT: the Godot engine, and the tween
+choreography in two effect scripts. Neither restricts a commercial release.
 
 [`game/LICENSE-ASSETS.md`](game/LICENSE-ASSETS.md) carries the required
 attribution block, the per-file statement of changes, and the full breakdown.

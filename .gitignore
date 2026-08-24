@@ -21,6 +21,7 @@ build/
 /Slimer.console.exe
 /Slimer.pck
 /Slimer-macos.zip
+/Slimer.zip
 /slimer.html
 
 # The four source mp3s live at game/assets/music/ where the project imports
@@ -36,3 +37,8 @@ build/
 
 # Vercel
 .vercel
+
+# Where background agent sessions check the repo out - a full copy of the tree,
+# nested inside the tree. Leading **/ because a pattern with a slash in it is
+# anchored to this file's directory, and these appear under subdirectories too.
+**/.claude/worktrees/

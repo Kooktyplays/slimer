@@ -153,7 +153,230 @@ def ground_shadow(a: Art, cx, cy, rx, ry, alpha=52):
 
 
 # --------------------------------------------------------------------------
-# 1. enemy recolours - hue-rotate the pack slime so shading survives intact
+# 0. originals replacing the GDQuest pack sources
+# --------------------------------------------------------------------------
+# Everything in this section exists so the game owns its whole art set.
+#
+# Slimer shipped using thirteen sprites from GDQuest's starter pack, which are
+# CC BY-NC-SA 4.0 - free to share, and specifically not sellable. That single
+# fact, not the Steam pipeline, is what blocked a paid release: the code is MIT
+# and every other sprite here was already original.
+#
+# These are authored in the same flat-vector idiom as the rest of this file so
+# they sit beside the ~180 sprites already generated here: no outlines, two or
+# three tones per object, one top-lit region, the occasional highlight dot.
+# Dimensions match the files they replace exactly, so scene offsets, hitbox
+# constants and anchor points all stay valid.
+
+
+class P:
+    """Palette for the replaced sprites."""
+
+    # slime: the source all six enemy colours are hue-rotated from, so its
+    # relative shading has to be strong enough to survive the rotation
+    SLIME_D = (58, 150, 30)
+    SLIME_M = (92, 205, 39)
+    SLIME_L = (153, 241, 65)
+    SLIME_XL = (208, 255, 132)
+    EYE = (26, 58, 30)
+    # player
+    GHOST_D = (196, 208, 224)
+    GHOST_M = (232, 240, 250)
+    GHOST_L = (255, 255, 255)
+    GHOST_EYE = (38, 44, 62)
+    # gun
+    STEEL_D = (68, 74, 88)
+    STEEL_M = (104, 112, 130)
+    STEEL_L = (150, 160, 180)
+    GRIP_D = (86, 58, 38)
+    GRIP_M = (124, 84, 54)
+    # shot
+    SHOT_CORE = (255, 250, 214)
+    SHOT_MID = (255, 214, 108)
+    SHOT_EDGE = (250, 166, 44)
+    # pine
+    PINE_D = (28, 84, 58)
+    PINE_M = (38, 116, 74)
+    PINE_L = (58, 152, 92)
+
+
+def gen_slime_body():
+    """The slime every enemy colour is derived from.
+
+    Hue-rotated into six colours by gen_enemies(), so the shading has to read
+    as shading rather than as hue - hence four tones with real value contrast
+    between them, and highlights that stay light after the rotation.
+    """
+    a = Art(108, 90)
+    # Fills the canvas edge to edge, because the sprite this replaces did. Every
+    # offset tuned against it - the elite crown at y=-34, the face at y=-6, the
+    # hit radii in EnemyTypes - is relative to this frame, so a silhouette that
+    # sits smaller inside the same canvas leaves the crown floating above the
+    # slime's head and the face riding high on its body.
+    a.blob(54, 52, 54, 38, (*P.SLIME_M, 255), wobble=0.04, seed=11)
+    a.ellipse(54, 34, 45, 34, (*P.SLIME_M, 255))     # dome, up to the top edge
+    a.ellipse(54, 68, 53, 22, (*P.SLIME_M, 255))     # base, down to the bottom
+    # the base darkens where it meets the ground
+    a.light(lambda s, c: s.ellipse(54, 96, 58, 30, c), (*P.SLIME_D, 255))
+    # top-lit dome
+    a.light(lambda s, c: s.ellipse(46, 20, 44, 34, c), (*P.SLIME_L, 255))
+    a.light(lambda s, c: s.ellipse(40, 10, 26, 20, c), (*P.SLIME_XL, 255))
+    # One soft specular, clipped to the dome. dot() paints unclipped, so a
+    # highlight placed near the top edge hangs off the silhouette and reads as a
+    # bubble stuck to the slime; light() masks to what is already drawn.
+    a.light(lambda s, c: s.ellipse(38, 18, 17, 11, c), (255, 255, 255, 110))
+    a.light(lambda s, c: s.ellipse(34, 15, 7, 5, c), (255, 255, 255, 200))
+    a.save("slime_body.png")
+
+
+def gen_slime_face():
+    """Default slime eyes: two soft dark ovals."""
+    a = Art(56, 28)
+    a.ellipse(14, 14, 7, 9, (*P.EYE, 255))
+    a.ellipse(42, 14, 7, 9, (*P.EYE, 255))
+    a.dot(16, 10, 2.4, C.WHITE, 210)
+    a.dot(44, 10, 2.4, C.WHITE, 210)
+    a.save("slime_face.png")
+
+
+def gen_player_body():
+    """The player: a small round spirit, deliberately not slime-shaped.
+
+    Pale and cool against a forest of warm greens, because the one thing the
+    player must never lose track of in a crowd is themselves.
+    """
+    a = Art(84, 73)
+    # Full-bleed for the same reason as the slime: the face offset in
+    # player.tscn is relative to this frame.
+    a.blob(42, 34, 42, 34, (*P.GHOST_M, 255), wobble=0.03, seed=7)
+    # a wavy hem rather than a flat bottom, so it reads as floating
+    for i in range(4):
+        x = 12 + i * 20.0
+        a.ellipse(x, 64, 12, 9, (*P.GHOST_M, 255))
+    a.light(lambda s, c: s.ellipse(42, 78, 44, 20, c), (*P.GHOST_D, 255))
+    a.light(lambda s, c: s.ellipse(34, 10, 30, 24, c), (*P.GHOST_L, 255))
+    a.light(lambda s, c: s.ellipse(26, 12, 7, 6, c), (255, 255, 255, 255))
+    a.save("boo_body.png")
+
+
+def gen_player_face():
+    a = Art(48, 25)
+    a.ellipse(13, 12, 6, 8, (*P.GHOST_EYE, 255))
+    a.ellipse(35, 12, 6, 8, (*P.GHOST_EYE, 255))
+    a.dot(15, 9, 2.2, C.WHITE, 230)
+    a.dot(37, 9, 2.2, C.WHITE, 230)
+    a.save("boo_face.png")
+
+
+def gen_pistol():
+    """Side-on sidearm, muzzle to the right - the scene rotates it to aim."""
+    a = Art(70, 50)
+    # Grip first and raked back, so the silhouette reads as a pistol at the size
+    # it is actually drawn - a vertical stub under a bar reads as a hammer.
+    a.poly([(10, 20), (24, 20), (20, 46), (6, 46)], (*P.GRIP_M, 255))
+    a.poly([(10, 20), (24, 20), (22, 32), (8, 32)], (*P.GRIP_D, 255))
+    a.rrect(4, 13, 50, 27, 5, (*P.STEEL_M, 255))      # slide
+    a.rrect(44, 16, 66, 24, 4, (*P.STEEL_M, 255))     # barrel
+    a.rrect(24, 26, 34, 33, 2, (*P.STEEL_D, 255))     # trigger guard stub
+    a.light(lambda s, c: s.rrect(2, 9, 66, 19, 4, c), (*P.STEEL_L, 255))
+    a.light(lambda s, c: s.rrect(2, 23, 66, 34, 4, c), (*P.STEEL_D, 255))
+    a.light(lambda s, c: s.circle(12, 16, 2.5, c), (255, 255, 255, 170))
+    a.save("pistol.png")
+
+
+def gen_bullet():
+    """Bullet: a bright lozenge with a warm trail, pointing right."""
+    a = Art(50, 28)
+    # A soft tail that tapers back, so the shot reads as travelling rather than
+    # as a floating dot, with the bright core running along the axis instead of
+    # sitting on it as a highlight blob.
+    a.poly([(4, 14), (22, 9), (22, 19)], (*P.SHOT_EDGE, 150))
+    a.ellipse(28, 14, 18, 8, (*P.SHOT_EDGE, 255))
+    a.ellipse(30, 14, 13, 5.5, (*P.SHOT_MID, 255))
+    a.ellipse(32, 14, 8, 3.2, (*P.SHOT_CORE, 255))
+    a.save("projectile.png")
+
+
+def gen_muzzle_flash():
+    """Four-point star, brightest at the centre."""
+    a = Art(32, 32)
+    a.poly([(16, 0), (21, 12), (32, 16), (21, 20), (16, 32),
+            (11, 20), (0, 16), (11, 12)], (*P.SHOT_EDGE, 235))
+    a.poly([(16, 5), (19, 13), (27, 16), (19, 19), (16, 27),
+            (13, 19), (5, 16), (13, 13)], (*P.SHOT_MID, 245))
+    a.circle(16, 16, 5, (*P.SHOT_CORE, 255))
+    a.save("muzzle_flash.png")
+
+
+def gen_impact_circle():
+    """Impact puff. Tinted per hit type at runtime, so this is white."""
+    a = Art(64, 64)
+    a.circle(32, 32, 30, (255, 255, 255, 70))
+    a.circle(32, 32, 22, (255, 255, 255, 130))
+    a.circle(32, 32, 13, (255, 255, 255, 225))
+    a.save("impact_circle.png")
+
+
+def gen_pine_tree():
+    """Conifer: three stacked skirts over a short trunk."""
+    a = Art(128, 152)
+    ground_shadow(a, 64, 144, 28, 8)
+    # Trunk first and short, so the skirts cover all of it but the base - it
+    # used to be drawn tall and showed through the gaps between tiers.
+    a.rrect(59, 124, 69, 147, 3, (*C.BARK_D, 255))
+    a.rrect(59, 124, 64, 147, 3, (*C.BARK_M, 255))
+    # Overlapping skirts, widest at the bottom, each seated on the one below.
+    tiers = [(134, 59), (106, 50), (79, 40), (54, 29)]
+    for y, half in tiers:
+        a.poly([(64 - half, y), (64 + half, y), (64, y - 48)], (*P.PINE_M, 255))
+    a.light(lambda s, c: s.ellipse(42, 46, 38, 70, c), (*P.PINE_L, 255))
+    a.light(lambda s, c: s.ellipse(98, 122, 40, 48, c), (*P.PINE_D, 255))
+    a.save("pine_tree.png")
+
+
+def gen_ground_shadow():
+    """The soft ellipse under every actor.
+
+    Three stacked ellipses rather than a blur: it downsamples to the same soft
+    edge and stays deterministic.
+    """
+    a = Art(84, 52)
+    a.ellipse(42, 26, 41, 25, (0, 0, 0, 38))
+    a.ellipse(42, 26, 34, 20, (0, 0, 0, 52))
+    a.ellipse(42, 26, 25, 14, (0, 0, 0, 64))
+    a.save("ground_shadow.png")
+
+
+def gen_original_potions():
+    """Potions, authored rather than sliced out of the pack's 3x3 sheets.
+
+    Drawn at 32px, matching what the old slice-and-scale produced, so
+    Pickup.POTION_SCALE still lands where it was tuned.
+    """
+    fills = {
+        "red": ((196, 48, 62), (238, 92, 104), (255, 158, 166)),
+        "blue": ((34, 106, 190), (62, 152, 238), (140, 202, 255)),
+        "purple": ((112, 54, 178), (156, 92, 232), (206, 166, 255)),
+        "green": ((46, 142, 62), (78, 190, 90), (150, 232, 150)),
+        "yellow": ((198, 152, 26), (240, 196, 52), (255, 232, 140)),
+    }
+    for name, (dark, mid, light) in fills.items():
+        a = Art(32, 32)
+        # cork and neck
+        a.rrect(13, 2, 19, 8, 2, (*C.BARK_M, 255))
+        a.rrect(14, 7, 18, 12, 1, (168, 172, 180, 255))
+        # round flask
+        a.circle(16, 21, 10, (*dark, 255))
+        a.circle(16, 21, 9, (*mid, 255))
+        # liquid line and a lit shoulder
+        a.ellipse(16, 17, 8, 3, (*light, 200))
+        a.light(lambda s, c: s.ellipse(11, 14, 7, 8, c), (*light, 255))
+        a.light(lambda s, c: s.ellipse(11.5, 16, 2.4, 3.2, c), (255, 255, 255, 220))
+        a.save(f"potion_{name}.png")
+
+
+# --------------------------------------------------------------------------
+# 1. enemy recolours - hue-rotate the base slime so shading survives intact
 # --------------------------------------------------------------------------
 # source slime tones: (92,205,39) mid, (153,241,65) light, (208,255,132) hi
 SRC_HUE = colorsys.rgb_to_hsv(92 / 255, 205 / 255, 39 / 255)[0]
@@ -192,7 +415,8 @@ def recolor(src: Image.Image, hue_deg: float, sat_mul: float, val_mul: float) ->
 
 
 def gen_enemies():
-    body = Image.open(SPRITES / "slime_body.png")
+    # Reads the slime authored above, in OUT, not the pack file in SPRITES.
+    body = Image.open(OUT / "slime_body.png")
     OUT.mkdir(parents=True, exist_ok=True)
     for name, (hue, sm, vm) in ENEMY_TINTS.items():
         recolor(body, hue, sm, vm).save(OUT / f"enemy_{name}_body.png")
@@ -810,6 +1034,39 @@ def gen_ui_icons():
             a.circle(cx - 10 + i * 10, 46, 5, (255, 255, 255, al))
     a.save("icon_decoy.png")
 
+    # surge - three swept speed lines, leaning forward
+    a = new()
+    for i, y in enumerate((16, 32, 48)):
+        lead = 8 + i * 4
+        a.poly([(10 + lead, y - 5), (52, y - 5), (46, y + 5), (4 + lead, y + 5)],
+               (255, 255, 255, 235 - i * 30))
+    a.save("icon_surge.png")
+
+    # vault - an arcing leap over a landing burst
+    a = new()
+    a.line([(10, 50), (20, 20), (34, 12), (48, 22), (54, 46)], W, 5)
+    a.circle(54, 50, 7, W)
+    for x in (40, 54, 60):
+        a.line([(x, 56), (x, 62)], (255, 255, 255, 150), 3)
+    a.save("icon_vault.png")
+
+    # thornwall - a barrier with spikes along its top
+    a = new()
+    a.rrect(8, 30, 56, 52, 3, W)
+    for x in (12, 24, 36, 48):
+        a.poly([(x, 30), (x + 6, 12), (x + 12, 30)], W)
+    a.line([(8, 40), (56, 40)], (0, 0, 0, 70), 3)
+    a.save("icon_thornwall.png")
+
+    # cinders - three flames off a scorched line
+    a = new()
+    a.rrect(8, 50, 56, 56, 3, W)
+    for i, cx in enumerate((18, 32, 46)):
+        h = (14, 4, 18)[i]
+        a.poly([(cx, h), (cx + 9, 30), (cx + 5, 50), (cx - 5, 50), (cx - 9, 30)],
+               (255, 255, 255, 240 - i * 20))
+    a.save("icon_cinders.png")
+
     # life steal - heart with drop
     a = new()
     a.circle(23, 24, 11, W)
@@ -870,38 +1127,6 @@ def gen_particles():
     a.save("spark_square.png")
 
 
-def gen_potions():
-    """Slice a single potion out of the pack's 3x3 sheets.
-
-    The "All Potions" files look like one 48x48 potion but are actually a 3x3
-    grid of 16x16 copies. Drawing the whole file put a tiled block of nine
-    potions on the ground, which reads as a texture error rather than an item.
-    """
-    cell = 16
-    scale = 2                       # 32px is the right size next to a slime
-    for color in ("red", "blue", "purple", "green", "yellow"):
-        src = SPRITES / f"potion_{color}_full.png"
-        if not src.exists():
-            continue
-        sheet = Image.open(src).convert("RGBA")
-        best = None
-        best_alpha = -1
-        # pick the fullest cell, so a partially-empty grid slot never wins
-        for row in range(sheet.height // cell):
-            for col in range(sheet.width // cell):
-                tile = sheet.crop((col * cell, row * cell,
-                                   (col + 1) * cell, (row + 1) * cell))
-                opaque = sum(1 for p in tile.get_flattened_data() if p[3] > 40)
-                if opaque > best_alpha:
-                    best_alpha = opaque
-                    best = tile
-        if best is None:
-            continue
-        OUT.mkdir(parents=True, exist_ok=True)
-        best.resize((cell * scale, cell * scale), Image.NEAREST) \
-            .save(OUT / f"potion_{color}.png")
-
-
 def gen_icons():
     """Application icons: a green slime on a dark forest disc.
 
@@ -910,8 +1135,8 @@ def gen_icons():
     store page and in a taskbar.
     """
     sizes = [16, 32, 48, 64, 128, 256, 512, 1024]
-    body = Image.open(SPRITES / "slime_body.png").convert("RGBA")
-    face = Image.open(SPRITES / "slime_face.png").convert("RGBA")
+    body = Image.open(OUT / "slime_body.png").convert("RGBA")
+    face = Image.open(OUT / "slime_face.png").convert("RGBA")
 
     master = Art(1024, 1024)
     master.circle(512, 512, 500, (36, 54, 38, 255))
@@ -1001,9 +1226,22 @@ def gen_ground_tiles():
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     steps = [
+        # The originals first: gen_enemies and gen_icons read the slime this
+        # authors, so it has to exist before they run.
+        ("base slime", gen_slime_body),
+        ("slime face", gen_slime_face),
+        ("player", gen_player_body),
+        ("player face", gen_player_face),
+        ("pistol", gen_pistol),
+        ("bullet", gen_bullet),
+        ("muzzle flash", gen_muzzle_flash),
+        ("impact puff", gen_impact_circle),
+        ("pine tree", gen_pine_tree),
+        ("ground shadow", gen_ground_shadow),
+        ("potions", gen_original_potions),
+
         ("ground tiles", gen_ground_tiles),
         ("app icons", gen_icons),
-        ("potions", gen_potions),
         ("enemy recolours", gen_enemies),
         ("faces", gen_faces),
         ("trees", gen_trees),

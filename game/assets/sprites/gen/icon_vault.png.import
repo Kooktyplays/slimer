@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://htey3vxy3psl"
-path="res://.godot/imported/boo_face.png-2b7c4baf7ad97f1f3f2827b6567c19f4.ctex"
+uid="uid://cqtalhqirpwsw"
+path="res://.godot/imported/icon_vault.png-ce02ca3cb536fb3608e791401927077b.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/boo_face.png"
-dest_files=["res://.godot/imported/boo_face.png-2b7c4baf7ad97f1f3f2827b6567c19f4.ctex"]
+source_file="res://assets/sprites/gen/icon_vault.png"
+dest_files=["res://.godot/imported/icon_vault.png-ce02ca3cb536fb3608e791401927077b.ctex"]
 
 [params]
 

@@ -38,8 +38,11 @@ var _waves_seen: Array[int] = []
 var _boss_waves_seen: Array[int] = []
 var _major_waves_seen: Array[int] = []
 var _shops_opened := 0
+## Money at the moment a boss died, before its reward was dropped. -1 when the
+## shop was opened by something other than a boss clear.
+var _money_before_boss := -1
 var _shops_closed := 0
-var _abilities_fired := {0: 0, 1: 0}
+var _abilities_fired := {0: 0, 1: 0, 2: 0}
 var _potions := {}
 var _peak_enemies := 0
 var _strafe := 1.0
@@ -69,7 +72,14 @@ func _ready() -> void:
 			_major_waves_seen.append(Game.wave())
 		else:
 			_boss_waves_seen.append(Game.wave()))
-	Events.shop_opened.connect(func() -> void: _shops_opened += 1)
+	# Boss payout must be in the bank before the shop can read the balance.
+	# boss_defeated fires before the controller drops the reward, so this is the
+	# pre-reward figure.
+	Events.boss_defeated.connect(func(_b: Node2D) -> void:
+		_money_before_boss = Game.run.money if Game.run != null else 0)
+	Events.shop_opened.connect(func() -> void:
+		_shops_opened += 1
+		_check_payout_banked())
 	Events.shop_closed.connect(func() -> void: _shops_closed += 1)
 	Events.ability_used.connect(func(slot: int, _id: String) -> void:
 		_abilities_fired[slot] = int(_abilities_fired[slot]) + 1)
@@ -86,10 +96,17 @@ func _ready() -> void:
 func _boot() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
-	# Two abilities that always have something to do, so both slots get
-	# genuinely exercised rather than one of them sitting on a dead target.
-	Save.loadout = ["dash", "nova"]
-	Save.unlocks = ["ab_nova"]
+	# Deliberately NO Dash. This run is the regression test for the bug that
+	# added the movement slot in the first place: several boss attacks could not
+	# be walked out of, so Dash was mandatory and the sim - which always equipped
+	# it - could never show that. Surge is the movement pick with no
+	# invulnerability at all, so if the wave-20 major can be cleared on this
+	# loadout, the fights are genuinely escapable rather than blink-gated.
+	#
+	# The three are also chosen so every slot always has something to do, rather
+	# than one sitting on a dead target.
+	Save.loadout = ["surge", "nova", "grenade"]
+	Save.unlocks = ["ab_surge"]
 	# Seed the global RNG too. Game.start_run seeds its own generator, but
 	# spawn placement, bullet spread and drop rolls use the global one, so
 	# without this the run differs every time and a failure cannot be
@@ -217,10 +234,10 @@ func _fight(player: Player) -> void:
 	_hold("move_down", dir.y > 0.25)
 	_hold("move_up", dir.y < -0.25)
 
-	# fire both ability slots on a rotation
+	# fire every ability slot on a rotation
 	_ability_cooldown -= 1.0 / 60.0
 	if _ability_cooldown <= 0.0:
-		var slot := (_frames / 300) % 2
+		var slot := (_frames / 300) % AbilitiesDB.SLOT_COUNT
 		player.abilities.use(slot)
 		_ability_cooldown = 1.5
 
@@ -372,8 +389,8 @@ func _finish() -> void:
 	print("mini-bosses:      %s" % str(_boss_waves_seen))
 	print("major bosses:     %s" % str(_major_waves_seen))
 	print("shops:            %d opened, %d closed" % [_shops_opened, _shops_closed])
-	print("abilities used:   slot 1 x%d, slot 2 x%d"
-		% [_abilities_fired[0], _abilities_fired[1]])
+	print("abilities used:   move x%d, slot 1 x%d, slot 2 x%d"
+		% [_abilities_fired[0], _abilities_fired[1], _abilities_fired[2]])
 	print("potions consumed: %s" % (str(_potions) if not _potions.is_empty() else "none"))
 	print("peak enemies:     %d (cap %d)" % [_peak_enemies, Balance.MAX_CONCURRENT_ENEMIES])
 	print("peak pooled live: %d" % _pool_peak)
@@ -427,10 +444,12 @@ func _check_sequence() -> void:
 		_fail("%d shops opened but only %d closed - one never released the run"
 			% [_shops_opened, _shops_closed])
 
-	if int(_abilities_fired[0]) == 0:
-		_fail("ability slot 1 never fired")
-	if int(_abilities_fired[1]) == 0:
-		_fail("ability slot 2 never fired")
+	for slot in AbilitiesDB.SLOT_COUNT:
+		if int(_abilities_fired[slot]) == 0:
+			_fail("ability slot %d never fired" % slot)
+	if Save.loadout.has("dash"):
+		_fail("the sim equipped Dash - this run must prove the bosses are "
+			+ "clearable without it")
 	if _peak_enemies > Balance.MAX_CONCURRENT_ENEMIES:
 		_fail("enemy cap exceeded: %d live at peak, cap is %d"
 			% [_peak_enemies, Balance.MAX_CONCURRENT_ENEMIES])
@@ -472,6 +491,30 @@ func _dump_state() -> void:
 				b.id, b.hp, b.max_hp, b.phase, b.active, b.dying, b.get("_busy"),
 				b.global_position.distance_to(Combat.player_position())]
 	print(line)
+
+
+## The shop opens on the same frame a boss dies. Its reward is dropped as a
+## shower of coins, and those coins used to still be flying when the shop read
+## Game.run.money to draw the header - so beating a boss for 300 with 400 in
+## hand offered you a 400 balance to spend, and the number only corrected itself
+## if you happened to buy something.
+##
+## Two assertions, because either alone can pass while the bug is present: the
+## coins must be gone from the forest, and the balance must actually have grown.
+func _check_payout_banked() -> void:
+	if _money_before_boss < 0 or Game.run == null:
+		return
+	var loose := 0
+	for node: Node in get_tree().get_nodes_in_group(Pickup.GROUP):
+		var pickup := node as Pickup
+		if pickup != null and pickup.kind == Pickup.COIN and not pickup.collected:
+			loose += 1
+	if loose > 0:
+		_fail("%d boss coins were still on the ground when the shop opened" % loose)
+	if Game.run.money <= _money_before_boss:
+		_fail("shop opened with %d money, unchanged from %d before the boss died"
+			% [Game.run.money, _money_before_boss])
+	_money_before_boss = -1
 
 
 func _fail(message: String) -> void:

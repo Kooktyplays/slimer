@@ -16,6 +16,23 @@ const WORLD_SIZE := Vector2(4800.0, 3700.0)
 const CELL := 64.0
 const BORDER := 300.0                    ## impassable tree wall around the map
 
+## Where the physical wall actually sits, measured in from the world edge.
+##
+## The tree band alone was never a barrier. _scatter_border() drops trees on a
+## jittered 96px grid and only some of them carry blockers, so gaps through it
+## exist by construction - play-testers walked out of the arena and could not
+## get back in, which ends the run. This is the line the player cannot cross,
+## set inside the band so there is still visible forest in front of it rather
+## than an invisible wall in open grass.
+const WALL_INSET := BORDER * 0.55
+
+## How far ground and decorative trees are drawn beyond the world edge.
+##
+## Everything past WORLD_SIZE used to be unpainted viewport - the grey the bug
+## reports describe. The wall stops the player long before here; this is purely
+## so the horizon behind it reads as more forest.
+const OVERDRAW := 900.0
+
 const CLEARING_MIN := 9
 const CLEARING_MAX := 13
 const CLEARING_RADIUS := Vector2(300.0, 470.0)
@@ -266,6 +283,47 @@ func _scatter_border() -> void:
 			_add_prop(PropCatalog.pick(rng, PropCatalog.FOREST_TREES),
 				Vector2(WORLD_SIZE.x - inset, y + rng.randf_range(-24, 24)))
 		y += step
+	_scatter_outer_treeline()
+
+
+## Decorative forest beyond the world edge, drawn but never collidable.
+##
+## The player is stopped by the wall at WALL_INSET and can never reach any of
+## this. Its only job is to fill the band the camera can see past the arena
+## edge, so looking outward shows more trees rather than the flat grey that made
+## walking out of the map look like falling out of the game.
+##
+## These deliberately register no blockers: they sit outside the playfield, the
+## grid already treats the whole border band as solid, and adding hundreds of
+## unreachable collision circles would cost physics setup for nothing.
+func _scatter_outer_treeline() -> void:
+	var step := 118.0
+	var x := -OVERDRAW
+	while x < WORLD_SIZE.x + OVERDRAW:
+		var y := -OVERDRAW
+		while y < WORLD_SIZE.y + OVERDRAW:
+			# skip the arena itself - this is a frame, not a fill
+			if x > -step and x < WORLD_SIZE.x and y > -step and y < WORLD_SIZE.y:
+				y = WORLD_SIZE.y
+				continue
+			if rng.randf() < 0.30:
+				y += step
+				continue
+			_add_decor_prop(PropCatalog.pick(rng, PropCatalog.FOREST_TREES),
+				Vector2(x + rng.randf_range(-30, 30), y + rng.randf_range(-30, 30)))
+			y += step
+		x += step
+
+
+## A prop that is drawn and nothing more - no blocker, no grid footprint.
+func _add_decor_prop(id: String, pos: Vector2) -> void:
+	props.append({
+		"id": id,
+		"pos": pos,
+		"scale": rng.randf_range(0.88, 1.14),
+		"flip": rng.randf() < 0.5,
+		"sway_phase": rng.randf() * TAU,
+	})
 
 
 ## Jittered-grid sampling: cheap, deterministic, and gives blue-noise-ish

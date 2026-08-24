@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cth3urj2s3q84"
-path="res://.godot/imported/impact_circle.png-78c56881b80eb74c83be17fc2de07e40.ctex"
+uid="uid://7r0tpqu7ie83"
+path="res://.godot/imported/icon_surge.png-71eccdbc98d0d9bae8abe954e2ce874c.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/impact_circle.png"
-dest_files=["res://.godot/imported/impact_circle.png-78c56881b80eb74c83be17fc2de07e40.ctex"]
+source_file="res://assets/sprites/gen/icon_surge.png"
+dest_files=["res://.godot/imported/icon_surge.png-71eccdbc98d0d9bae8abe954e2ce874c.ctex"]
 
 [params]
 

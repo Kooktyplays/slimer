@@ -11,7 +11,7 @@ extends CharacterBody2D
 ##  * the body squashes and stretches with speed, which sells motion without
 ##    needing walk-cycle art
 
-const SHADOW_TEXTURE := preload("res://assets/sprites/ground_shadow.png")
+const SHADOW_TEXTURE := preload("res://assets/sprites/gen/ground_shadow.png")
 ## Base size of the character. The squash-and-stretch below multiplies this,
 ## so it must be applied there too - setting it only in the scene would be
 ## overwritten on the first animated frame.
@@ -36,6 +36,19 @@ var invulnerable_until := 0.0
 
 ## Set by abilities / potions.
 var speed_multiplier := 1.0
+## Seconds left on the Swift potion / Surge speed boost, and the duration it
+## started from. Tracked as plain state rather than hidden inside a tween so the
+## HUD can draw how long is left - and so a second pickup mid-boost refreshes it
+## instead of the first one's callback cutting the second one short.
+var speed_boost_left := 0.0
+var speed_boost_total := 0.0
+
+## Lingering slime poison. Stacks with each slime that reaches you, ticks
+## through healing, and expires on its own.
+var poison_stacks := 0
+var poison_left := 0.0
+var poison_dps := 0.0
+var _poison_tick := 0.0
 var shield_absorb := 0.0
 var lifesteal_bonus := 0.0
 var dashing := false
@@ -46,7 +59,13 @@ var _shoot_held := false
 
 
 func _ready() -> void:
-	collision_layer = Layers.PLAYER
+	# The hurtbox carries the PLAYER layer so enemy bullets hit the drawn
+	# character rather than the shadow under it; the body only collides with the
+	# forest. See Enemy._apply_hit_shapes for the full reasoning.
+	collision_layer = 0
+	var hurtbox := $Hurtbox as Area2D
+	hurtbox.collision_layer = Layers.PLAYER
+	hurtbox.collision_mask = 0
 	collision_mask = Layers.WORLD
 	_shadow.texture = SHADOW_TEXTURE
 	_shadow.modulate = Color(0, 0, 0, 0.28)
@@ -60,6 +79,8 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if not alive:
 		return
+	_tick_speed_boost(delta)
+	_tick_poison(delta)
 	_move(delta)
 	_aim()
 	_handle_shooting()
@@ -72,6 +93,7 @@ func _physics_process(delta: float) -> void:
 func _move(delta: float) -> void:
 	if dashing:
 		move_and_slide()
+		_hold_in_bounds()
 		return
 	var input := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var target := input * max_speed()
@@ -80,6 +102,34 @@ func _move(delta: float) -> void:
 	else:
 		velocity = velocity.move_toward(target, Balance.PLAYER_ACCEL * delta)
 	move_and_slide()
+	_hold_in_bounds()
+
+
+## Offset from the physics origin - the feet, where the shadow is drawn - to the
+## middle of the drawn character. Visual/Body sits at y=-28 inside Visual, which
+## player.tscn scales by 1.18.
+const HIT_OFFSET := Vector2(0, -28.0 * 1.18)
+
+
+## Where the player is actually drawn, relative to their physics origin.
+func hit_center() -> Vector2:
+	return global_position + HIT_OFFSET
+
+
+## Backstop behind the forest's boundary wall.
+##
+## The wall does the real work and stops ordinary movement, dashes and vaults,
+## because they all move through the physics engine and respect Layers.WORLD.
+## This exists for anything that sets a position directly instead - a teleport,
+## a knockback resolved outside move_and_slide, a future ability - because being
+## outside the arena is unrecoverable for the player and the cost of preventing
+## it is two comparisons a frame.
+func _hold_in_bounds() -> void:
+	var limit := ForestGenerator.WALL_INSET + Balance.PLAYER_RADIUS
+	var size := ForestGenerator.WORLD_SIZE
+	global_position = Vector2(
+		clampf(global_position.x, limit, size.x - limit),
+		clampf(global_position.y, limit, size.y - limit))
 
 
 func max_speed() -> float:
@@ -218,6 +268,69 @@ func take_damage(amount: float, _crit: bool = false, from: Vector2 = Vector2.ZER
 		_die()
 
 
+## Add a stack of slime poison, or refresh the ones already running.
+##
+## Deliberately not routed through take_damage: that grants i-frames, so a DoT
+## ticking through it would either do nothing at all (blocked by the i-frames it
+## just granted) or leave the player permanently invulnerable between ticks.
+func apply_poison(dps_per_stack: float, duration: float) -> void:
+	if not alive:
+		return
+	poison_dps = maxf(poison_dps, dps_per_stack)
+	poison_stacks = mini(poison_stacks + 1, Balance.CONTACT_POISON_MAX_STACKS)
+	poison_left = maxf(poison_left, duration)
+
+
+## Fraction of the current poison left, 0..1, for the HUD.
+func poison_fraction() -> float:
+	if poison_left <= 0.0:
+		return 0.0
+	return clampf(poison_left / Balance.CONTACT_POISON_DURATION, 0.0, 1.0)
+
+
+func _tick_poison(delta: float) -> void:
+	if poison_left <= 0.0:
+		# Clear any residue. poison_left can reach zero without this function
+		# being the one that took it there, and leaving stacks behind would make
+		# the next single stack hit for the strength of the last full pile.
+		if poison_stacks > 0:
+			poison_stacks = 0
+			poison_dps = 0.0
+		return
+	if Game.run == null:
+		return
+	poison_left -= delta
+	_poison_tick -= delta
+	if _poison_tick <= 0.0:
+		_poison_tick = Balance.CONTACT_POISON_INTERVAL
+		_take_poison_damage(poison_dps * poison_stacks
+			* Balance.CONTACT_POISON_INTERVAL)
+	if poison_left <= 0.0:
+		poison_stacks = 0
+		poison_dps = 0.0
+
+
+## Poison damage. Reduced by armour and eaten by a shield like anything else,
+## but it grants no i-frames, does not shake the camera and does not hit-stop -
+## four of these a second doing any of that would read as the game stuttering.
+func _take_poison_damage(amount: float) -> void:
+	if not alive or Game.run == null or amount <= 0.0:
+		return
+	var incoming := amount * (1.0 - Game.run.damage_reduction)
+	if shield_absorb > 0.0:
+		var absorbed := minf(shield_absorb, incoming)
+		shield_absorb -= absorbed
+		incoming -= absorbed
+		if incoming <= 0.01:
+			return
+	Game.run.hp = maxf(0.0, Game.run.hp - incoming)
+	Events.player_damaged.emit(incoming, global_position)
+	_emit_health()
+	Game.notify_health_changed()
+	if Game.run.hp <= 0.0:
+		_die()
+
+
 func heal(amount: float) -> void:
 	if not alive or Game.run == null:
 		return
@@ -267,8 +380,35 @@ func _emit_health() -> void:
 # ---------------------------------------------------------------------------
 # used by abilities
 # ---------------------------------------------------------------------------
+## Apply or refresh the speed boost.
+##
+## This used to set speed_multiplier and start a tween that reset it to 1.0 when
+## it finished. Drinking a second Swift potion part-way through the first left
+## two tweens running, and the *first* one's callback would fire mid-way through
+## the second boost and end it early - the potion visibly did nothing.
+##
+## Refresh, never stack: the stronger multiplier and the longer of the two
+## remaining times win, so a second potion always extends and never shortens.
 func apply_speed_boost(multiplier: float, duration: float) -> void:
-	speed_multiplier = multiplier
-	var t := create_tween()
-	t.tween_interval(duration)
-	t.tween_callback(func() -> void: speed_multiplier = 1.0)
+	if speed_boost_left <= 0.0:
+		speed_multiplier = multiplier
+	else:
+		speed_multiplier = maxf(speed_multiplier, multiplier)
+	speed_boost_left = maxf(speed_boost_left, duration)
+	speed_boost_total = speed_boost_left
+
+
+## How much of the current speed boost is left, 0..1. Zero when none is running.
+func speed_boost_fraction() -> float:
+	if speed_boost_left <= 0.0 or speed_boost_total <= 0.0:
+		return 0.0
+	return clampf(speed_boost_left / speed_boost_total, 0.0, 1.0)
+
+
+func _tick_speed_boost(delta: float) -> void:
+	if speed_boost_left <= 0.0:
+		return
+	speed_boost_left = maxf(0.0, speed_boost_left - delta)
+	if speed_boost_left <= 0.0:
+		speed_multiplier = 1.0
+		speed_boost_total = 0.0

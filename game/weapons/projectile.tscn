@@ -1,7 +1,7 @@
 [gd_scene load_steps=4 format=3 uid="uid://bslimerprojectile"]
 
 [ext_resource type="Script" path="res://weapons/projectile.gd" id="1_s"]
-[ext_resource type="Texture2D" path="res://assets/sprites/projectile.png" id="2_t"]
+[ext_resource type="Texture2D" path="res://assets/sprites/gen/projectile.png" id="2_t"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_p"]
 radius = 7.0

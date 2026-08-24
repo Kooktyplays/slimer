@@ -46,24 +46,50 @@ const WAVE_INTERMISSION := 3.0
 const MINI_BOSS_EVERY := 5
 const MAJOR_BOSS_EVERY := 20
 const WAVES_PER_DEPTH := 5
-const MAX_CONCURRENT_ENEMIES := 55
+const MAX_CONCURRENT_ENEMIES := 68
 const SPAWN_MIN_DISTANCE := 620.0
 const SPAWN_MAX_DISTANCE := 1250.0
 
+# --- nightmare ---------------------------------------------------------------
+## Nightmare is one flag on the run, not a second code path.
+##
+## Three knobs, all of which already take the wave as their only input, so the
+## difficulty threads through without duplicating any curve: a fatter threat
+## budget, the whole enemy roster available from wave 1 instead of unlocking
+## over 15 waves, and enemies that hit materially harder.
+const NIGHTMARE_BUDGET_MULTIPLIER := 1.55
+const NIGHTMARE_DAMAGE_MULTIPLIER := 1.6
+const NIGHTMARE_SPAWN_RATE_MULTIPLIER := 1.3
+## Nightmare has to pay, or it is a penalty with no reason to pick it.
+const NIGHTMARE_ESSENCE_MULTIPLIER := 2.2
+
+
 ## Threat budget for a wave. Quadratic so late waves get genuinely crowded.
-static func wave_budget(wave: int) -> float:
-	return 4.0 + 2.1 * wave + 0.075 * wave * wave
+##
+## Raised about 28% when the movement slot was added: a third ability is roughly
+## +50% uptime, and the forest has to push back or the extra slot just makes the
+## run easier rather than more interesting.
+static func wave_budget(wave: int, nightmare: bool = false) -> float:
+	var base := 5.0 + 2.7 * wave + 0.098 * wave * wave
+	return base * (NIGHTMARE_BUDGET_MULTIPLIER if nightmare else 1.0)
 
 ## How fast the spawner feeds the budget in, in threat per second.
-static func spawn_rate(wave: int) -> float:
-	return minf(1.1 + 0.18 * wave, 7.5)
+##
+## Deliberately raised in step with the budget. Lifting the budget alone would
+## make every wave 28% *longer* rather than denser, which reads as padding - the
+## extra threat has to arrive as pressure. Both curves still reach their cap
+## around wave 35, so the shape of the ramp is unchanged.
+static func spawn_rate(wave: int, nightmare: bool = false) -> float:
+	var base := minf(1.4 + 0.23 * wave, 9.5)
+	return base * (NIGHTMARE_SPAWN_RATE_MULTIPLIER if nightmare else 1.0)
 
 # --- enemy scaling (capped on purpose) --------------------------------------
 static func hp_scale(wave: int) -> float:
 	return minf(1.0 + 0.055 * (wave - 1), 3.2)
 
-static func damage_scale(wave: int) -> float:
-	return minf(1.0 + 0.035 * (wave - 1), 2.4)
+static func damage_scale(wave: int, nightmare: bool = false) -> float:
+	var base := minf(1.0 + 0.035 * (wave - 1), 2.4)
+	return base * (NIGHTMARE_DAMAGE_MULTIPLIER if nightmare else 1.0)
 
 static func speed_scale(wave: int) -> float:
 	return minf(1.0 + 0.012 * (wave - 1), 1.45)
@@ -71,6 +97,22 @@ static func speed_scale(wave: int) -> float:
 ## Money paid out grows more slowly than costs, so choices stay tight.
 static func money_scale(wave: int) -> float:
 	return 1.0 + 0.055 * (wave - 1)
+
+## Slime contact leaves a lingering poison as well as its instant hit.
+##
+## Late runs stack max HP faster than contact damage can scale - hard-capped at
+## 2.4x - and with Bloom healing on top, a wall of slimes stopped being a threat
+## and became scenery you walked through. Raising contact_damage instead would
+## have made wave 3 brutal to fix a wave 30 problem.
+##
+## Poison scales with how many slimes reach you rather than with the wave
+## number, so the pressure arrives exactly when the threat budget is buying
+## crowds, and it keeps ticking through a burst heal instead of being erased by
+## one. Damage per stack per second, as a fraction of the slime's contact hit.
+const CONTACT_POISON_FRACTION := 0.42
+const CONTACT_POISON_DURATION := 3.5
+const CONTACT_POISON_INTERVAL := 0.5
+const CONTACT_POISON_MAX_STACKS := 6
 
 # --- elites -----------------------------------------------------------------
 const ELITE_UNLOCK_WAVE := 13
@@ -126,8 +168,10 @@ const SHOP_REROLL_STEP := 45
 
 # --- meta progression -------------------------------------------------------
 ## Essence is the only thing that survives death.
-static func essence_for_run(wave_reached: int, minis: int, majors: int) -> int:
-	return int(wave_reached * 2 + minis * 12 + majors * 60)
+static func essence_for_run(wave_reached: int, minis: int, majors: int,
+		nightmare: bool = false) -> int:
+	var base := wave_reached * 2 + minis * 12 + majors * 60
+	return int(base * (NIGHTMARE_ESSENCE_MULTIPLIER if nightmare else 1.0))
 
 # --- feel -------------------------------------------------------------------
 const SHAKE_SHOOT := 0.9

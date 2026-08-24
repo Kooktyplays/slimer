@@ -29,6 +29,9 @@ func _run() -> void:
 	_test_loadout()
 	_test_meta_progression()
 	_test_forest_smoke()
+	_test_arena_is_sealed()
+	_test_nightmare()
+	_test_achievements()
 	_report()
 
 
@@ -125,7 +128,7 @@ func _test_wave_curve() -> void:
 	_check(Balance.hp_scale(500) <= 3.2001, "hp scale exceeded its cap")
 	_check(Balance.damage_scale(500) <= 2.4001, "damage scale exceeded its cap")
 	_check(Balance.speed_scale(500) <= 1.4501, "speed scale exceeded its cap")
-	_check(Balance.spawn_rate(500) <= 7.5001, "spawn rate exceeded its cap")
+	_check(Balance.spawn_rate(500) <= 9.5001, "spawn rate exceeded its cap")
 
 	# an enemy at wave 200 should be a few times tougher, not a thousand times
 	_check(Balance.hp_scale(200) < 4.0,
@@ -314,18 +317,18 @@ func _test_save_roundtrip() -> void:
 	var original := Save.to_dict()
 
 	Save.essence = 1234
-	Save.unlocks = ["ab_nova", "pas_vigor_1"]
+	Save.unlocks = ["ab_shield", "pas_vigor_1"]
 	Save.seen_hints = ["hint_move"]
 	Save.stats["best_wave"] = 42
 	Save.settings["music_volume"] = 0.42
 	Save.settings["damage_numbers"] = false
-	Save.loadout = ["nova", "dash"]
+	Save.loadout = ["dash", "nova", "grenade"]
 
 	var snapshot := Save.to_dict().duplicate(true)
 	Save.from_dict(snapshot)
 
 	_check(Save.essence == 1234, "essence did not survive the round trip")
-	_check(Save.unlocks.has("ab_nova"), "unlocks did not survive the round trip")
+	_check(Save.unlocks.has("ab_shield"), "unlocks did not survive the round trip")
 	_check(Save.seen_hints.has("hint_move"), "hints did not survive the round trip")
 	_check(int(Save.stats["best_wave"]) == 42, "stats did not survive the round trip")
 	_close(float(Save.settings["music_volume"]), 0.42, "settings float lost")
@@ -334,13 +337,42 @@ func _test_save_roundtrip() -> void:
 	# corrupt input must not throw
 	Save.from_dict({})
 	Save.from_dict({"unlocks": "not an array", "stats": {"best_wave": "x"}})
-	_check(Save.loadout.size() == 2, "loadout survived corrupt input at wrong size")
+	_check(Save.loadout.size() == AbilitiesDB.SLOT_COUNT,
+		"loadout survived corrupt input at wrong size")
+
+	# A version-1 save binds ability_1 to Space, which is now the movement slot's
+	# key. Carrying that override forward would leave two actions on one key and
+	# fire two slots per press, so loading an old save must drop it.
+	Save.from_dict({
+		"version": 1,
+		"keybinds": {
+			"ability_1": [{"type": "key", "physical": 32}],
+			"ability_2": [{"type": "key", "physical": 4194325}],
+			"shoot": [{"type": "mouse", "button": 1}],
+		},
+	})
+	_check(not Save.keybinds.has("ability_1"),
+		"a version-1 ability binding survived the migration and now collides "
+		+ "with the movement key")
+	_check(not Save.keybinds.has("ability_2"),
+		"a version-1 ability binding survived the migration")
+	_check(Save.keybinds.has("shoot"),
+		"the migration threw away bindings it had no business touching")
+
+	# A current save keeps its bindings.
+	Save.from_dict({
+		"version": Save.VERSION,
+		"keybinds": {"ability_1": [{"type": "key", "physical": 81}]},
+	})
+	_check(Save.keybinds.has("ability_1"),
+		"a current-version ability binding was wrongly discarded")
 
 	Save.from_dict(original)
 
 
-## The two-slot rule is load-bearing for build variety, so it is enforced
-## rather than assumed.
+## The slot rules are load-bearing for build variety, so they are enforced
+## rather than assumed. In particular a movement ability must never reach a
+## general slot: that is the whole reason the classes exist.
 func _test_loadout() -> void:
 	var original_unlocks := Save.unlocks.duplicate()
 	var original_loadout := Save.loadout.duplicate()
@@ -348,41 +380,78 @@ func _test_loadout() -> void:
 	Save.unlocks = []
 	_check(Save.unlocked_abilities() == AbilitiesDB.default_unlocked(),
 		"a fresh save should only have the default abilities")
+	_check(AbilitiesDB.default_unlocked().size() == AbilitiesDB.SLOT_COUNT,
+		"a fresh save must have one free ability per slot, or a slot starts empty")
+
+	# one free ability of the right class for every slot
+	for slot in AbilitiesDB.SLOT_COUNT:
+		_check(not Save.unlocked_for_slot(slot).is_empty(),
+			"slot %d has nothing legal to put in it on a fresh save" % slot)
 
 	# asking for a locked ability must be refused
-	Save.loadout = ["dash", "grenade"]
-	Save.set_loadout(0, "orbital")
+	Save.loadout = ["dash", "grenade", "nova"]
+	Save.set_loadout(1, "orbital")
 	_check(not Save.loadout.has("orbital"), "equipped a locked ability")
 
-	# unlocking makes it available, and equipping it swaps rather than adds
+	# unlocking makes it available
 	Save.unlocks = ["ab_orbital"]
-	Save.set_loadout(0, "orbital")
-	_check(Save.loadout.size() == 2, "loadout is not exactly two abilities")
-	_check(Save.loadout[0] == "orbital", "the chosen ability was not equipped")
-	_check(Save.loadout[1] == "grenade", "the other slot was disturbed")
-
-	# picking the ability already in the other slot swaps them, never duplicates
 	Save.set_loadout(1, "orbital")
-	_check(Save.loadout[0] != Save.loadout[1],
-		"the same ability ended up in both slots")
-	_check(Save.loadout.size() == 2, "loadout grew beyond two")
+	_check(Save.loadout.size() == AbilitiesDB.SLOT_COUNT,
+		"loadout is not exactly one ability per slot")
+	_check(Save.loadout[1] == "orbital", "the chosen ability was not equipped")
+	_check(Save.loadout[0] == "dash", "the movement slot was disturbed")
 
-	# sanitising junk still yields two distinct unlocked abilities
-	Save.from_dict({"unlocks": [], "loadout": ["orbital", "orbital", "nova"]})
-	_check(Save.loadout.size() == 2, "sanitised loadout is not two entries")
-	_check(Save.loadout[0] != Save.loadout[1], "sanitised loadout has duplicates")
-	for id: String in Save.loadout:
+	# picking the ability already in another slot swaps, never duplicates
+	Save.set_loadout(2, "orbital")
+	_check(Save.loadout[1] != Save.loadout[2],
+		"the same ability ended up in two slots")
+	_check(Save.loadout.size() == AbilitiesDB.SLOT_COUNT, "loadout grew a slot")
+
+	# the class rule, from both directions
+	Save.loadout = ["dash", "grenade", "nova"]
+	Save.set_loadout(1, "dash")
+	_check(Save.loadout[1] != "dash", "a movement ability reached a general slot")
+	Save.set_loadout(0, "grenade")
+	_check(Save.loadout[0] == "dash", "a general ability reached the movement slot")
+
+	# a pre-movement-slot save is the right length but the wrong shape
+	Save.from_dict({"unlocks": [], "loadout": ["dash", "grenade"]})
+	_check(Save.loadout.size() == AbilitiesDB.SLOT_COUNT,
+		"an old two-entry loadout was not padded to the slot count")
+	for slot in AbilitiesDB.SLOT_COUNT:
+		_check(AbilitiesDB.fits_slot(Save.loadout[slot], slot),
+			"slot %d holds the wrong class after migration" % slot)
+
+	# sanitising junk still yields one distinct unlocked ability per slot
+	Save.from_dict({"unlocks": [], "loadout": ["orbital", "orbital", "dash", "dash"]})
+	_check(Save.loadout.size() == AbilitiesDB.SLOT_COUNT,
+		"sanitised loadout is the wrong size")
+	var seen: Array[String] = []
+	for slot in AbilitiesDB.SLOT_COUNT:
+		var id: String = Save.loadout[slot]
+		_check(not seen.has(id), "sanitised loadout duplicated '%s'" % id)
+		seen.append(id)
+		_check(AbilitiesDB.fits_slot(id, slot),
+			"sanitised loadout put '%s' in the wrong class of slot" % id)
 		_check(Save.unlocked_abilities().has(id),
 			"sanitised loadout contains locked ability '%s'" % id)
 
-	# every ability must be reachable and distinct
-	_check(AbilitiesDB.ORDER.size() == 11, "expected eleven abilities")
+	# every ability must be reachable, well formed and correctly classed
+	_check(AbilitiesDB.ORDER.size() == 15, "expected fifteen abilities")
+	var movement := 0
 	for id: String in AbilitiesDB.ORDER:
 		var def := AbilitiesDB.get_def(id)
 		_check(float(def["cooldown"]) > 0.0, "ability '%s' has no cooldown" % id)
 		_check(int(def["charges"]) >= 1, "ability '%s' has no charges" % id)
 		_check(ResourceLoader.exists(AbilitiesDB.icon_path(id)),
 			"ability '%s' has no icon" % id)
+		var kind: String = def["class"]
+		_check(kind == AbilitiesDB.CLASS_MOVEMENT or kind == AbilitiesDB.CLASS_GENERAL,
+			"ability '%s' has no valid class" % id)
+		if kind == AbilitiesDB.CLASS_MOVEMENT:
+			movement += 1
+	_check(movement >= 2,
+		"one movement ability is not a choice - the slot needs alternatives")
 
 	Save.unlocks = original_unlocks
 	Save.loadout = original_loadout
@@ -394,10 +463,10 @@ func _test_meta_progression() -> void:
 
 	Save.essence = 0
 	Save.unlocks = []
-	_check(not Save.can_purchase("ab_nova"), "bought an unlock with no essence")
+	_check(not Save.can_purchase("ab_shield"), "bought an unlock with no essence")
 
 	Save.essence = 100_000
-	_check(Save.can_purchase("ab_nova"), "a affordable unlock was refused")
+	_check(Save.can_purchase("ab_shield"), "a affordable unlock was refused")
 	_check(not Save.can_purchase("pas_vigor_2"),
 		"a tiered passive ignored its prerequisite")
 	Save.purchase("pas_vigor_1")
@@ -451,6 +520,178 @@ func _test_forest_smoke() -> void:
 		var boss_spot := g.nearest_open_for(g.spawn_point + Vector2(620, 0), 240.0)
 		_check(g.has_clearance(boss_spot, 240.0),
 			"seed %d has nowhere for a boss to stand" % g.seed_value)
+
+
+## The navigation grid and the physics wall must agree about where the arena
+## ends.
+##
+## This is the grid half only. The grid already sealed the border band before
+## the wall existed - _rasterise() force-blocks it - which is exactly why the
+## escape bug was so easy to miss: spawning and steering behaved, while the
+## player, who moves by physics rather than by the grid, walked straight out
+## through a gap in the tree scatter. The physics half is covered in the visual
+## pass, which can query real collision shapes.
+##
+## What this guards is the two staying consistent. If WALL_INSET ever grows past
+## BORDER, the grid would call cells walkable that sit outside the physics wall,
+## and enemies would spawn in a pocket the player can never reach.
+func _test_arena_is_sealed() -> void:
+	var size := ForestGenerator.WORLD_SIZE
+	var inset := ForestGenerator.WALL_INSET
+	for i in 24:
+		var g := ForestGenerator.generate(9000 + i * 577)
+		var leaks := 0
+		# sample densely enough that a one-cell gap cannot hide between samples
+		var step := ForestGenerator.CELL * 0.5
+		var x := 0.0
+		while x <= size.x:
+			if g.is_open(Vector2(x, inset * 0.5)) \
+					or g.is_open(Vector2(x, size.y - inset * 0.5)):
+				leaks += 1
+			x += step
+		var y := 0.0
+		while y <= size.y:
+			if g.is_open(Vector2(inset * 0.5, y)) \
+					or g.is_open(Vector2(size.x - inset * 0.5, y)):
+				leaks += 1
+			y += step
+		_check(leaks == 0,
+			"seed %d has %d walkable points outside the wall" % [g.seed_value, leaks])
+		# and the spawn point must be comfortably inside it, not tucked in the band
+		_check(g.spawn_point.x > inset and g.spawn_point.y > inset
+				and g.spawn_point.x < size.x - inset
+				and g.spawn_point.y < size.y - inset,
+			"seed %d spawns the player outside the wall" % g.seed_value)
+
+
+## Nightmare is one flag, threaded through three curves. Each has to actually
+## move, and normal play has to be left exactly as it was.
+func _test_nightmare() -> void:
+	for wave in [1, 7, 20, 45]:
+		_check(Balance.wave_budget(wave, true) > Balance.wave_budget(wave) * 1.3,
+			"nightmare budget is not meaningfully higher at wave %d" % wave)
+		_check(Balance.damage_scale(wave, true) > Balance.damage_scale(wave) * 1.3,
+			"nightmare damage is not meaningfully higher at wave %d" % wave)
+		_check(Balance.spawn_rate(wave, true) > Balance.spawn_rate(wave),
+			"nightmare spawn rate is not higher at wave %d" % wave)
+		# normal must be untouched by the parameter existing
+		_close(Balance.wave_budget(wave, false), Balance.wave_budget(wave),
+			"normal budget changed at wave %d" % wave)
+		_close(Balance.damage_scale(wave, false), Balance.damage_scale(wave),
+			"normal damage changed at wave %d" % wave)
+
+	# the whole roster from wave 1, which is most of what makes the mode
+	var night_one := EnemyTypes.unlocked_for_wave(1, true)
+	_check(night_one.size() == EnemyTypes.ORDER.size(),
+		"nightmare wave 1 offers %d of %d enemy types"
+			% [night_one.size(), EnemyTypes.ORDER.size()])
+	_check(night_one.has(EnemyTypes.ORANGE),
+		"nightmare wave 1 is missing the Bloater, which normally unlocks at 15")
+	_check(EnemyTypes.unlocked_for_wave(1) == [EnemyTypes.GREEN],
+		"normal wave 1 stopped being green-only")
+	_check(EnemyTypes.weights_for_wave(1, true).size() == EnemyTypes.ORDER.size(),
+		"nightmare wave 1 weights do not cover the full roster")
+
+	# end to end: a nightmare wave 1 really is built from the whole roster and
+	# is materially bigger than the normal one
+	var normal_one := WaveController.preview_composition(1, 4242, false)
+	var night_comp := WaveController.preview_composition(1, 4242, true)
+	_check(float(night_comp["budget"]) > float(normal_one["budget"]) * 1.3,
+		"nightmare wave 1 is not built from a bigger budget")
+	_check((night_comp["counts"] as Dictionary).size()
+			>= (normal_one["counts"] as Dictionary).size(),
+		"nightmare wave 1 draws from no more enemy types than normal")
+
+	# and it has to pay, or nobody would choose it
+	_check(Balance.essence_for_run(20, 3, 1, true)
+			> Balance.essence_for_run(20, 3, 1), "nightmare pays no more essence")
+
+	# the flag has to survive onto the run and into its summary
+	var rs := RunState.create(1, [], ["dash", "grenade", "nova"], true)
+	_check(rs.nightmare, "RunState dropped the nightmare flag")
+	rs.wave = 12
+	_check(bool(rs.summary()["nightmare"]),
+		"the run summary dropped the nightmare flag")
+	var normal := RunState.create(1, [], ["dash", "grenade", "nova"])
+	_check(not normal.nightmare, "a normal run came back marked nightmare")
+
+
+## Achievements resolve off permanent stats plus the run that just ended, and a
+## save written before they existed has to load without losing anything.
+func _test_achievements() -> void:
+	for id: String in AchievementsDB.ORDER:
+		var def := AchievementsDB.get_def(id)
+		_check(not def.is_empty(), "achievement %s has no definition" % id)
+		_check(not String(def["name"]).is_empty(), "achievement %s has no name" % id)
+		_check(ResourceLoader.exists(AchievementsDB.icon_path(id)),
+			"achievement %s points at a missing icon" % id)
+	_check(AchievementsDB.ORDER.size() == AchievementsDB.DEFS.size(),
+		"AchievementsDB.ORDER and DEFS disagree on how many there are")
+
+	var blank := {}
+	for key: String in Save.stats:
+		blank[key] = 0
+
+	# nothing is earned from nothing
+	for id: String in AchievementsDB.ORDER:
+		_check(not AchievementsDB.is_earned(id, blank, {}),
+			"achievement %s is earned on a fresh save" % id)
+
+	# feats need the run that just ended, and respect difficulty
+	_check(AchievementsDB.is_earned("no_gods", blank,
+			{"wave": 40, "nightmare": true}),
+		"reaching wave 40 on nightmare did not earn No Gods")
+	_check(not AchievementsDB.is_earned("no_gods", blank,
+			{"wave": 40, "nightmare": false}),
+		"reaching wave 40 on normal wrongly earned a nightmare achievement")
+	_check(not AchievementsDB.is_earned("unmaker", blank,
+			{"wave": 99, "nightmare": true}),
+		"Unmaker was earned one wave early")
+
+	# "every boss" needs every counter, not just a total
+	var most := blank.duplicate()
+	for key: String in AchievementsDB.BOSS_STAT_KEYS:
+		most[key] = 1
+	_check(AchievementsDB.is_earned("clean_sweep", most, {}),
+		"beating every boss did not earn Clean Sweep")
+	most["boss_sovereign"] = 0
+	_check(not AchievementsDB.is_earned("clean_sweep", most, {}),
+		"Clean Sweep was earned with a boss still unbeaten")
+
+	# a version-2 save has to load into version 3 with its stats intact
+	var v2 := {
+		"version": 2,
+		"essence": 410,
+		"unlocks": ["ab_surge"],
+		"loadout": ["dash", "grenade", "nova"],
+		"stats": {"runs": 9, "best_wave": 24, "total_kills": 1200,
+			"total_money": 700, "minis_killed": 4, "majors_killed": 1},
+		"settings": {},
+		"keybinds": {},
+	}
+	var essence_before := Save.essence
+	var stats_before := Save.stats.duplicate()
+	var achievements_before := Save.achievements.duplicate()
+	Save.from_dict(v2)
+	_check(Save.essence == 410, "a version-2 save lost its essence")
+	_check(int(Save.stats["best_wave"]) == 24, "a version-2 save lost best_wave")
+	_check(int(Save.stats["total_kills"]) == 1200, "a version-2 save lost kills")
+	_check(int(Save.stats["boss_bramble"]) == 0,
+		"a version-2 save did not default the new per-boss counters to zero")
+	_check(Save.achievements.is_empty(),
+		"a version-2 save came back with achievements it never earned")
+	# and the new fields round-trip
+	Save.achievements = ["first_blood"]
+	Save.stats["boss_toad"] = 2
+	var round_trip := Save.to_dict()
+	_check(int(round_trip["version"]) == 3, "to_dict did not write version 3")
+	Save.from_dict(round_trip)
+	_check(Save.achievements.has("first_blood"), "achievements did not round-trip")
+	_check(int(Save.stats["boss_toad"]) == 2, "per-boss counters did not round-trip")
+
+	Save.essence = essence_before
+	Save.stats = stats_before
+	Save.achievements = achievements_before
 
 
 # ---------------------------------------------------------------------------

@@ -17,7 +17,7 @@ extends CharacterBody2D
 
 const FLASH_SHADER := preload("res://assets/shaders/flash.gdshader")
 const PROJECTILE := preload("res://weapons/projectile.tscn")
-const FACE_NORMAL := preload("res://assets/sprites/slime_face.png")
+const FACE_NORMAL := preload("res://assets/sprites/gen/slime_face.png")
 const FACE_ANGRY := preload("res://assets/sprites/gen/eyes_angry.png")
 
 ## Distant enemies think less often. At 55 enemies this is the difference
@@ -31,6 +31,17 @@ const LOD_FAR_INTERVAL := 0.1
 @onready var _visual: Node2D = $Visual
 @onready var _shadow: Sprite2D = $Shadow
 @onready var _shape: CollisionShape2D = $Shape
+@onready var _hurtbox: Area2D = $Hurtbox
+@onready var _hurtbox_shape: CollisionShape2D = $Hurtbox/Shape
+
+## Where Visual/Body sits inside Visual, before Visual's own scale is applied.
+## Mirrors enemy.tscn. The drawn offset is this times the slime's visual scale,
+## which is why hit_offset is computed per enemy rather than being a constant.
+const BODY_LOCAL_Y := -32.0
+
+## Offset from the physics origin - the feet, and where the shadow is drawn - to
+## the middle of the drawn body, for this particular slime.
+var hit_offset := Vector2.ZERO
 
 # --- identity ---------------------------------------------------------------
 var type_id: String = EnemyTypes.GREEN
@@ -47,6 +58,9 @@ var money_value := 5
 var shield := 0.0
 ## Final collision radius in world pixels, matched to the drawn sprite.
 var hit_radius := 30.0
+## True for the Hoarder. Read by run.gd to drop the payout as a burst of coins
+## rather than the usual handful.
+var hoards := false
 
 # --- state ------------------------------------------------------------------
 var dying := false
@@ -86,8 +100,13 @@ var _last_position := Vector2.ZERO
 
 
 func _ready() -> void:
-	collision_layer = Layers.ENEMY
+	# The body itself is no longer on the ENEMY layer - the Hurtbox is. The body
+	# exists to collide with the forest at the slime's feet; the hurtbox is what
+	# bullets and abilities look for, and it covers the drawn slime.
+	collision_layer = 0
 	collision_mask = Layers.WORLD
+	_hurtbox.collision_layer = Layers.ENEMY
+	_hurtbox.collision_mask = 0
 	add_to_group("enemies")
 	_material = ShaderMaterial.new()
 	_material.shader = FLASH_SHADER
@@ -107,7 +126,7 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	dying = false
 
 	var hp_mul := Balance.hp_scale(wave)
-	var dmg_mul := Balance.damage_scale(wave)
+	var dmg_mul := Balance.damage_scale(wave, Game.is_nightmare())
 	var spd_mul := Balance.speed_scale(wave)
 
 	max_hp = float(def["hp"]) * hp_mul
@@ -115,6 +134,7 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	contact_damage = float(def["contact_damage"]) * dmg_mul
 	money_value = int(round(randi_range(def["money"].x, def["money"].y)
 		* Balance.money_scale(wave)))
+	hoards = bool(def.get("hoards", false))
 
 	var visual_scale := float(def["scale"])
 	shield = 0.0
@@ -142,7 +162,7 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	_visual.scale = Vector2.ONE * visual_scale
 	_shadow.scale = Vector2.ONE * visual_scale * 0.9
 	hit_radius = float(def["radius"]) * (Balance.ELITE_SCALE if is_elite else 1.0)
-	(_shape.shape as CircleShape2D).radius = hit_radius
+	_apply_hit_shapes(visual_scale)
 
 	_material.set_shader_parameter("flash", 0.0)
 	_material.set_shader_parameter("flash_color", Color.WHITE)
@@ -323,11 +343,55 @@ func _think(target: Vector2) -> void:
 	_desired = _desired.normalized()
 
 
+## Size this slime's collision and hurt shapes.
+##
+## Both shapes are built fresh per enemy rather than edited in place. A shape
+## declared in a .tscn is one resource shared by every instance of that scene,
+## so the old `(_shape.shape as CircleShape2D).radius = hit_radius` did not
+## resize this slime - it resized *every* slime, to whatever spawned most
+## recently. A Brute and a Darter ended up with identical hitboxes, which is a
+## large part of why shots that visibly connected did nothing.
+##
+## The body circle stays at the feet: that is what walks into trees, and moving
+## it would change how the slime navigates the forest. The hurtbox is a separate
+## capsule covering everything the player can see - from under the shadow up to
+## the top of the drawn sprite - so aiming at the slime works, and so does
+## aiming at the shadow, which is what players had learned to do.
+func _apply_hit_shapes(visual_scale: float) -> void:
+	var circle := CircleShape2D.new()
+	circle.radius = hit_radius
+	_shape.shape = circle
+
+	hit_offset = Vector2(0, BODY_LOCAL_Y * visual_scale)
+
+	# The sprite's real drawn extent, not a guess: the texture varies per colour
+	# and the scale varies per type and with the elite bonus.
+	var drawn_height := 0.0
+	if _body.texture != null:
+		drawn_height = _body.texture.get_height() * visual_scale
+	var top := hit_offset.y - drawn_height * 0.5
+	var bottom := hit_radius
+	var capsule := CapsuleShape2D.new()
+	capsule.radius = hit_radius
+	capsule.height = maxf(bottom - top, hit_radius * 2.0)
+	_hurtbox_shape.shape = capsule
+	_hurtbox_shape.position = Vector2(0, (top + bottom) * 0.5)
+
+
+## Where the slime is actually drawn, relative to its physics origin. Abilities
+## measure from here so area damage agrees with the bullets and with the player.
+func hit_center() -> Vector2:
+	return global_position + hit_offset
+
+
 ## Push apart from nearby enemies. Only samples enemies that are actually
 ## close, so this stays cheap even in a big wave.
 func _separation() -> Vector2:
 	var push := Vector2.ZERO
-	var radius := hit_radius * 2.1
+	# Most types keep a loose personal space. Hoarders keep a much wider one, so
+	# a pack of them spreads out instead of clumping into one convenient target -
+	# hunting them down should mean chasing each one.
+	var radius := hit_radius * float(def.get("separation_scale", 2.1))
 	for other: Node2D in Combat.enemies_in_radius(global_position, radius):
 		if other == self:
 			continue
@@ -360,7 +424,8 @@ func _spawn_bullet(dir: Vector2) -> void:
 		return
 	var b := Pools.acquire(PROJECTILE, _container()) as Node2D
 	b.call("launch", global_position + dir * 26.0, dir, {
-		"damage": float(def["projectile_damage"]) * Balance.damage_scale(spawn_wave),
+		"damage": (float(def["projectile_damage"])
+			* Balance.damage_scale(spawn_wave, Game.is_nightmare())),
 		"speed": float(def["projectile_speed"]),
 		"range": float(def["preferred_range"]) * 2.2,
 		"from_player": false,
@@ -397,13 +462,21 @@ func _tick_contact(delta: float, _target: Vector2) -> void:
 	var reach := hit_radius + Balance.PLAYER_RADIUS
 	if global_position.distance_to(p.global_position) <= reach:
 		p.call("take_damage", contact_damage, false, global_position, 0.0)
+		# ...and leave poison behind. The instant hit is capped by
+		# Balance.damage_scale; this is what keeps a wall of slimes dangerous
+		# once the player's max HP has outgrown it. See CONTACT_POISON_FRACTION.
+		if p.has_method("apply_poison"):
+			p.call("apply_poison",
+				contact_damage * Balance.CONTACT_POISON_FRACTION,
+				Balance.CONTACT_POISON_DURATION)
 		_contact_timer = 0.85
 		_squash(1.35)
 
 
 func _detonate() -> void:
 	var radius := float(def["blast_radius"])
-	var damage := float(def["blast_damage"]) * Balance.damage_scale(spawn_wave)
+	var damage := (float(def["blast_damage"])
+		* Balance.damage_scale(spawn_wave, Game.is_nightmare()))
 	if is_elite:
 		damage *= Balance.ELITE_DAMAGE_MULTIPLIER
 	FX.explosion(global_position, radius)

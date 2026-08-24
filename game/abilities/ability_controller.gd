@@ -1,17 +1,21 @@
 class_name AbilityController
 extends Node
-## Runs the player's two equipped abilities.
+## Runs the player's three equipped abilities.
 ##
-## Exactly two slots, always. That constraint is the point of the system - it
-## forces a choice between escape (Dash), burst (Grenade, Nova, Stormcall),
-## control (Torpor, Effigy) and sustain (Bloom, Leech, Bulwark) instead of
-## letting a good run accumulate every answer.
+## Slot 0 is the movement slot and only takes a movement ability; slots 1 and 2
+## are general. The split exists because Dash used to compete for a general slot
+## and always won - it is the only source of invulnerability in the game, and
+## several boss attacks cannot be walked out of at all - so "pick two" really
+## meant "pick one, plus Dash". Separating the classes is what makes the general
+## slots an actual argument between burst, control and sustain.
 ##
 ## Charges refill on a cooldown; potions can grant a charge directly.
 
 const ORBITAL := preload("res://abilities/orbital_orbs.tscn")
 const DECOY := preload("res://abilities/decoy.tscn")
 const GRENADE := preload("res://abilities/grenade.tscn")
+const THORNWALL := preload("res://abilities/thornwall.tscn")
+const CINDERS := preload("res://abilities/cinders.tscn")
 
 signal slot_changed(slot: int)
 
@@ -19,7 +23,14 @@ var player: Player = null
 var effect_container: Node = null
 
 ## Per slot: {id, charges, max_charges, cooldown, cooldown_left}
-var slots: Array[Dictionary] = [{}, {}]
+## Sized from AbilitiesDB so it can never drift out of step with the loadout.
+var slots: Array[Dictionary] = []
+
+
+func _init() -> void:
+	slots.resize(AbilitiesDB.SLOT_COUNT)
+	for i in AbilitiesDB.SLOT_COUNT:
+		slots[i] = {}
 
 
 func _ready() -> void:
@@ -29,13 +40,20 @@ func _ready() -> void:
 func setup(p: Player, container: Node) -> void:
 	player = p
 	effect_container = container
-	var ids: Array[String] = Game.run.abilities if Game.run != null else ["dash", "grenade"]
-	for i in 2:
-		equip(i, ids[i] if i < ids.size() else "dash")
+	var ids: Array[String] = Game.run.abilities if Game.run != null \
+		else Save.loadout.duplicate()
+	for i in AbilitiesDB.SLOT_COUNT:
+		var id: String = ids[i] if i < ids.size() else ""
+		# A saved loadout from before the movement slot existed can be short, or
+		# hold the right ability in the wrong slot. Fall back per class rather
+		# than to Dash, which would put a movement ability in a general slot.
+		if not AbilitiesDB.fits_slot(id, i):
+			id = AbilitiesDB.fallback_for_slot(i)
+		equip(i, id)
 
 
 func equip(slot: int, id: String) -> void:
-	if slot < 0 or slot > 1:
+	if slot < 0 or slot >= slots.size():
 		return
 	var def := AbilitiesDB.get_def(id)
 	var extra := Game.run.ability_extra_charges if Game.run != null else 0
@@ -59,7 +77,7 @@ func _cooldown_for(def: Dictionary) -> float:
 
 
 func _process(delta: float) -> void:
-	for i in 2:
+	for i in slots.size():
 		var s := slots[i]
 		if s.is_empty():
 			continue
@@ -77,14 +95,16 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if player == null or not player.alive:
 		return
-	if event.is_action_pressed("ability_1"):
+	if event.is_action_pressed("ability_movement"):
 		use(0)
-	elif event.is_action_pressed("ability_2"):
+	elif event.is_action_pressed("ability_1"):
 		use(1)
+	elif event.is_action_pressed("ability_2"):
+		use(2)
 
 
 func use(slot: int) -> bool:
-	if slot < 0 or slot > 1 or player == null or not player.alive:
+	if slot < 0 or slot >= slots.size() or player == null or not player.alive:
 		return false
 	var s := slots[slot]
 	if s.is_empty() or int(s["charges"]) <= 0:
@@ -104,11 +124,11 @@ func use(slot: int) -> bool:
 	return true
 
 
-## How many charges are missing across both slots. The potion uses this to
+## How many charges are missing across every slot. The potion uses this to
 ## decide whether it is worth being picked up at all.
 func charges_missing() -> int:
 	var missing := 0
-	for i in 2:
+	for i in slots.size():
 		var s := slots[i]
 		if s.is_empty():
 			continue
@@ -116,7 +136,7 @@ func charges_missing() -> int:
 	return missing
 
 
-## Refill everything and clear both cooldowns - what the purple potion does.
+## Refill everything and clear every cooldown - what the purple potion does.
 ## Returns the number of charges restored.
 ##
 ## This used to be a single charge to the emptiest slot, which meant the potion
@@ -125,7 +145,7 @@ func charges_missing() -> int:
 ## worth going out of your way for.
 func refill_all() -> int:
 	var restored := 0
-	for i in 2:
+	for i in slots.size():
 		var s := slots[i]
 		if s.is_empty():
 			continue
@@ -144,7 +164,7 @@ func refill_all() -> int:
 func grant_charge(amount: int = 1) -> bool:
 	var best := -1
 	var best_missing := 0
-	for i in 2:
+	for i in slots.size():
 		var s := slots[i]
 		if s.is_empty():
 			continue
@@ -179,7 +199,11 @@ func charge_fraction(slot: int) -> float:
 func _execute(id: String, def: Dictionary) -> void:
 	match id:
 		"dash": _do_dash(def)
+		"surge": _do_surge(def)
+		"vault": _do_vault(def)
 		"grenade": _do_grenade(def)
+		"thornwall": _do_thornwall(def)
+		"cinders": _do_cinders(def)
 		"shield": _do_shield(def)
 		"timeslow": _do_timeslow(def)
 		"nova": _do_nova(def)
@@ -230,6 +254,77 @@ func _do_dash(def: Dictionary) -> void:
 		# crowd doesn't immediately eat a contact hit on the far side
 		player.invulnerable_until = maxf(player.invulnerable_until,
 			Time.get_ticks_msec() / 1000.0 + 0.12))
+
+
+## Surge trades Dash's invulnerability for duration. It is the answer to the
+## attacks you are supposed to outrun rather than blink through - the expanding
+## shockwave, the spiral - and the loadout that proves the bosses are beatable
+## without a blink at all.
+func _do_surge(def: Dictionary) -> void:
+	player.apply_speed_boost(float(def["multiplier"]), float(def["duration"]))
+	FX.ring(player.global_position, 90.0, Color(0.6, 1.0, 0.7), 0.35, 0.15)
+	FX.burst(player.global_position, Color(0.7, 1.0, 0.75), 14, 1.2)
+
+	# A trail for as long as the boost lasts, so the state is readable.
+	var left := float(def["duration"])
+	var t := create_tween()
+	t.set_loops(int(left / 0.09))
+	t.tween_interval(0.09)
+	t.tween_callback(func() -> void:
+		if is_instance_valid(player):
+			FX.impact(player.global_position, Color(0.65, 1.0, 0.7, 0.35), 0.6))
+
+
+## Vault leaps to the cursor and lands hard. The escape doubles as the opener,
+## which is what separates it from Dash - you aim it at something, not away.
+func _do_vault(def: Dictionary) -> void:
+	var to := player.get_global_mouse_position() - player.global_position
+	var distance := minf(to.length(), float(def["distance"]))
+	var dir := to.normalized() if to != Vector2.ZERO else player.aim_direction
+	var duration := float(def["duration"])
+	var radius := float(def["radius"])
+	var damage := float(def["damage"])
+
+	player.dashing = true
+	player.velocity = dir * (distance / duration)
+	FX.telegraph(player.global_position + dir * distance, radius, duration,
+		Color(0.75, 0.95, 1.0))
+	Game.shake(2.0, 0.12)
+
+	var end := create_tween()
+	end.tween_interval(duration)
+	end.tween_callback(func() -> void:
+		if not is_instance_valid(player):
+			return
+		player.dashing = false
+		player.velocity = dir * player.max_speed() * 0.5
+		# Same grace window Dash gets, for the same reason: landing in a crowd
+		# should not immediately cost a contact hit.
+		player.invulnerable_until = maxf(player.invulnerable_until,
+			Time.get_ticks_msec() / 1000.0 + 0.12)
+		var at := player.global_position
+		FX.explosion(at, radius, Color(0.8, 0.95, 1.0))
+		Audio.play("explosion", -7.0)
+		Game.shake(Balance.SHAKE_EXPLOSION, 0.3)
+		var hit := Combat.explode(at, radius, damage, float(def["knockback"]))
+		player.on_damage_dealt(damage * hit))
+
+
+## A barrier at the cursor, laid across your line of sight to it - so it goes
+## between you and whatever you are looking at, which is nearly always what you
+## wanted.
+func _do_thornwall(def: Dictionary) -> void:
+	var target := player.get_global_mouse_position()
+	var along := (target - player.global_position).angle() + PI * 0.5
+	var w := THORNWALL.instantiate() as Node2D
+	_container().add_child(w)
+	w.call("setup", target, along, def)
+
+
+func _do_cinders(def: Dictionary) -> void:
+	var c := CINDERS.instantiate() as Node2D
+	_container().add_child(c)
+	c.call("setup", player.get_global_mouse_position(), def)
 
 
 func _do_grenade(def: Dictionary) -> void:

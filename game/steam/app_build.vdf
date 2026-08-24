@@ -11,7 +11,7 @@
 "appbuild"
 {
 	"appid"          "APPID_HERE"
-	"desc"           "Slimer 1.0.0"
+	"desc"           "Slimer 2.1.0"          // keep in step with config/version in project.godot
 	"buildoutput"    "../build/steam/output"
 	"contentroot"    "../build/steam"
 	"setlive"        ""          // blank = do not auto-promote; set a branch name to publish

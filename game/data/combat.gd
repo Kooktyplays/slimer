@@ -78,11 +78,24 @@ static func enemy_count() -> int:
 # ---------------------------------------------------------------------------
 # queries
 # ---------------------------------------------------------------------------
+## Where an actor is actually drawn.
+##
+## Every actor's physics origin is at its feet, which is also where its shadow
+## is drawn - the sprite sits well above it (32px for a slime, 78px for a boss).
+## Measuring area damage from the origin meant abilities and bullets disagreed
+## about where an enemy was, and both of them disagreed with the player's eyes.
+## Falls back to the origin for anything that does not declare an offset.
+static func hit_center(node: Node2D) -> Vector2:
+	if node != null and node.has_method("hit_center"):
+		return node.call("hit_center")
+	return node.global_position if node != null else Vector2.ZERO
+
+
 static func enemies_in_radius(center: Vector2, radius: float) -> Array[Node2D]:
 	var out: Array[Node2D] = []
 	var r2 := radius * radius
 	for e: Node2D in enemies():
-		if e.global_position.distance_squared_to(center) <= r2:
+		if hit_center(e).distance_squared_to(center) <= r2:
 			out.append(e)
 	return out
 
@@ -94,7 +107,7 @@ static func nearest_enemy(to: Vector2, max_distance: float = INF,
 	for e: Node2D in enemies():
 		if exclude.has(e):
 			continue
-		var d := e.global_position.distance_squared_to(to)
+		var d := hit_center(e).distance_squared_to(to)
 		if d < best_d:
 			best_d = d
 			best = e
@@ -107,7 +120,7 @@ static func explode(center: Vector2, radius: float, damage: float,
 		knockback: float = 0.0, falloff: bool = true) -> int:
 	var hit := 0
 	for e: Node2D in enemies_in_radius(center, radius):
-		var dist := e.global_position.distance_to(center)
+		var dist := hit_center(e).distance_to(center)
 		var scale := 1.0
 		if falloff:
 			scale = lerpf(1.0, 0.42, clampf(dist / maxf(radius, 1.0), 0.0, 1.0))
@@ -122,7 +135,7 @@ static func explode_on_player(center: Vector2, radius: float, damage: float) -> 
 	var p := player()
 	if p == null or not p.has_method("take_damage"):
 		return false
-	var dist := p.global_position.distance_to(center)
+	var dist := hit_center(p).distance_to(center)
 	if dist > radius:
 		return false
 	var scale := lerpf(1.0, 0.5, clampf(dist / maxf(radius, 1.0), 0.0, 1.0))

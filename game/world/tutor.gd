@@ -40,8 +40,15 @@ func _process(delta: float) -> void:
 	_timer += delta
 	if _timer > 0.0 and not _shown_this_run.has("move"):
 		_hint("move", "WASD to move.  Mouse to aim.  Left click to shoot.")
-	if _timer > _ability_prompt_at:
-		_hint("ability", "SPACE and SHIFT use your two abilities. You only ever carry two.")
+	if _timer > _ability_prompt_at and not _shown_this_run.has("ability"):
+		# Read the keys from the bindings rather than naming them, so a rebind
+		# cannot turn this hint into a lie.
+		var keys: Array[String] = []
+		for action: String in ["ability_movement", "ability_1", "ability_2"]:
+			keys.append(InputBinds.label_for_action(
+				Save.keybinds, action, Game.input_device))
+		_hint("ability", "%s is your movement ability. %s and %s are your other two."
+			% [keys[0], keys[1], keys[2]])
 
 
 ## Show a hint once ever. `id` is namespaced in the save so a later hint added

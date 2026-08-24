@@ -138,8 +138,38 @@ func _on_boss_cleared(_boss: Node2D) -> void:
 		return
 	# sweep up any adds the boss left behind before the shop opens
 	waves.clear_all_enemies()
+	# ...and bank the payout before anything can read the balance. This has to
+	# happen before notify_wave_cleared(), because for a boss wave that call
+	# opens the shop itself - see Game.notify_wave_cleared.
+	_bank_loose_coins()
 	Game.notify_wave_cleared()
 	_open_shop()
+
+
+## Instantly credit every coin still lying in the forest.
+##
+## A boss drops its reward as a shower of coins that fly to the player over
+## about half a second. The shop opens on the same frame the boss dies and reads
+## Game.run.money as it builds, so it showed the balance from *before* the kill:
+## beat a boss for 300 with 400 in hand and the shop offered you 400, not 700.
+## The coins did arrive a moment later, but by then the number was already
+## drawn, and it stayed wrong until a purchase happened to redraw it.
+##
+## Banking is instant rather than accelerated because any flight time at all
+## re-opens the same race.
+func _bank_loose_coins() -> void:
+	var total := 0
+	var at := player.global_position if is_instance_valid(player) else Vector2.ZERO
+	for node: Node in get_tree().get_nodes_in_group(Pickup.GROUP):
+		var pickup := node as Pickup
+		if pickup != null and pickup.kind == Pickup.COIN and not pickup.collected:
+			total += pickup.collect_instantly()
+	if total <= 0:
+		return
+	# One report for the whole payout - five separate "+14" numbers stacked on
+	# the same pixel is noise, not feedback.
+	Audio.play("coin", -10.0)
+	FX.floating_text(at + Vector2(0, -140), "+%d" % total, Color(1.0, 0.86, 0.35))
 
 
 func _queue_next_wave() -> void:
@@ -177,18 +207,27 @@ func _on_enemy_died(enemy: Node2D, at: Vector2) -> void:
 
 	var money := int(enemy.get("money_value"))
 	if money > 0:
-		_drop_coins(at, money)
+		_drop_coins(at, money, bool(enemy.get("hoards")))
 	_maybe_drop_potion(at, enemy)
 
 
 ## Split a payout into a few coins so a big reward reads as a shower rather
 ## than a single sprite worth 90.
-func _drop_coins(at: Vector2, total: int) -> void:
-	var count := clampi(int(ceil(total / 14.0)), 1, 5)
+##
+## A hoarder bursts into far more coins than its payout alone would justify.
+## Killing one is meant to feel like cracking something open, and the reward has
+## to be legible at the moment it happens or the chase never seems worth it.
+func _drop_coins(at: Vector2, total: int, hoard: bool = false) -> void:
+	var cap := 12 if hoard else 5
+	var per_coin := 9.0 if hoard else 14.0
+	var count := clampi(int(ceil(total / per_coin)), 1, cap)
 	var per := maxi(1, int(round(float(total) / count)))
 	for i in count:
 		var p := Pools.acquire(PICKUP_SCENE, forest.sorted_layer) as Pickup
 		p.configure(Pickup.COIN, at, per)
+	if hoard:
+		FX.burst(at, Color(1.0, 0.86, 0.35), 22, 1.1)
+		Audio.play("coin", -4.0)
 
 
 func _maybe_drop_potion(at: Vector2, enemy: Node2D) -> void:

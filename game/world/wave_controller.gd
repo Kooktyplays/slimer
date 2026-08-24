@@ -49,8 +49,8 @@ func setup(forest_layout: ForestGenerator, enemies_parent: Node, bullets_parent:
 func start_wave(wave_number: int) -> void:
 	wave = wave_number
 	_rng.seed = (Game.run.seed_value if Game.run != null else 0) * 31 + wave * 7717
-	budget_remaining = Balance.wave_budget(wave)
-	_weights = EnemyTypes.weights_for_wave(wave)
+	budget_remaining = Balance.wave_budget(wave, Game.is_nightmare())
+	_weights = EnemyTypes.weights_for_wave(wave, Game.is_nightmare())
 	spawn_accumulator = 0.0
 	alive_count = 0
 	_finished_emitted = false
@@ -87,7 +87,7 @@ func _process(delta: float) -> void:
 		and Combat.enemy_count() <= FINISHER_THRESHOLD)
 
 	if budget_remaining > 0.0:
-		spawn_accumulator += delta * Balance.spawn_rate(wave)
+		spawn_accumulator += delta * Balance.spawn_rate(wave, Game.is_nightmare())
 		if spawn_accumulator >= 1.0:
 			var chunk := minf(spawn_accumulator, budget_remaining)
 			spawn_accumulator = 0.0
@@ -217,11 +217,12 @@ func remaining_estimate() -> int:
 
 ## What a wave would be made of, without spawning anything. Used by
 ## tests/test_waves.gd to check the composition curve.
-static func preview_composition(wave_number: int, seed_value: int) -> Dictionary:
+static func preview_composition(wave_number: int, seed_value: int,
+		nightmare: bool = false) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value * 31 + wave_number * 7717
-	var weights := EnemyTypes.weights_for_wave(wave_number)
-	var budget := Balance.wave_budget(wave_number)
+	var weights := EnemyTypes.weights_for_wave(wave_number, nightmare)
+	var budget := Balance.wave_budget(wave_number, nightmare)
 	var counts := {}
 	var elites := 0
 	var guard := 0
@@ -244,4 +245,5 @@ static func preview_composition(wave_number: int, seed_value: int) -> Dictionary
 			elites += 1
 		budget -= cost
 		counts[pick] = int(counts.get(pick, 0)) + 1
-	return {"counts": counts, "elites": elites, "budget": Balance.wave_budget(wave_number)}
+	return {"counts": counts, "elites": elites,
+		"budget": Balance.wave_budget(wave_number, nightmare)}

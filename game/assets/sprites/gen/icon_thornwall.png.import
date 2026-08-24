@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://p8ywx68h7myc"
-path="res://.godot/imported/muzzle_flash.png-06f4589908996d979ee86d839362cc91.ctex"
+uid="uid://c54hl4hvkc42n"
+path="res://.godot/imported/icon_thornwall.png-eba6caa5064715441ff2cf8034c54906.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/sprites/muzzle_flash.png"
-dest_files=["res://.godot/imported/muzzle_flash.png-06f4589908996d979ee86d839362cc91.ctex"]
+source_file="res://assets/sprites/gen/icon_thornwall.png"
+dest_files=["res://.godot/imported/icon_thornwall.png-eba6caa5064715441ff2cf8034c54906.ctex"]
 
 [params]
 
