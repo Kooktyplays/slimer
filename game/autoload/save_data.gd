@@ -103,9 +103,13 @@ func from_dict(d: Dictionary) -> void:
 		for action: String in _VERSIONED_ABILITY_ACTIONS:
 			keybinds.erase(action)
 
+	# Absent stats reset to zero rather than keeping what happened to be in
+	# memory. Loading a save has to *replace* state, not merge into it - an
+	# older save that predates a counter would otherwise inherit the counter
+	# from whatever was loaded before it.
+	var incoming: Dictionary = d.get("stats", {})
 	for k: String in stats:
-		if d.get("stats", {}).has(k):
-			stats[k] = int(d["stats"][k])
+		stats[k] = int(incoming[k]) if incoming.has(k) else 0
 	for k: String in settings:
 		if d.get("settings", {}).has(k):
 			var v: Variant = d["settings"][k]
