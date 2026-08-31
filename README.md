@@ -1,8 +1,8 @@
 # Slimer
 
 An endless, procedurally generated top-down forest roguelike, built in
-**Godot 4.4.1**. Six enemy colours, five bosses, eleven abilities of which you
-carry two, and a forest generated fresh from a seed every run.
+**Godot 4.4.1**. Eight enemy colours, five bosses, fifteen abilities of which
+you carry three, and a forest generated fresh from a seed every run.
 
 **Free — may be shared, not sold.** See [Licensing](#licensing).
 

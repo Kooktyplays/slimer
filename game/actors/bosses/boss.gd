@@ -7,10 +7,19 @@ extends CharacterBody2D
 ## warning is a boss you can only survive by luck, and the whole point of
 ## these fights is that they can be learned.
 ##
-## The eight attacks below are shared across archetypes; which ones a boss can
-## use, and in which phase, comes from BossDB.
+## Nine of the attacks below are shared across archetypes; which ones a boss
+## can use, and in which phase, comes from BossDB. Each boss also owns exactly
+## one **signature** attack that nobody else has - without those, five bosses
+## drawing from one pool were five HP bars with the same moveset.
+##
+## Phases *replace* rather than append. A phase that was the previous phase
+## plus two more entries only changed how often you were attacked; a phase that
+## drops what you learned and brings something else changes how you fight.
 
 const PROJECTILE := preload("res://weapons/projectile.tscn")
+## Bramble's Snare grows real barriers. Same scene the Thornwall ability uses,
+## so a boss wall and a player wall obey exactly the same rules.
+const THORNWALL := preload("res://abilities/thornwall.tscn")
 
 signal defeated(boss: Boss)
 
@@ -331,6 +340,12 @@ func _choose_attack() -> void:
 		"rain": _atk_rain()
 		"shockwave": _atk_shockwave()
 		"blink_radial": _atk_blink_radial()
+		# signatures - one boss each
+		"snare": _atk_snare()
+		"tongue": _atk_tongue()
+		"chorus": _atk_chorus()
+		"rootquake": _atk_rootquake()
+		"devour": _atk_devour()
 
 
 func _telegraph_time() -> float:
@@ -583,10 +598,205 @@ func _atk_blink_radial() -> void:
 	t.tween_callback(_recover)
 
 
+# ---------------------------------------------------------------------------
+# signature attacks - exactly one per boss
+# ---------------------------------------------------------------------------
+## BRAMBLE. Grows a ring of thorn walls around the player with a single gap.
+## The gap is shown before the walls are solid, so this is a "move now, and
+## know where to" - the opposite question to the boss's charge, which is "get
+## off this line".
+func _atk_snare() -> void:
+	var center := Combat.player_position()
+	var radius := 300.0
+	var segments := 8
+	var gap := _rng.randi() % segments
+	var lead := _telegraph_time() * 1.2
+	FX.telegraph(center, radius, lead, Color(0.45, 0.75, 0.35))
+
+	var t := _wind_up(lead)
+	t.tween_callback(func() -> void:
+		Audio.play("ability", -4.0)
+		for i in segments:
+			if i == gap:
+				continue
+			var a := TAU * i / segments
+			var at := center + Vector2.RIGHT.rotated(a) * radius
+			if layout != null and not layout.is_open(at):
+				continue
+			var wall: Node2D = THORNWALL.instantiate()
+			get_parent().add_child(wall)
+			# tangent to the ring, so the segments form a wall not a starburst
+			wall.call("setup", at, a + PI * 0.5, {
+				"duration": 4.5, "length": TAU * radius / float(segments) * 1.05,
+			})
+		FX.ring(center, radius, def["tint"], 0.5, 0.12))
+	t.tween_interval(0.3)
+	t.tween_callback(_recover)
+
+
+## TOAD. A tongue lashes out along a drawn line and drags you back down it.
+## Being pulled is the point: it does modest damage and puts you exactly where
+## the Toadfather's slam wants you, which is why phase 3 pairs the two.
+func _atk_tongue() -> void:
+	var dir := (Combat.player_position() - global_position).normalized()
+	var reach := 700.0
+	var lead := _telegraph_time()
+
+	var line := Line2D.new()
+	line.width = 46.0
+	line.default_color = Color(0.85, 0.35, 0.45, 0.30)
+	line.z_index = 12
+	line.add_point(global_position)
+	line.add_point(global_position + dir * reach)
+	get_parent().add_child(line)
+
+	var t := _wind_up(lead)
+	t.tween_callback(func() -> void:
+		line.default_color = Color(0.95, 0.45, 0.5, 0.85)
+		Audio.play("boss_attack", -3.0)
+		Game.shake(4.5, 0.25)
+		var p := Combat.player()
+		if p != null:
+			# on the line, and within reach of it
+			var to_p := p.global_position - global_position
+			var along := to_p.dot(dir)
+			var off := (to_p - dir * along).length()
+			if along > 0.0 and along < reach and off < line.width * 0.5:
+				p.call("take_damage", 14.0 * _damage_scale, false,
+					global_position, 0.0)
+				# Reeled in as a velocity impulse, not a position tween.
+				# The player's _move() overwrites velocity every frame but
+				# decays it *toward* the input target at PLAYER_ACCEL, so an
+				# impulse survives several frames and - crucially - is resolved
+				# by move_and_slide, which respects the forest. Setting the
+				# position directly would drag the player through trees.
+				p.velocity += -dir * 1450.0
+				FX.ring(p.global_position, 90.0, Color(0.95, 0.45, 0.5), 0.3, 0.2))
+	t.tween_interval(0.3)
+	t.tween_callback(func() -> void:
+		line.queue_free()
+		_recover())
+
+
+## WISP. Splits into a choir of echoes that all fire at once. Only the real one
+## can be hurt - the echoes are pure visual - so the question this asks is
+## "where is it actually", not "which one do I shoot".
+func _atk_chorus() -> void:
+	var echoes := 2 + phase
+	var lead := _telegraph_time() * 0.9
+	var t := _wind_up(lead)
+	t.tween_callback(func() -> void:
+		Audio.play("ability", -4.0)
+		var spots: Array[Vector2] = []
+		for i in echoes:
+			var a := TAU * i / echoes + _rng.randf()
+			var at := global_position + Vector2.RIGHT.rotated(a) * _rng.randf_range(200.0, 340.0)
+			if layout != null:
+				at = layout.nearest_open(at)
+			spots.append(at)
+			var ghost := Sprite2D.new()
+			ghost.texture = _body.texture
+			ghost.modulate = Color(def["tint"].r, def["tint"].g, def["tint"].b, 0.55)
+			ghost.scale = _visual.scale
+			ghost.z_index = 10
+			# parented first: global_position on a node outside the tree is
+			# just position, and would land the echoes wherever the parent is
+			get_parent().add_child(ghost)
+			ghost.global_position = at + Vector2(0, BODY_LOCAL_Y * float(def["scale"]))
+			var fade := ghost.create_tween()
+			fade.tween_interval(0.55)
+			fade.tween_property(ghost, "modulate:a", 0.0, 0.3)
+			fade.tween_callback(ghost.queue_free)
+		# every voice sings, including the real one
+		for at: Vector2 in spots:
+			var to_player := (Combat.player_position() - at).normalized()
+			for k in 3:
+				_fire_from(at, to_player.rotated(deg_to_rad(-14.0 + 14.0 * k)), 340.0, 10.0)
+		for k in 3:
+			var d := (Combat.player_position() - global_position).normalized()
+			_fire(d.rotated(deg_to_rad(-14.0 + 14.0 * k)), 340.0, 10.0))
+	t.tween_interval(0.45)
+	t.tween_callback(_recover)
+
+
+## OAK. Roots tear along spokes radiating from the trunk. The safe ground is
+## the wedge *between* two spokes, so this is the one attack that rewards
+## standing still in the right place rather than running.
+func _atk_rootquake() -> void:
+	var spokes := 5 + phase
+	var steps := 6
+	var step_len := 150.0
+	var radius := 120.0
+	var lead := _telegraph_time()
+	var base := _rng.randf() * TAU
+	var origin := global_position
+
+	var t := _wind_up(lead)
+	t.tween_callback(func() -> void:
+		Audio.play("boss_attack", -2.0)
+		Game.shake(6.0, 0.5)
+		for step in steps:
+			var inner := create_tween()
+			inner.tween_interval(0.10 * step)
+			inner.tween_callback(func() -> void:
+				var d := (float(step) + 1.0) * step_len
+				for i in spokes:
+					var at := origin + Vector2.RIGHT.rotated(base + TAU * i / spokes) * d
+					FX.explosion(at, radius, def["tint"])
+					Combat.explode_on_player(at, radius, 15.0 * _damage_scale)))
+	t.tween_interval(0.10 * steps + 0.3)
+	t.tween_callback(_recover)
+
+
+## SOVEREIGN. Eats its own summons and heals off them. This is the only reason
+## in the game to prioritise a boss's adds over the boss - leave them alive and
+## the health bar goes backwards.
+func _atk_devour() -> void:
+	var lead := _telegraph_time()
+	var radius := 520.0
+	FX.telegraph(global_position, radius, lead, Color(0.75, 0.4, 0.95))
+
+	var t := _wind_up(lead)
+	t.tween_callback(func() -> void:
+		var eaten := 0
+		for e: Node2D in Combat.enemies_in_radius(global_position, radius):
+			# never itself, and never another boss
+			if e == self or e.is_in_group("boss"):
+				continue
+			var at := e.global_position
+			FX.burst(at, def["tint"], 10, 1.0)
+			var streak := create_tween()
+			streak.tween_callback(func() -> void:
+				FX.ring(at, 60.0, def["tint"], 0.3, 0.25))
+			# die(false) suppresses the death FX but NOT the payout: run.gd
+			# drops coins off the enemy_died signal and reads money_value,
+			# which it would still see. Zero it first, or the Sovereign
+			# healing off its own court would pay you for the privilege.
+			e.set("money_value", 0)
+			if e.has_method("die"):
+				e.call("die", false)
+			eaten += 1
+		if eaten > 0:
+			hp = minf(max_hp, hp + max_hp * 0.045 * eaten)
+			Audio.play("boss_phase", -2.0)
+			FX.floating_text(global_position + Vector2(0, -160),
+				"DEVOURED %d" % eaten, Color(0.8, 0.5, 1.0))
+			Game.shake(5.0, 0.3)
+		else:
+			FX.floating_text(global_position + Vector2(0, -160), "hungry",
+				Color(0.7, 0.6, 0.8)))
+	t.tween_interval(0.35)
+	t.tween_callback(_recover)
+
+
 func _fire(dir: Vector2, speed: float, damage: float) -> void:
+	_fire_from(global_position, dir, speed, damage)
+
+
+func _fire_from(origin: Vector2, dir: Vector2, speed: float, damage: float) -> void:
 	var container := bullet_container if bullet_container != null else get_parent()
 	var b := Pools.acquire(PROJECTILE, container) as Node2D
-	b.call("launch", global_position + dir * (hit_radius * 0.8), dir, {
+	b.call("launch", origin + dir * (hit_radius * 0.8), dir, {
 		"damage": damage * _damage_scale,
 		"speed": speed,
 		"range": 1500.0,
@@ -600,7 +810,7 @@ func _fire(dir: Vector2, speed: float, damage: float) -> void:
 # damage, phases, death
 # ---------------------------------------------------------------------------
 func take_damage(amount: float, is_crit: bool = false, _from: Vector2 = Vector2.ZERO,
-		_knockback: float = 0.0) -> void:
+		_knockback: float = 0.0, _source: String = Combat.SOURCE_OTHER) -> void:
 	if dying or not active:
 		return
 	hp -= amount

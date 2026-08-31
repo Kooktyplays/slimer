@@ -5,8 +5,22 @@ extends RefCounted
 ## Five archetypes with genuinely different mechanics - not one boss with five
 ## HP values. Three minis rotate on the every-5th-wave slot, two majors rotate
 ## on every-20th. Because the run is endless, each repeat of an archetype
-## comes back with an extra phase and a wider attack list rather than just
-## more health.
+## comes back with an extra phase rather than just more health.
+##
+## Two rules hold this together, and both were once broken:
+##
+## 1. **Every boss owns a signature attack nobody else has.** Without one, all
+##    five drew from a single shared pool of nine moves and no boss had a move
+##    that was *its*.
+##
+## 2. **Phases replace, they do not append.** Every phase list used to be the
+##    previous phase plus more entries, which meant a phase change altered how
+##    *often* you were attacked and never how you fought. A later phase now
+##    drops moves as it gains them, so the thing you learned in phase 1 stops
+##    being the answer in phase 2.
+##
+## Both rules are asserted in the logic suite; a phase list that is a superset
+## of the one before it is a test failure, not a style note.
 
 const MINI_ROTATION: Array[String] = ["bramble", "toad", "wisp"]
 const MAJOR_ROTATION: Array[String] = ["oak", "sovereign"]
@@ -25,12 +39,18 @@ const DEFS := {
 		"speed": 92.0,
 		"contact_damage": 22.0,
 		"tint": Color(0.60, 0.44, 0.28),
-		# phase -> attacks available. Later phases keep the earlier ones.
+		# phase -> the attacks available in it. Later phases REPLACE the
+		# earlier ones rather than adding to them - see the note above.
 		"phases": [
+			# learn the two tells...
 			["charge", "radial"],
-			["charge", "radial", "summon", "rain"],
-			["charge", "radial", "summon", "rain", "spiral"],
+			# ...then it stops using either and starts fencing you in
+			["snare", "summon", "rain"],
+			# the charge comes back, now aimed at you inside a ring
+			["snare", "charge", "spiral"],
 		],
+		# this boss's, and nobody else's
+		"signature": "snare",
 		"summon_types": ["green", "green", "blue"],
 		"summon_count": 3,
 		"projectile": "res://assets/sprites/gen/thorn.png",
@@ -50,9 +70,13 @@ const DEFS := {
 		"tint": Color(0.30, 0.62, 0.28),
 		"phases": [
 			["slam", "aimed_volley"],
-			["slam", "aimed_volley", "summon", "shockwave"],
-			["slam", "aimed_volley", "summon", "shockwave", "rain"],
+			# drops both openers: now it drags you in and pushes you out
+			["tongue", "shockwave", "summon"],
+			# pull, then slam where you land - the two halves finally meet
+			["tongue", "slam", "rain"],
 		],
+		# this boss's, and nobody else's
+		"signature": "tongue",
 		"summon_types": ["green", "orange"],
 		"summon_count": 4,
 		"projectile": "res://assets/sprites/gen/orb.png",
@@ -72,9 +96,12 @@ const DEFS := {
 		"tint": Color(0.57, 0.40, 0.92),
 		"phases": [
 			["spiral", "blink_radial"],
-			["spiral", "blink_radial", "aimed_volley", "summon"],
-			["spiral", "blink_radial", "aimed_volley", "summon", "rain"],
+			# one wisp becomes several, and the spiral stops
+			["chorus", "aimed_volley", "summon"],
+			["chorus", "blink_radial", "rain"],
 		],
+		# this boss's, and nobody else's
+		"signature": "chorus",
 		"summon_types": ["purple", "blue"],
 		"summon_count": 3,
 		"projectile": "res://assets/sprites/gen/orb.png",
@@ -95,10 +122,13 @@ const DEFS := {
 		"tint": Color(0.42, 0.34, 0.22),
 		"phases": [
 			["rain", "radial", "summon"],
-			["rain", "radial", "summon", "shockwave", "slam"],
-			["rain", "radial", "summon", "shockwave", "slam", "spiral"],
-			["rain", "radial", "summon", "shockwave", "slam", "spiral", "charge"],
+			# the ground itself takes over; the ranged game stops
+			["rootquake", "shockwave", "slam"],
+			["rootquake", "spiral", "radial", "summon"],
+			["rootquake", "charge", "slam", "rain"],
 		],
+		# this boss's, and nobody else's
+		"signature": "rootquake",
 		"summon_types": ["green", "red", "purple"],
 		"summon_count": 5,
 		"projectile": "res://assets/sprites/gen/thorn.png",
@@ -118,10 +148,13 @@ const DEFS := {
 		"tint": Color(0.57, 0.40, 0.92),
 		"phases": [
 			["slam", "spiral", "summon"],
-			["slam", "spiral", "summon", "rain", "radial"],
-			["slam", "spiral", "summon", "rain", "radial", "shockwave", "charge"],
-			["slam", "spiral", "summon", "rain", "radial", "shockwave", "charge", "blink_radial"],
+			# it starts eating its own court: from here, adds are the fight
+			["devour", "summon", "rain", "radial"],
+			["devour", "summon", "shockwave", "charge"],
+			["devour", "summon", "blink_radial", "slam", "spiral"],
 		],
+		# this boss's, and nobody else's
+		"signature": "devour",
 		"summon_types": ["green", "blue", "red", "yellow"],
 		"summon_count": 6,
 		"summon_elite": true,

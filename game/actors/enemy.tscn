@@ -37,6 +37,10 @@ texture = ExtResource("4_f")
 visible = false
 position = Vector2(0, -34)
 
+[node name="Badge" type="Sprite2D" parent="Visual/Body"]
+visible = false
+position = Vector2(0, 14)
+
 [node name="Shape" type="CollisionShape2D" parent="."]
 shape = SubResource("CircleShape2D_enemy")
 

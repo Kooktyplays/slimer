@@ -77,7 +77,7 @@ it freezes on pause (see §11).
 
 ---
 
-## 4. The six enemy colours
+## 4. The eight enemy colours
 
 Colour, behaviour and stats are declared in one entry in
 `data/enemy_types.gd`, so a colour can never lie about what it does.
@@ -88,8 +88,36 @@ Colour, behaviour and stats are declared in one entry in
 | 🔵 Blue | Darter | 20 | 215 | Fast; swings wide, then commits | 6–10 | Wave 4 |
 | 🔴 Red | Brute | 110 | 62 | Slow, relentless, 20 contact damage | 12–18 | Wave 6 |
 | 🟣 Purple | Spitter | 38 | 95 | Holds ~420 px, strafes, shoots | 10–16 | Wave 9 |
-| 🟡 Yellow | Hoarder | 45 | 145 | Runs away; pays 5× | 34–52 | Wave 11 |
+| 🟡 Yellow | Hoarder | 45 | 145 | Runs away; pays a hoard | 70–105 | Wave 11 |
+| 🟣 Violet | Warded | 64 | 86 | Walks straight through you; **abilities do nothing** | 13–20 | Wave 13 |
 | 🟠 Orange | Bloater | 34 | 130 | Closes and detonates for 26 AoE | 11–17 | Wave 15 |
+| ⚪ Grey | Carapace | 58 | 78 | Shells up; **bullets glance off while shelled** | 13–20 | Wave 18 |
+
+### The adaptation pair
+
+Everything above Warded is chase-with-variations: whatever you brought, you
+use. Violet and grey are the first enemies that ask *what* you brought and
+refuse half the answers — and they only work as a pair. Either one alone
+punishes a single build; both mean no loadout is safe.
+
+- **Warded** takes nothing from abilities, ever. Shoot it. Safe to make
+  permanent, because the player always has a gun.
+- **Carapace** takes nothing from bullets **while its shell is up**, and it
+  stands still while shelled — so the window is readable from motion alone.
+  The shell cycles rather than being permanent for a reason: a
+  Surge/Barrier/Heal loadout deals no ability damage at all, and a permanently
+  bullet-proof enemy in that run could never be killed, so the wave could never
+  end.
+
+Damage carries a source tag (`Combat.SOURCE_BULLET` / `SOURCE_ABILITY` /
+`SOURCE_OTHER`) and each type declares which one bounces off. `SOURCE_OTHER` is
+the untagged default and always lands, so Bloater splash — which is neither —
+never becomes a stealth counter to either type.
+
+**Enemy markers.** Every behaviour above is also a shape drawn on the slime
+(circle, chevron, square, diamond, triangle, burst, ring, hexagon), because
+otherwise all eight are encoded in colour alone and two of them are red and
+green. On by default; Settings → Enemy markers.
 
 Two quality-of-life rules on top:
 
@@ -114,7 +142,7 @@ it a wedged slime can stall a wave forever.
 `world/wave_controller.gd`. Each wave gets a budget:
 
 ```
-budget(w) = 4 + 2.1w + 0.075w²
+budget(w) = 5 + 2.7w + 0.098w²
 ```
 
 Each enemy type costs threat (green 1.0 … red 3.0). The spawner buys from the

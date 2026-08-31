@@ -306,7 +306,8 @@ func _do_vault(def: Dictionary) -> void:
 		FX.explosion(at, radius, Color(0.8, 0.95, 1.0))
 		Audio.play("explosion", -7.0)
 		Game.shake(Balance.SHAKE_EXPLOSION, 0.3)
-		var hit := Combat.explode(at, radius, damage, float(def["knockback"]))
+		var hit := Combat.explode(at, radius, damage, float(def["knockback"]),
+			true, Combat.SOURCE_ABILITY)
 		player.on_damage_dealt(damage * hit))
 
 
@@ -353,7 +354,7 @@ func _do_nova(def: Dictionary) -> void:
 	FX.ring(player.global_position, radius, Color(1.0, 0.85, 0.45), 0.45, 0.1)
 	FX.burst(player.global_position, Color(1.0, 0.9, 0.6), 26, 1.8)
 	var hit := Combat.explode(player.global_position, radius,
-		float(def["damage"]), float(def["knockback"]))
+		float(def["damage"]), float(def["knockback"]), true, Combat.SOURCE_ABILITY)
 	player.on_damage_dealt(float(def["damage"]) * hit)
 	Game.shake(Balance.SHAKE_EXPLOSION, 0.35)
 
@@ -380,7 +381,7 @@ func _do_lightning(def: Dictionary) -> void:
 		hit.append(target)
 		_draw_bolt(from, target.global_position)
 		if target.has_method("take_damage"):
-			target.call("take_damage", damage, false, from, 90.0)
+			target.call("take_damage", damage, false, from, 90.0, Combat.SOURCE_ABILITY)
 			total += damage
 		FX.burst(target.global_position, Color(0.75, 0.9, 1.0), 8, 0.9)
 		from = target.global_position

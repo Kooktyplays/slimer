@@ -50,6 +50,7 @@ class C:
     GOLD_L = (255, 226, 122)
     BONE = (232, 226, 205)
     WHITE = (255, 255, 255)
+    INK = (22, 26, 32)          # badge outlines: dark enough to hold on any body
     SHADOW = (0, 0, 0)
     ESSENCE_D = (98, 62, 178)
     ESSENCE_M = (146, 102, 234)
@@ -389,6 +390,12 @@ ENEMY_TINTS = {
     "yellow": (46,  1.00, 1.06),
     "purple": (280, 0.90, 0.98),
     "orange": (24,  1.02, 1.02),
+    # The adaptation pair. Both are deliberately low-saturation so they do not
+    # read as "another one of the six" - but that is also exactly why they need
+    # the shape badge below: pale violet against purple, and grey-green against
+    # green, are the two hardest reads in the roster.
+    "violet": (265, 0.42, 1.10),
+    "grey":   (120, 0.16, 0.88),
 }
 
 
@@ -434,6 +441,97 @@ def gen_enemies():
         a.rrect(12, 26, 96, 31, 3, (*C.GOLD_M, 255))
         a.circle(54, 31, 4, (*col, 255))
         a.save(f"elite_crown_{name}.png")
+
+
+# --------------------------------------------------------------------------
+# 1b. type badges - what each slime does, as a shape
+# --------------------------------------------------------------------------
+# Every enemy behaviour in the game is encoded in colour, and two of the eight
+# are red and green. For the ~8% of male players with a colour vision
+# deficiency the roster's whole readability system does not work, and the
+# Warded/Carapace pair makes that worse: telling those two apart is the
+# difference between spending a cooldown and wasting it.
+#
+# So each type also carries a shape, chosen to be separable by silhouette
+# alone at ~30 px: circle, chevron, square, diamond, triangle, burst, ring,
+# hexagon. White on a dark outline, which holds up over any body colour.
+BADGE = 34          # canvas is square; drawn centred
+
+
+def _badge() -> "Art":
+    return Art(BADGE, BADGE)
+
+
+def _badge_shape(a: "Art", draw, outline_w=3.4):
+    """Draw `draw` twice: a dark fattened pass, then the white shape on top."""
+    draw(a, (*C.INK, 235), outline_w)
+    draw(a, (255, 255, 255, 245), 0.0)
+
+
+def gen_type_badges():
+    c = BADGE / 2.0
+    r = 10.0
+
+    def circle(a, col, g):
+        a.circle(c, c, r + g, col)
+
+    def chevron(a, col, g):
+        for dx in (-4.5, 4.5):
+            a.poly([(c + dx - 5 - g, c - 8 - g), (c + dx + 4 + g, c),
+                    (c + dx - 5 - g, c + 8 + g), (c + dx - 1.5 + g, c)], col)
+
+    def square(a, col, g):
+        a.rrect(c - r - g, c - r - g, c + r + g, c + r + g, 2.5, col)
+
+    def diamond(a, col, g):
+        a.poly([(c, c - r - g - 1), (c + r + g + 1, c),
+                (c, c + r + g + 1), (c - r - g - 1, c)], col)
+
+    def triangle(a, col, g):
+        a.poly([(c, c + r + g), (c + r + g + 1, c - r * 0.72 - g),
+                (c - r - g - 1, c - r * 0.72 - g)], col)
+
+    def burst(a, col, g):
+        for i in range(8):
+            ang = math.pi * 2 * i / 8
+            a.poly([
+                (c + math.cos(ang) * (r + g + 2), c + math.sin(ang) * (r + g + 2)),
+                (c + math.cos(ang + 0.42) * (3.4 + g), c + math.sin(ang + 0.42) * (3.4 + g)),
+                (c + math.cos(ang - 0.42) * (3.4 + g), c + math.sin(ang - 0.42) * (3.4 + g)),
+            ], col)
+
+    def ring(a, col, g):
+        # Warded: a rune halo. Hollow, so it cannot be confused with the solid
+        # circle the plain chaser carries.
+        a.circle(c, c, r + g, col)
+        if g == 0.0:
+            a.circle(c, c, r - 3.6, (0, 0, 0, 0))
+
+    def hexagon(a, col, g):
+        pts = [(c + math.cos(math.pi / 6 + math.pi * 2 * i / 6) * (r + g + 1),
+                c + math.sin(math.pi / 6 + math.pi * 2 * i / 6) * (r + g + 1))
+               for i in range(6)]
+        a.poly(pts, col)
+
+    shapes = {
+        "green": circle, "blue": chevron, "red": square, "purple": diamond,
+        "yellow": triangle, "orange": burst, "violet": ring, "grey": hexagon,
+    }
+    for name, fn in shapes.items():
+        a = _badge()
+        if name == "violet":
+            # the hollow pass has to punch through both layers, so it is drawn
+            # rather than composited
+            fn(a, (*C.INK, 235), 3.4)
+            fn(a, (255, 255, 255, 245), 0.0)
+            hole = Image.new("RGBA", a.img.size, (0, 0, 0, 0))
+            ImageDraw.Draw(hole).ellipse(
+                [(c - 4.4) * SS, (c - 4.4) * SS, (c + 4.4) * SS, (c + 4.4) * SS],
+                fill=(255, 255, 255, 255))
+            a.img.paste((0, 0, 0, 0), (0, 0), hole)
+        else:
+            _badge_shape(a, fn)
+        a.save(f"enemy_{name}_badge.png")
 
 
 def gen_faces():
@@ -1243,6 +1341,7 @@ def main():
         ("ground tiles", gen_ground_tiles),
         ("app icons", gen_icons),
         ("enemy recolours", gen_enemies),
+        ("type badges", gen_type_badges),
         ("faces", gen_faces),
         ("trees", gen_trees),
         ("bushes", gen_bushes),

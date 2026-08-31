@@ -53,7 +53,8 @@ func _detonate() -> void:
 	FX.explosion(_to, _radius)
 	Audio.play("explosion", -2.0)
 	Game.shake(Balance.SHAKE_EXPLOSION, 0.4)
-	var hit := Combat.explode(_to, _radius, _damage, 380.0)
+	var hit := Combat.explode(_to, _radius, _damage, 380.0, true,
+		Combat.SOURCE_ABILITY)
 	var p := Combat.player()
 	if p != null and p.has_method("on_damage_dealt"):
 		p.call("on_damage_dealt", _damage * hit)

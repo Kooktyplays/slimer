@@ -76,7 +76,8 @@ func _check_hits() -> void:
 				continue
 			_cooldowns[key] = HIT_COOLDOWN
 			if e.has_method("take_damage"):
-				e.call("take_damage", _damage, false, orb.global_position, 140.0)
+				e.call("take_damage", _damage, false, orb.global_position, 140.0,
+					Combat.SOURCE_ABILITY)
 				total += _damage
 			FX.impact(orb.global_position, Color(0.7, 0.9, 1.0), 0.7)
 	if total > 0.0 and _player.has_method("on_damage_dealt"):

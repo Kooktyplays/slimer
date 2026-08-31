@@ -14,6 +14,8 @@ extends CharacterBody2D
 ##   ranged   (purple) - holds a preferred distance and shoots
 ##   skittish (yellow) - runs away, pays out big if you catch it
 ##   bomber   (orange) - closes and detonates
+##   ward     (violet) - unflinching, immune to abilities: shoot it
+##   turtle   (grey)   - hunkers behind a shell, immune to bullets: use a cooldown
 
 const FLASH_SHADER := preload("res://assets/shaders/flash.gdshader")
 const PROJECTILE := preload("res://weapons/projectile.tscn")
@@ -25,9 +27,17 @@ const FACE_ANGRY := preload("res://assets/sprites/gen/eyes_angry.png")
 const LOD_NEAR := 900.0
 const LOD_FAR_INTERVAL := 0.1
 
+## The colour a deflected hit flashes. One colour for both immune types, so it
+## reads as "that did nothing" rather than as a second thing to decode.
+const DEFLECT_COLOR := Color(0.85, 0.88, 0.95)
+const DEFLECT_TEXT_INTERVAL := 0.7
+
+var _last_deflect_text := -1.0
+
 @onready var _body: Sprite2D = $Visual/Body
 @onready var _face: Sprite2D = $Visual/Body/Face
 @onready var _crown: Sprite2D = $Visual/Body/Crown
+@onready var _badge: Sprite2D = $Visual/Body/Badge
 @onready var _visual: Node2D = $Visual
 @onready var _shadow: Sprite2D = $Shadow
 @onready var _shape: CollisionShape2D = $Shape
@@ -56,6 +66,8 @@ var speed := 110.0
 var contact_damage := 8.0
 var money_value := 5
 var shield := 0.0
+## A Combat.SOURCE_* tag this enemy takes no damage from, or "" for none.
+var immune_to := ""
 ## Final collision radius in world pixels, matched to the drawn sprite.
 var hit_radius := 30.0
 ## True for the Hoarder. Read by run.gd to drop the payout as a burst of coins
@@ -78,6 +90,16 @@ var _desired := Vector2.ZERO
 var _flank_sign := 1.0
 var _material: ShaderMaterial
 var _spawn_anim := 0.0
+
+## Carapace shell. Up = hunkered and bullet-proof, down = moving and open.
+## The shell is what makes the type killable by a gun build at all - see the
+## note on GREY in enemy_types.gd.
+var _shell_up := false
+var _shell_timer := 0.0
+## Cached in configure(): _physics_process runs for every live enemy every
+## frame, and at 68 concurrent that is 68 dictionary lookups and string
+## compares a frame to ask a question whose answer cannot change.
+var _is_turtle := false
 
 ## Stuck handling. Enemies steer straight at their target with no pathfinding,
 ## which is fine in the open and fails in a pocket between two rocks: the
@@ -135,6 +157,12 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	money_value = int(round(randi_range(def["money"].x, def["money"].y)
 		* Balance.money_scale(wave)))
 	hoards = bool(def.get("hoards", false))
+	immune_to = String(def.get("immune_to", ""))
+	# Start shelled, but stagger the cycle so a pack does not open and close in
+	# unison - that would turn a group into one big binary window.
+	_is_turtle = String(def["behavior"]) == "turtle"
+	_shell_up = true
+	_shell_timer = float(def.get("shell_up", 0.0)) * randf_range(0.35, 1.0)
 
 	var visual_scale := float(def["scale"])
 	shield = 0.0
@@ -159,6 +187,10 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	_crown.visible = is_elite
 	if is_elite:
 		_crown.texture = load(EnemyTypes.crown_path(id))
+	# The shape that says what this one does, for players who cannot read the
+	# colour - and for everyone, on the two types where the colour is subtle.
+	_badge.texture = load(EnemyTypes.badge_path(id))
+	refresh_badge()
 	_visual.scale = Vector2.ONE * visual_scale
 	_shadow.scale = Vector2.ONE * visual_scale * 0.9
 	hit_radius = float(def["radius"]) * (Balance.ELITE_SCALE if is_elite else 1.0)
@@ -194,6 +226,8 @@ func _physics_process(delta: float) -> void:
 	# Ranged attack cooldown, counted once per frame on real elapsed time so it
 	# does not depend on how often _think() happens to run.
 	_attack_timer = maxf(0.0, _attack_timer - scaled)
+	if _is_turtle:
+		_tick_shell(scaled)
 
 	_think_timer -= delta
 	var target := _target_position()
@@ -337,6 +371,18 @@ func _think(target: Vector2) -> void:
 			if dist < float(def["fuse_range"]) and _fuse_timer < 0.0:
 				_start_fuse()
 
+		"ward":
+			# Straight at you and nothing else. No flanking, no spacing, no
+			# flinching - the point is that it keeps coming while your
+			# cooldowns do nothing to it.
+			_desired = dir
+
+		"turtle":
+			# Shelled means planted. Standing still is the tell: you can read
+			# whether bullets will work right now from across the screen,
+			# without reading its colour.
+			_desired = Vector2.ZERO if _shell_up else dir
+
 		_:
 			_desired = dir
 
@@ -376,6 +422,12 @@ func _apply_hit_shapes(visual_scale: float) -> void:
 	capsule.height = maxf(bottom - top, hit_radius * 2.0)
 	_hurtbox_shape.shape = capsule
 	_hurtbox_shape.position = Vector2(0, (top + bottom) * 0.5)
+
+
+## Re-read the enemy-marker setting. Called on every live enemy when the
+## setting is toggled, so the change is visible immediately.
+func refresh_badge() -> void:
+	_badge.visible = bool(Save.settings.get("enemy_badges", true))
 
 
 ## Where the slime is actually drawn, relative to its physics origin. Abilities
@@ -530,8 +582,15 @@ func _squash(amount: float) -> void:
 # damage and death
 # ---------------------------------------------------------------------------
 func take_damage(amount: float, is_crit: bool = false, from: Vector2 = Vector2.ZERO,
-		knockback: float = 0.0) -> void:
+		knockback: float = 0.0, source: String = Combat.SOURCE_OTHER) -> void:
 	if dying:
+		return
+
+	# Warded shrugs off abilities, Carapace shrugs off bullets. The deflect has
+	# to be as loud as a hit or the player reads "I missed" instead of "that
+	# does not work on this one", and goes on missing.
+	if _is_immune(source):
+		_deflect(from)
 		return
 
 	var applied := amount
@@ -543,11 +602,15 @@ func take_damage(amount: float, is_crit: bool = false, from: Vector2 = Vector2.Z
 		if shield <= 0.0:
 			FX.ring(global_position, 70.0, Color(0.5, 0.8, 1.0), 0.3, 0.4)
 			_material.set_shader_parameter("flash_color", Color.WHITE)
+	else:
+		# clears the tint a deflect leaves behind, so a hit that lands looks
+		# like a hit that lands
+		_material.set_shader_parameter("flash_color", Color.WHITE)
 	hp -= applied
 	_flash = 1.0
 	_material.set_shader_parameter("flash", 1.0)
 
-	if knockback > 0.0 and from != Vector2.ZERO:
+	if knockback > 0.0 and from != Vector2.ZERO and not bool(def.get("unflinching", false)):
 		var away := (global_position - from).normalized()
 		# heavier enemies are harder to shove
 		var resist: float = 1.0 / maxf(1.0, float(def["hp"]) / 40.0)
@@ -566,6 +629,51 @@ func take_damage(amount: float, is_crit: bool = false, from: Vector2 = Vector2.Z
 
 	if hp <= 0.0:
 		die(true)
+
+
+## Open and close the Carapace's shell. Both transitions are visible: it stops
+## dead when it shells up and lurches forward when it opens, so the window a
+## gun build has to shoot is legible from motion alone.
+func _tick_shell(delta: float) -> void:
+	_shell_timer -= delta
+	if _shell_timer > 0.0:
+		return
+	_shell_up = not _shell_up
+	_shell_timer = float(def.get("shell_up" if _shell_up else "shell_down", 1.5))
+	_squash(1.22 if _shell_up else 0.82)
+	if _shell_up:
+		FX.ring(hit_center(), hit_radius * 1.5, DEFLECT_COLOR, 0.25, 0.35)
+
+
+## Whether `source` bounces off this enemy right now.
+##
+## Warded's immunity is permanent; Carapace's holds only while the shell is up.
+func _is_immune(source: String) -> bool:
+	if immune_to.is_empty() or source != immune_to:
+		return false
+	return _shell_up if _is_turtle else true
+
+
+## What a hit looks like when it does nothing. Deliberately not silent: an
+## unanswered hit that shows no feedback at all is indistinguishable from a
+## bullet that missed.
+func _deflect(from: Vector2) -> void:
+	var at := hit_center()
+	var edge := at
+	if from != Vector2.ZERO:
+		edge = at + (from - at).normalized() * hit_radius
+	FX.impact(edge, DEFLECT_COLOR, 0.7)
+	# The spark fires on every deflected hit, the word does not. A held trigger
+	# on a Carapace is ~8 hits a second, and eight "IMMUNE" labels a second
+	# stops being information and becomes a wall of text over the fight.
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _last_deflect_text > DEFLECT_TEXT_INTERVAL:
+		_last_deflect_text = now
+		FX.floating_text(at + Vector2(0, -60), "IMMUNE", DEFLECT_COLOR)
+	Audio.play_throttled("deflect", 0.08, -12.0, 0.15)
+	_material.set_shader_parameter("flash_color", DEFLECT_COLOR)
+	_flash = 0.6
+	_material.set_shader_parameter("flash", 0.6)
 
 
 func die(award: bool = true) -> void:

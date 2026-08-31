@@ -16,7 +16,7 @@ every sound in `assets/sfx/` by `tools/gen_sfx.py`. Both are deterministic:
 re-running them reproduces the exact art the game ships with.
 
 That includes the thirteen replacements authored to retire the pack: the base
-slime that all six enemy colours are hue-rotated from, the slime eyes, the
+slime that all eight enemy colours are hue-rotated from, the slime eyes, the
 player body and face, the pistol, the bullet, the muzzle flash, the impact
 puff, the pine tree, the actor shadow, and the three potion bottles. They are
 drawn to the same pixel dimensions as the files they replaced, so nothing

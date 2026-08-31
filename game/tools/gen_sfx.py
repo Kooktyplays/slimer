@@ -436,12 +436,30 @@ def music_layers():
     save("layer_escalation", buf, peak=0.62)
 
 
+# --------------------------------------------------------------------------
+# Anything added from here on goes LAST, and new sounds should keep doing that.
+#
+# `rng` is seeded once and shared by every generator, so inserting a sound in
+# the middle shifts the noise stream for everything after it: adding `deflect`
+# to impacts() rewrote 25 unrelated .wav files and quietly changed sounds
+# players already know. Appending costs nothing and churns nothing.
+# --------------------------------------------------------------------------
+def additions():
+    # A hit that does nothing: hard, bright and short, with no flesh in it.
+    # Deliberately unlike "hit" - a player has to hear that a Warded shrugged
+    # off their cooldown without reading the damage numbers.
+    save("deflect", drive(mix(
+        decay(highpass(noise(0.06), 4200), 0.010) * 0.7,
+        decay(tone(0.12, 2100), 0.024) * 0.42,
+        decay(sweep(0.10, 3200, 1700, "tri"), 0.018) * 0.30), 1.6))
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     for label, fn in (
         ("gun", gun), ("impacts", impacts), ("pickups", pickups),
         ("abilities", abilities), ("bosses", bosses), ("ui/flow", ui_and_flow),
-        ("music layers", music_layers),
+        ("music layers", music_layers), ("additions", additions),
     ):
         fn()
         print(f"  {label}")

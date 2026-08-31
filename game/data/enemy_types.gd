@@ -10,8 +10,10 @@ const BLUE := "blue"
 const YELLOW := "yellow"
 const PURPLE := "purple"
 const ORANGE := "orange"
+const VIOLET := "violet"
+const GREY := "grey"
 
-const ORDER: Array[String] = [GREEN, BLUE, RED, PURPLE, YELLOW, ORANGE]
+const ORDER: Array[String] = [GREEN, BLUE, RED, PURPLE, YELLOW, ORANGE, VIOLET, GREY]
 
 const DEFS := {
 	GREEN: {
@@ -124,6 +126,66 @@ const DEFS := {
 		"fuse_range": 95.0,
 		"fuse_time": 0.75,
 	},
+	# ---------------------------------------------------------------------
+	# The adaptation pair. Everything above is chase-with-variations: whatever
+	# you brought, you use it. These two are the first enemies that ask what
+	# you brought and refuse half the answers.
+	#
+	# They only work as a pair. Either one alone punishes a single build; both
+	# of them mean no loadout is safe, and a gun build and an ability build
+	# each get a visible weakness they have to answer.
+	# ---------------------------------------------------------------------
+	VIOLET: {
+		"name": "Warded",
+		"behavior": "ward",
+		"tint": Color(0.72, 0.60, 0.92),
+		"hp": 64.0,
+		"speed": 86.0,
+		"contact_damage": 15.0,
+		"threat": 2.8,
+		"money": Vector2i(13, 20),
+		"scale": 0.74,
+		"radius": 34.0,
+		"unlock_wave": 13,
+		"weight": 0.6,
+		"hint": "Warded slimes shrug off abilities. Shoot them.",
+		# Permanent, and safe to make permanent: the player always has a gun.
+		"immune_to": Combat.SOURCE_ABILITY,
+		# It walks through your zoning in a straight line and does not flinch,
+		# which is the behaviour half of "your cooldowns do not work here".
+		"unflinching": true,
+		# Tighter personal space than the pack default of 2.1, so a line of
+		# them reads as a line rather than as one wide slime - but not zero,
+		# which let them stack into a single sprite.
+		"separation_scale": 1.3,
+	},
+	GREY: {
+		"name": "Carapace",
+		"behavior": "turtle",
+		"tint": Color(0.55, 0.62, 0.55),
+		"hp": 58.0,
+		"speed": 78.0,
+		"contact_damage": 17.0,
+		"threat": 2.6,
+		"money": Vector2i(13, 20),
+		"scale": 0.78,
+		"radius": 36.0,
+		"unlock_wave": 18,
+		"weight": 0.55,
+		"hint": "Carapace slimes shell up and bullets glance off. Break them with an ability.",
+		"immune_to": Combat.SOURCE_BULLET,
+		# The shell CYCLES rather than being permanent, and that is a
+		# deliberate departure from "bullets only".
+		#
+		# Ability damage is not guaranteed: a Surge/Barrier/Heal loadout deals
+		# none at all, and a permanently bullet-proof enemy in that run can
+		# never be killed - so the wave can never end. A cycling shell keeps
+		# the intent (an ability deletes it, ignoring the shell entirely)
+		# without the hang: a gun build can still kill it by shooting the open
+		# window - which is exactly the adapting the pair exists to ask for.
+		"shell_up": 2.2,
+		"shell_down": 1.3,
+	},
 }
 
 ## NOTE: "radius" is the hit radius in world pixels, already final - it is
@@ -156,6 +218,10 @@ static func get_def(id: String) -> Dictionary:
 
 static func texture_path(id: String) -> String:
 	return "res://assets/sprites/gen/enemy_%s_body.png" % id
+
+
+static func badge_path(id: String) -> String:
+	return "res://assets/sprites/gen/enemy_%s_badge.png" % id
 
 
 static func crown_path(id: String) -> String:

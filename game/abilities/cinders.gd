@@ -57,7 +57,8 @@ func _process(delta: float) -> void:
 		_tick = _interval
 		# No knockback: shoving enemies out of the fire would fight the whole
 		# point of a zone that punishes standing in it.
-		var hit := Combat.explode(global_position, _radius, _damage, 0.0, false)
+		var hit := Combat.explode(global_position, _radius, _damage, 0.0, false,
+			Combat.SOURCE_ABILITY)
 		if hit > 0:
 			var p := Combat.player()
 			if p != null and p.has_method("on_damage_dealt"):

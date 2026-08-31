@@ -21,6 +21,8 @@ func _run() -> void:
 	_test_wave_curve()
 	_test_enemy_unlocks()
 	_test_elites()
+	_test_adaptation_pair()
+	_test_boss_phases()
 	_test_gun_upgrades()
 	_test_upgrade_pricing()
 	_test_economy()
@@ -176,7 +178,8 @@ func _test_enemy_unlocks() -> void:
 			"%s reuses the '%s' behaviour - colours must mean different things"
 				% [id, def["behavior"]])
 		behaviours[def["behavior"]] = id
-	_check(behaviours.size() == 6, "expected six distinct enemy behaviours")
+	_check(behaviours.size() == EnemyTypes.ORDER.size(),
+		"expected one distinct behaviour per enemy type")
 
 	# green must fade as the roster fills, or later waves feel the same
 	var early: float = EnemyTypes.weights_for_wave(2)[EnemyTypes.GREEN]
@@ -194,6 +197,156 @@ func _test_elites() -> void:
 	_check(Balance.ELITE_THREAT_MULTIPLIER > 1.0,
 		"elites must cost extra threat, or a wave gets strictly harder for free")
 	_check(EnemyTypes.ELITE_MODS.size() >= 3, "expected at least three elite modifiers")
+
+
+## The two rules that keep five bosses from being one boss.
+##
+## Both of these were broken until the adaptation pass: every phase list was
+## the previous phase plus more entries, and every attack came from one shared
+## pool, so no boss had a move of its own and no phase changed how you fought.
+func _test_boss_phases() -> void:
+	# every attack a boss can name has to actually dispatch, or a typo makes a
+	# boss silently do nothing for a whole phase
+	var handled := _boss_attack_names()
+	var signatures := {}
+
+	for id: String in BossDB.DEFS:
+		var def := BossDB.get_def(id)
+		var phases: Array = def["phases"]
+
+		_check(def.has("signature"), "%s has no signature attack" % id)
+		var sig := String(def.get("signature", ""))
+		_check(not signatures.has(sig),
+			"%s and %s share the signature '%s' - it is not a signature then"
+				% [id, signatures.get(sig, "?"), sig])
+		signatures[sig] = id
+
+		# the signature has to be used, and only by its owner
+		var used := false
+		for phase: Array in phases:
+			if phase.has(sig):
+				used = true
+		_check(used, "%s declares the signature '%s' and never uses it" % [id, sig])
+
+		for other: String in BossDB.DEFS:
+			if other == id:
+				continue
+			for phase: Array in BossDB.get_def(other)["phases"]:
+				_check(not phase.has(sig),
+					"%s uses %s's signature '%s'" % [other, id, sig])
+
+		for i in phases.size():
+			var phase: Array = phases[i]
+			_check(not phase.is_empty(), "%s phase %d has no attacks" % [id, i + 1])
+			for attack: String in phase:
+				_check(handled.has(attack),
+					"%s phase %d names '%s', which _choose_attack cannot dispatch"
+						% [id, i + 1, attack])
+
+			# THE regression guard: a phase may not be its predecessor plus
+			# more. If it is, the phase change only altered the attack rate.
+			if i > 0:
+				var previous: Array = phases[i - 1]
+				var kept := 0
+				for attack: String in previous:
+					if phase.has(attack):
+						kept += 1
+				_check(kept < previous.size(),
+					("%s phase %d keeps every attack from phase %d - a phase has "
+					+ "to replace, not append") % [id, i + 1, i])
+
+		# enough phases to cover the repeats the endless run will ask for
+		_check(phases.size() >= BossDB.phase_count(id, 0),
+			"%s declares fewer phases than its first encounter uses" % id)
+
+	_check(signatures.size() == BossDB.DEFS.size(),
+		"expected one distinct signature attack per boss")
+
+
+## Attack ids boss.gd's dispatch actually understands, read out of the source
+## so the test cannot drift away from the match statement it is guarding.
+func _boss_attack_names() -> Dictionary:
+	var out := {}
+	var f := FileAccess.open("res://actors/bosses/boss.gd", FileAccess.READ)
+	if f == null:
+		_check(false, "could not read boss.gd to check the attack dispatch")
+		return out
+	var text := f.get_as_text()
+	f.close()
+	var re := RegEx.new()
+	re.compile('"(?<name>[a-z_]+)":\\s*_atk_')
+	for m: RegExMatch in re.search_all(text):
+		out[m.get_string("name")] = true
+	_check(out.size() >= 14, "found only %d boss attacks in the dispatch" % out.size())
+	return out
+
+
+## The Warded/Carapace pair: the first enemies that refuse a whole damage
+## source, so the first that can make a wave unclearable if they are wrong.
+func _test_adaptation_pair() -> void:
+	var warded := EnemyTypes.get_def(EnemyTypes.VIOLET)
+	var carapace := EnemyTypes.get_def(EnemyTypes.GREY)
+
+	# they only work as a pair - one of each source, or a single build is
+	# punished and the other never has to adapt at all
+	_check(String(warded["immune_to"]) == Combat.SOURCE_ABILITY,
+		"Warded must be the ability-immune half of the pair")
+	_check(String(carapace["immune_to"]) == Combat.SOURCE_BULLET,
+		"Carapace must be the bullet-immune half of the pair")
+
+	# no type may be immune to SOURCE_OTHER: that is the untagged default, and
+	# a type immune to it would shrug off Bloater splash and anything added
+	# later that forgets to declare a source
+	for id: String in EnemyTypes.ORDER:
+		var imm := String(EnemyTypes.get_def(id).get("immune_to", ""))
+		_check(imm != Combat.SOURCE_OTHER,
+			"%s is immune to the untagged default source" % id)
+
+	# The anti-softlock guarantee. A Surge/Barrier/Heal loadout deals no
+	# ability damage at all, so a permanently bullet-proof enemy in that run
+	# could never be killed and the wave could never end. Carapace's shell must
+	# cycle; Warded needs no such escape hatch because the player always has a
+	# gun.
+	_check(float(carapace.get("shell_up", 0.0)) > 0.0
+			and float(carapace.get("shell_down", 0.0)) > 0.0,
+		"the bullet-immune type must open its shell, or a no-ability run hangs")
+	_check(not warded.has("shell_up"),
+		"Warded should not shell - its immunity is meant to be constant")
+
+	# and the behaviour itself, on a real enemy rather than the table
+	var scene: PackedScene = load("res://actors/enemy.tscn")
+	_check_immunity(scene, EnemyTypes.VIOLET)
+	_check_immunity(scene, EnemyTypes.GREY)
+
+
+## Spawn one and shoot it, with each source in turn.
+func _check_immunity(scene: PackedScene, id: String) -> void:
+	var e: Enemy = scene.instantiate()
+	add_child(e)
+	e.configure(id, 20)
+	var name_of := String(EnemyTypes.get_def(id)["name"])
+
+	# the source it is immune to does nothing at all
+	var before := e.hp
+	e.take_damage(25.0, false, Vector2.ZERO, 0.0, String(e.immune_to))
+	_check(e.hp == before,
+		"%s took damage from %s, which it is immune to" % [name_of, e.immune_to])
+
+	# the other source, and the untagged default, both land
+	var other := (Combat.SOURCE_BULLET if e.immune_to == Combat.SOURCE_ABILITY
+		else Combat.SOURCE_ABILITY)
+	e.take_damage(25.0, false, Vector2.ZERO, 0.0, other)
+	_check(e.hp < before, "%s shrugged off %s, which should hurt it"
+		% [name_of, other])
+
+	before = e.hp
+	e.take_damage(25.0, false, Vector2.ZERO, 0.0, Combat.SOURCE_OTHER)
+	_check(e.hp < before,
+		"%s shrugged off untagged damage - Bloater splash must always land"
+			% name_of)
+
+	e.die(false)
+	e.queue_free()
 
 
 ## Every shop entry must apply cleanly, and no run may exceed the stat caps.

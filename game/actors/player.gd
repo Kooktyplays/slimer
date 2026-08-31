@@ -235,7 +235,7 @@ func is_invulnerable() -> bool:
 
 
 func take_damage(amount: float, _crit: bool = false, from: Vector2 = Vector2.ZERO,
-		_knockback: float = 0.0) -> void:
+		_knockback: float = 0.0, _source: String = Combat.SOURCE_OTHER) -> void:
 	if not alive or is_invulnerable() or Game.run == null:
 		return
 

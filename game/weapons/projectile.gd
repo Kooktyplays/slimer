@@ -156,7 +156,7 @@ func _resolve(collider: Object, rid: RID, at: Vector2) -> bool:
 		return false
 	_hit.append(rid)
 
-	body.call("take_damage", damage, is_crit, at, knockback)
+	body.call("take_damage", damage, is_crit, at, knockback, Combat.SOURCE_BULLET)
 	FX.impact(at, Color(1, 1, 1) if not is_crit else Color(1.0, 0.85, 0.4), 0.85)
 	if is_crit:
 		Audio.play_throttled("crit", 0.05, -10.0, 0.12)

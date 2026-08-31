@@ -53,6 +53,11 @@ var settings := {
 	"sfx_volume": 0.9,
 	"screen_shake": 1.0,
 	"damage_numbers": true,
+	# Shape markers on enemies. Default ON: every enemy behaviour in the game is
+	# otherwise encoded in colour alone, two of the eight colours are red and
+	# green, and the Warded/Carapace pair has to be told apart before you spend
+	# a cooldown on the wrong one.
+	"enemy_badges": true,
 	"show_hints": true,
 }
 

@@ -35,6 +35,7 @@ func _build() -> void:
 	_slider(col, "Screen shake", "screen_shake")
 	col.add_child(UITheme.spacer(8))
 	_toggle(col, "Damage numbers", "damage_numbers")
+	_toggle(col, "Enemy markers", "enemy_badges")
 	_toggle(col, "Tutorial hints", "show_hints")
 
 	col.add_child(UITheme.spacer(14))
@@ -100,7 +101,11 @@ func _toggle(parent: Node, label: String, key: String) -> void:
 	b.pressed.connect(func() -> void:
 		Save.settings[key] = not bool(Save.settings[key])
 		b.text = "ON" if bool(Save.settings[key]) else "OFF"
-		Save.save_game())
+		Save.save_game()
+		# Enemies read their markers once, when they spawn. Without this the
+		# toggle appears to do nothing until the next wave.
+		if key == "enemy_badges":
+			get_tree().call_group("enemies", "refresh_badge"))
 	row.add_child(b)
 
 

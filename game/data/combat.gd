@@ -10,6 +10,17 @@ extends RefCounted
 ## Everything here is static, so it must be reset at the start of each run -
 ## `reset()` is called by run.gd.
 
+## Where a hit came from. Two enemy types are immune to one source each, so
+## every damaging call has to say which it is.
+##
+## SOURCE_OTHER is the default on purpose: it always lands. A Bloater's blast
+## is neither a bullet nor an ability, and if it inherited either tag a cluster
+## of Bloaters would quietly become a universal answer to whichever type it was
+## tagged as. Only the two real sources override it.
+const SOURCE_OTHER := "other"
+const SOURCE_BULLET := "bullet"
+const SOURCE_ABILITY := "ability"
+
 static var enemy_time_scale: float = 1.0
 
 ## True once a wave has spawned everything it is going to and only a handful
@@ -117,7 +128,8 @@ static func nearest_enemy(to: Vector2, max_distance: float = INF,
 ## Damage everything in a circle, with optional falloff and knockback.
 ## Returns the number of enemies hit.
 static func explode(center: Vector2, radius: float, damage: float,
-		knockback: float = 0.0, falloff: bool = true) -> int:
+		knockback: float = 0.0, falloff: bool = true,
+		source: String = SOURCE_OTHER) -> int:
 	var hit := 0
 	for e: Node2D in enemies_in_radius(center, radius):
 		var dist := hit_center(e).distance_to(center)
@@ -125,7 +137,7 @@ static func explode(center: Vector2, radius: float, damage: float,
 		if falloff:
 			scale = lerpf(1.0, 0.42, clampf(dist / maxf(radius, 1.0), 0.0, 1.0))
 		if e.has_method("take_damage"):
-			e.call("take_damage", damage * scale, false, center, knockback)
+			e.call("take_damage", damage * scale, false, center, knockback, source)
 		hit += 1
 	return hit
 

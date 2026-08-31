@@ -66,9 +66,12 @@ func _run() -> void:
 	var waves: WaveController = run.waves
 	var player: Node2D = run.player
 	var i := 0
+	# Spread over however many types there are, not a hardcoded 18: the roster
+	# grew to eight and the last six were being drawn on top of the first six.
+	var total := EnemyTypes.ORDER.size() * 3
 	for id: String in EnemyTypes.ORDER:
 		for n in 3:
-			var a := TAU * (i / 18.0)
+			var a := TAU * (float(i) / float(total))
 			var at: Vector2 = player.global_position + Vector2.RIGHT.rotated(a) \
 				* randf_range(230.0, 470.0)
 			waves.spawn_at(id, at, 16, "shielded" if n == 2 else "")
