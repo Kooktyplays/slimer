@@ -12,7 +12,7 @@ config_version=5
 
 config/name="Slimer"
 config/description="A procedurally generated top-down forest roguelike."
-config/version="2.0.0"
+config/version="2.1.0"
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.4", "GL Compatibility")
 boot_splash/show_image=false

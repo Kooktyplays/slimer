@@ -38,13 +38,43 @@ export const ENEMIES = [
 		hint: 'Yellow hoarders run from you and pay out big. Worth the chase.',
 	},
 	{
+		id: 'violet', name: 'Warded', behaviour: 'ward', hex: '#B899EB',
+		hp: 64, speed: 86, contact: 15, threat: 2.8, money: '13-20',
+		radius: 34, scale: 0.74, unlock: 13,
+		immuneTo: 'ability',
+		hint: 'Warded slimes shrug off abilities. Shoot them.',
+	},
+	{
 		id: 'orange', name: 'Bloater', behaviour: 'bomber', hex: '#F2731A',
 		hp: 34, speed: 130, contact: 0, threat: 2.4, money: '11-17',
 		radius: 34, scale: 0.70, unlock: 15,
 		blast: 26, blastRadius: 165, fuseRange: 95, fuse: 0.75,
 		hint: 'Orange bloaters detonate. Kill them early, at range.',
 	},
+	{
+		id: 'teal', name: 'Thief', behaviour: 'thief', hex: '#33BFB3',
+		hp: 42, speed: 190, contact: 3, threat: 2.0, money: '8-13',
+		radius: 27, scale: 0.58, unlock: 16,
+		hint: 'Teal thieves steal your coins and run. Kill one to get them back.',
+	},
+	{
+		id: 'grey', name: 'Carapace', behaviour: 'turtle', hex: '#8C9E8C',
+		hp: 58, speed: 78, contact: 17, threat: 2.6, money: '13-20',
+		radius: 36, scale: 0.78, unlock: 18,
+		immuneTo: 'bullet',
+		hint: 'Carapace slimes shell up and bullets glance off. Break them with an ability.',
+	},
+	{
+		id: 'pale', name: 'Mimic', behaviour: 'mimic', hex: '#D9CC8C',
+		hp: 70, speed: 150, contact: 22, threat: 2.5, money: '16-24',
+		radius: 30, scale: 0.66, unlock: 20,
+		hint: 'That was not a coin. Mimics wait on the ground - read what you pick up.',
+	},
 ];
+
+// The pair the roster is built around. Either one alone punishes a single
+// build; together they mean no loadout is safe.
+export const ADAPTATION_PAIR = ['violet', 'grey'];
 
 export const ENEMY_BY_ID = Object.fromEntries(ENEMIES.map((e) => [e.id, e]));
 
@@ -109,9 +139,10 @@ export const BOSSES = [
 	},
 ];
 
-// game/data/abilities_db.gd - eleven exist, you carry exactly two.
+// game/data/abilities_db.gd - fifteen exist. You carry exactly three: one
+// movement ability in its own slot, and two general ones.
 export const ABILITIES = [
-	{ id: 'dash', name: 'Dash', icon: 'icon_dash', role: 'escape', charges: 2, cd: 3.2, essence: 0,
+	{ id: 'dash', name: 'Dash', icon: 'icon_dash', role: 'movement', charges: 2, cd: 3.2, essence: 0,
 		desc: 'Blink through enemies and bullets. Brief invulnerability.', detail: '320 px, 0.16 s fully invulnerable' },
 	{ id: 'grenade', name: 'Grenade', icon: 'icon_grenade', role: 'burst', charges: 1, cd: 7, essence: 0,
 		desc: 'Lob an explosive at the cursor. Heavy area damage.', detail: '90 damage, 190 radius, 0.75 s fuse' },
@@ -133,6 +164,14 @@ export const ABILITIES = [
 		desc: 'Three orbs circle you for 12 seconds, damaging what they touch.', detail: '3 orbs, 26 damage, 150 px orbit' },
 	{ id: 'lifesteal', name: 'Leech', icon: 'icon_lifesteal', role: 'sustain', charges: 1, cd: 24, essence: 280,
 		desc: 'For 8 seconds, 18% of the damage you deal comes back as health.', detail: '18% of damage dealt, 8 s' },
+	{ id: 'surge', name: 'Surge', icon: 'icon_surge', role: 'movement', charges: 1, cd: 9, essence: 170,
+		desc: 'Sprint at nearly double speed for 3.5 seconds. No invulnerability.', detail: '3.5 s, no i-frames - proof the bosses are beatable without blinking' },
+	{ id: 'vault', name: 'Vault', icon: 'icon_vault', role: 'movement', charges: 1, cd: 7, essence: 210,
+		desc: 'Leap to the cursor. Untouchable in the air, and it hurts where you land.', detail: 'leap + landing damage' },
+	{ id: 'thornwall', name: 'Thornwall', icon: 'icon_thornwall', role: 'control', charges: 1, cd: 15, essence: 190,
+		desc: 'Raise a barrier for 6 seconds. It stops slimes and their spit - and you.', detail: '6 s real collision, on the same layer as the trees' },
+	{ id: 'cinders', name: 'Cinders', icon: 'icon_cinders', role: 'control', charges: 1, cd: 13, essence: 230,
+		desc: 'Set the ground alight at the cursor. Burns whatever stands in it.', detail: "the game's only damage over time" },
 ];
 
 // game/data/balance.gd
@@ -171,6 +210,21 @@ export const PALETTE = {
 };
 
 // world/forest_generator.gd - the arena and the rules the visualiser reproduces.
+// game/world/biome_db.gd - one biome per depth, and the forest is regenerated
+// at every boundary rather than recoloured.
+export const BIOMES = [
+	{ id: 'greenwood', name: 'Greenwood', depth: 1, waves: '1-5',
+		hazard: null, blurb: 'The shallows. No hazard, deliberately - this is where the colour language is taught.' },
+	{ id: 'fenland', name: 'Fenland', depth: 2, waves: '6-10',
+		hazard: 'Standing water slows you to 0.62x', blurb: 'Where the water starts. The green goes grey at the edges.' },
+	{ id: 'ashfall', name: 'Ashfall', depth: 3, waves: '11-15',
+		hazard: 'Ember pools burn', blurb: 'What the fire left. Nothing green is still standing, and even the water is grey.' },
+	{ id: 'hollow', name: 'The Hollow', depth: 4, waves: '16-20',
+		hazard: 'Sight shrinks to a lantern circle', blurb: 'Where the light stops.' },
+	{ id: 'heartwood', name: 'Heartwood', depth: 5, waves: '21+',
+		hazard: 'Sap pools poison', blurb: 'What the forest grew around. It holds for the rest of the run.' },
+];
+
 export const FOREST = {
 	width: 4800,
 	height: 3700,

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Slimer — an endless procedural forest roguelike</title>
-<meta name="description" content="A free top-down forest roguelike built in Godot 4. Six enemy colours, five bosses, eleven abilities and a forest generated fresh every run. Play in your browser or download for macOS, Windows and Linux.">
+<meta name="description" content="A free top-down forest roguelike built in Godot 4. Ten enemy colours, five bosses, fifteen abilities and five biomes of forest generated fresh every run. Play it in your browser.">
 <link rel="icon" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/icon-192.png">
 <link rel="stylesheet" href="css/site.css">
@@ -44,11 +44,11 @@
 		data-fallback="assets/shots/05_forest_spawn.webp"></canvas>
 	<div class="wrap hero-inner">
 		<h1 class="title">SLIM<span>ER</span></h1>
-		<p class="tagline">An endless forest that is new every run, and never lets you carry more than two answers into it.</p>
+		<p class="tagline">An endless forest that is new every run, and never lets you carry more than three answers into it.</p>
 		<p class="hero-meta">Godot 4 · Windows · macOS · Linux · Browser · Free — may be shared, not sold</p>
 		<div class="cta-row">
 			<a class="btn btn-primary" href="play/">▶ Play in browser</a>
-			<a class="btn btn-ghost" href="#download">Download for desktop</a>
+			<a class="btn btn-ghost" href="#download" data-dl-desktop>Download for desktop</a>
 		</div>
 	</div>
 </header>
@@ -62,7 +62,7 @@
 		<h2>A top-down roguelike that grows the crowd, not the health bars</h2>
 		<p class="lede">
 			You are dropped into a procedurally generated forest with one pistol and
-			exactly two abilities. Waves of coloured slimes come for you; every fifth
+			exactly three abilities. Waves of coloured slimes come for you; every fifth
 			wave sends a boss, every twentieth a much larger one, and each boss is
 			followed by a shop where the coins you picked up buy upgrades you cannot
 			all afford. Die and the money and the upgrades go with you — only
@@ -72,12 +72,13 @@
 
 		<div class="stats">
 			<div class="stat"><b>∞</b><span>Waves</span></div>
-			<div class="stat"><b>6</b><span>Enemy colours</span></div>
+			<div class="stat"><b>10</b><span>Enemy colours</span></div>
+			<div class="stat"><b>5</b><span>Biomes</span></div>
 			<div class="stat"><b>5</b><span>Bosses</span></div>
-			<div class="stat"><b>11</b><span>Abilities, carry 2</span></div>
+			<div class="stat"><b>15</b><span>Abilities, carry 3</span></div>
 			<div class="stat"><b>22</b><span>Shop upgrades</span></div>
-			<div class="stat"><b>22</b><span>Permanent unlocks</span></div>
-			<div class="stat"><b>55</b><span>Enemies at once</span></div>
+			<div class="stat"><b>25</b><span>Permanent unlocks</span></div>
+			<div class="stat"><b>68</b><span>Enemies at once</span></div>
 			<div class="stat"><b>4</b><span>Platforms</span></div>
 		</div>
 	</div>
@@ -495,12 +496,15 @@
 <section id="abilities">
 	<div class="wrap">
 		<p class="eyebrow">Abilities</p>
-		<h2>Eleven exist. You carry two.</h2>
+		<h2>Fifteen exist. You carry three.</h2>
 		<p class="lede">
-			That limit is the design. Two slots force a choice between getting out,
-			doing damage, controlling the field and staying alive — and you can only
-			change your mind at a shop. Dash and Grenade are free from the start; the
-			other nine are bought once, permanently, with Essence.
+			That limit is the design. Three slots — one reserved for a movement
+			ability, two for anything else — force a choice between getting out,
+			doing damage, controlling the field and staying alive, and you can only
+			change your mind at a shop. The movement slot is its own decision:
+			Dash blinks and grants invulnerability, Surge just makes you fast, and
+			every boss is beatable without either. Dash, Grenade and Nova are free
+			from the start; the rest are bought once, permanently, with Essence.
 		</p>
 
 		<div class="grid grid-3" style="margin-top:2rem">
@@ -759,6 +763,12 @@
 			costs anything, and neither ever will — see the licence note at the bottom
 			of this page.
 		</p>
+		<p class="lede" data-alpha-only hidden>
+			<strong>This is an alpha.</strong> It plays in the browser and nowhere
+			else for now — the desktop builds are still being cut, and pointing you
+			at the last release would hand you an older game than the one on this
+			page. Saves live in your browser, so clearing site data clears them.
+		</p>
 
 		<div class="dl-grid">
 			<div class="dl is-browser">
@@ -771,7 +781,7 @@
 				<a class="btn btn-primary" href="play/">Play now</a>
 			</div>
 
-			<div class="dl">
+			<div class="dl" data-dl-desktop>
 				<h3>macOS</h3>
 				<div class="size"><span data-dl-size="macos">65 MB</span> · universal</div>
 				<p>
@@ -786,7 +796,7 @@
 				<a class="btn btn-ghost" data-dl="macos" href="#download" aria-disabled="true">Download .zip</a>
 			</div>
 
-			<div class="dl">
+			<div class="dl" data-dl-desktop>
 				<h3>Windows</h3>
 				<div class="size"><span data-dl-size="windows">41 MB</span> · x86-64</div>
 				<p>
@@ -797,7 +807,7 @@
 				<a class="btn btn-ghost" data-dl="windows" href="#download" aria-disabled="true">Download .zip</a>
 			</div>
 
-			<div class="dl">
+			<div class="dl" data-dl-desktop>
 				<h3>Linux</h3>
 				<div class="size"><span data-dl-size="linux">33 MB</span> · x86-64</div>
 				<p>
@@ -851,7 +861,7 @@
 		<h3 style="margin-top:1.4rem">Statement of changes</h3>
 		<p class="note" style="max-width:70ch">
 			Ten files from the pack are used here. <code>slime_body.png</code> was
-			hue-rotated into the six enemy colours; <code>boo_body.png</code> and
+			hue-rotated into the ten enemy colours; <code>boo_body.png</code> and
 			<code>boo_face.png</code> were recoloured, outlined and rescaled into the
 			player; <code>projectile.png</code> and <code>impact_circle.png</code> are
 			tinted per shot and per impact; the three potion files were 3×3 sprite

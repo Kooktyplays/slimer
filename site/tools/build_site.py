@@ -53,16 +53,17 @@ def add(key: str, path: Path) -> None:
 
 
 # -- actors -------------------------------------------------------------------
-add("player_body", SPRITES / "boo_body.png")            # PACK
-add("player_face", SPRITES / "boo_face.png")            # PACK
-add("pistol", SPRITES / "pistol.png")                   # PACK
-add("bullet", SPRITES / "projectile.png")               # PACK
-add("muzzle", SPRITES / "muzzle_flash.png")             # PACK
-add("impact", SPRITES / "impact_circle.png")            # PACK
-add("shadow", SPRITES / "ground_shadow.png")            # PACK
-add("slime_face", SPRITES / "slime_face.png")           # PACK
-for colour in ("green", "blue", "red", "purple", "yellow", "orange"):
-    add(f"enemy_{colour}", GEN / f"enemy_{colour}_body.png")   # PACK (hue-rotated)
+add("player_body", GEN / "boo_body.png")                # original
+add("player_face", GEN / "boo_face.png")                # original
+add("pistol", GEN / "pistol.png")                       # original
+add("bullet", GEN / "projectile.png")                   # original
+add("muzzle", GEN / "muzzle_flash.png")                 # original
+add("impact", GEN / "impact_circle.png")                # original
+add("shadow", GEN / "ground_shadow.png")                # original
+add("slime_face", GEN / "slime_face.png")               # original
+for colour in ("green", "blue", "red", "purple", "yellow", "orange",
+               "violet", "grey", "teal", "pale"):
+    add(f"enemy_{colour}", GEN / f"enemy_{colour}_body.png")   # original (hue-rotated)
     add(f"crown_{colour}", GEN / f"elite_crown_{colour}.png")  # original
 add("eyes_angry", GEN / "eyes_angry.png")
 add("eyes_boss", GEN / "eyes_boss.png")
@@ -74,7 +75,7 @@ for boss in ("bramble", "toad", "wisp", "oak", "sovereign"):
 add("boss_orb", GEN / "boss_orb.png")
 
 # -- forest props -------------------------------------------------------------
-add("tree_pine", SPRITES / "pine_tree.png")             # PACK
+add("tree_pine", GEN / "pine_tree.png")                 # original
 for name in (
     "tree_round_a", "tree_round_b", "tree_dead", "stump", "log_a", "log_b",
     "bush_a", "bush_b", "bush_c", "fern", "reeds", "grass_a", "grass_b",
