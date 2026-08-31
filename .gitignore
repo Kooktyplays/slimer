@@ -20,6 +20,9 @@ build/
 /Slimer.exe
 /Slimer.console.exe
 /Slimer.pck
+# ...and the unpacked export tree beside them. 9 MB of .gdc/.remap that a
+# `git add -A` will happily sweep into a commit.
+/Slimer/
 /Slimer-macos.zip
 /Slimer.zip
 /slimer.html
