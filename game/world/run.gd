@@ -34,7 +34,8 @@ func _ready() -> void:
 		# entering the run scene directly (editor / harness) - make one
 		Game.start_run(0)
 
-	layout = forest.build(Game.run.seed_value)
+	layout = forest.build(Game.run.seed_value,
+		BiomeDB.id_for_depth(Game.depth_for_wave(Game.run.wave + 1)))
 
 	waves = WaveController.new()
 	waves.name = "Waves"
@@ -102,6 +103,8 @@ func _process(delta: float) -> void:
 		if Game.run != null:
 			Game.run.health_potion_guard = maxf(
 				0.0, Game.run.health_potion_guard - delta)
+
+	_tick_terrain(delta)
 
 	if _pending_wave:
 		_intermission -= delta
@@ -194,7 +197,116 @@ func _on_shop_closed() -> void:
 	if shop != null and is_instance_valid(shop):
 		shop.queue_free()
 	shop = null
+	_maybe_descend()
 	_queue_next_wave()
+
+
+# ---------------------------------------------------------------------------
+# terrain hazards
+# ---------------------------------------------------------------------------
+## What the biome's standing water does to whoever walks into it.
+##
+## Every hazard is a different *meaning* for geometry the generator already
+## produces, rather than a new system: `layout.ponds` is the same list of
+## {center, radius} in all five biomes, and the biome decides whether that is
+## water to wade through, embers to avoid, or sap that poisons. Which is also
+## why each one is legible - the pools are painted in the biome's own water
+## texture, so the hazard is visible well before it is felt.
+##
+## The Hollow is the exception: its hazard is the dark itself, which is a
+## screen effect rather than a place you can stand.
+const TERRAIN_SLOW := 0.62
+## Damage per second while standing in a hazard pool. Sized so a pool can be
+## crossed but not camped in: at 9 dps a run through Ashfall's embers costs a
+## few health, and standing in one is a steady drain you can watch happen.
+const TERRAIN_DPS_FIRE := 9.0
+const TERRAIN_DPS_BRAMBLE := 6.0
+
+
+func _tick_terrain(_delta: float) -> void:
+	if player == null or not is_instance_valid(player) or layout == null:
+		return
+	var hazard := String(forest.biome_def.get("hazard", BiomeDB.HAZARD_NONE))
+	# Cleared every frame and re-set only while actually standing in something,
+	# so walking out of a pool stops the effect on the same frame.
+	player.terrain_speed_mul = 1.0
+	player.terrain_dps = 0.0
+	if hazard == BiomeDB.HAZARD_NONE or hazard == BiomeDB.HAZARD_GLOOM:
+		return
+
+	var at := player.global_position
+	var inside := false
+	for pond: Dictionary in layout.ponds:
+		if at.distance_to(pond["center"]) <= float(pond["radius"]):
+			inside = true
+			break
+	if not inside:
+		return
+
+	match hazard:
+		BiomeDB.HAZARD_WATER:
+			player.terrain_speed_mul = TERRAIN_SLOW
+		BiomeDB.HAZARD_FIRE:
+			player.terrain_dps = TERRAIN_DPS_FIRE
+		BiomeDB.HAZARD_BRAMBLE:
+			player.terrain_dps = TERRAIN_DPS_BRAMBLE
+
+
+# ---------------------------------------------------------------------------
+# descending
+# ---------------------------------------------------------------------------
+## Regenerate the forest when the next wave belongs to a deeper biome.
+##
+## The timing is not a coincidence: Balance.WAVES_PER_DEPTH and MINI_BOSS_EVERY
+## are both 5, so every depth boundary is a boss wave followed by a shop. By
+## the time the shop closes the arena is empty by construction - the boss is
+## dead, _on_boss_cleared swept its adds and banked every coin - so the whole
+## rebuild happens behind a screen the player was already reading.
+##
+## Regenerating rather than recolouring is the point. The forest is supposed to
+## be a place that rearranges itself so it cannot be learned; a new palette over
+## identical geometry would say the opposite.
+func _maybe_descend() -> void:
+	if Game.run == null or Game.state != Game.State.RUN:
+		return
+	var next_biome := BiomeDB.id_for_depth(Game.depth_for_wave(Game.run.wave + 1))
+	if next_biome == forest.biome:
+		return
+
+	# Park every pooled node first. Pickups still lying in the forest are
+	# children of the layer about to be freed, and a pool holding a freed node
+	# hands that node out again on the next acquire. release_all() exists for
+	# exactly this - a world teardown that the pools have to survive.
+	Pools.release_all()
+
+	# The player is a child of forest.sorted_layer, which the rebuild frees.
+	# Reparenting rather than respawning keeps the run: health, abilities,
+	# cooldowns and every upgrade bought so far all live on this node.
+	var keep_player := is_instance_valid(player) and player.get_parent() != null
+	if keep_player:
+		player.get_parent().remove_child(player)
+
+	# Seeded from the run seed *and* the depth, so a run is still reproducible
+	# from the one number the results screen shows.
+	layout = forest.build(Game.run.seed_value + Game.depth_for_wave(
+		Game.run.wave + 1) * 104729, next_biome)
+
+	if keep_player:
+		forest.sorted_layer.add_child(player)
+		player.global_position = layout.nearest_open(layout.spawn_point)
+		player.velocity = Vector2.ZERO
+
+	# Re-point everything that cached the old layout or the old parent node.
+	# Both setups are pure reference assignment - they reset no wave state.
+	waves.setup(layout, forest.sorted_layer, effects)
+	bosses.call("setup", layout, forest.sorted_layer, effects)
+
+	var def := BiomeDB.get_def(next_biome)
+	Events.biome_changed.emit(next_biome, String(def["name"]))
+	if keep_player:
+		FX.floating_text(player.global_position + Vector2(0, -140),
+			String(def["name"]).to_upper(), Color(0.85, 0.9, 1.0))
+	Audio.play("boss_phase", -4.0)
 
 
 # ---------------------------------------------------------------------------

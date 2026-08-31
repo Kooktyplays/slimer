@@ -2,7 +2,8 @@
 
 An endless, procedurally generated top-down forest roguelike, built in
 **Godot 4.4.1**. Eight enemy colours, five bosses, fifteen abilities of which
-you carry three, and a forest generated fresh from a seed every run.
+you carry three, and five biomes of forest generated fresh from a seed every
+run — and regenerated every time you go deeper.
 
 **Free — may be shared, not sold.** See [Licensing](#licensing).
 

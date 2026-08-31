@@ -81,6 +81,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_tick_speed_boost(delta)
 	_tick_poison(delta)
+	_tick_terrain_damage(delta)
 	_move(delta)
 	_aim()
 	_handle_shooting()
@@ -132,9 +133,25 @@ func _hold_in_bounds() -> void:
 		clampf(global_position.y, limit, size.y - limit))
 
 
+## Set by the run each frame from whatever the player is standing in. Kept
+## separate from speed_multiplier so terrain and a Swift potion can both apply
+## without either one clobbering the other's bookkeeping.
+var terrain_speed_mul := 1.0
+
+## Damage per second from whatever the player is standing in, set by the run
+## each frame. Flat, and deliberately NOT routed through apply_poison: that
+## adds a stack per call and multiplies dps by the stack count, which is right
+## for contact poison - where the pressure is meant to scale with how many
+## slimes reached you - and badly wrong for standing in a pool, where six
+## re-applications turned a 7 dps hazard into 42 and killed the player in
+## about two seconds. Standing in fire should be a steady, readable rate.
+var terrain_dps := 0.0
+var _terrain_damage_tick := 0.0
+
+
 func max_speed() -> float:
 	var run_mul := Game.run.move_speed_mul if Game.run != null else 1.0
-	return Balance.PLAYER_SPEED * run_mul * speed_multiplier
+	return Balance.PLAYER_SPEED * run_mul * speed_multiplier * terrain_speed_mul
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +325,19 @@ func _tick_poison(delta: float) -> void:
 	if poison_left <= 0.0:
 		poison_stacks = 0
 		poison_dps = 0.0
+
+
+## Terrain damage, on the same cadence as poison and through the same
+## application - it must not grant i-frames either, or wading through an ember
+## pool would make the player briefly invulnerable to everything else.
+func _tick_terrain_damage(delta: float) -> void:
+	if terrain_dps <= 0.0 or not alive:
+		_terrain_damage_tick = 0.0
+		return
+	_terrain_damage_tick -= delta
+	if _terrain_damage_tick <= 0.0:
+		_terrain_damage_tick = Balance.CONTACT_POISON_INTERVAL
+		_take_poison_damage(terrain_dps * Balance.CONTACT_POISON_INTERVAL)
 
 
 ## Poison damage. Reduced by armour and eaten by a shield like anything else,

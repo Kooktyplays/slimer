@@ -29,6 +29,7 @@ func _ready() -> void:
 				% name_text)
 		else:
 			_hint("mini_boss", "A mini-boss. Keep moving and read the wind-ups."))
+	Events.biome_changed.connect(_on_biome_changed)
 	Events.wave_started.connect(_on_wave_started)
 	Events.gun_upgraded.connect(func(_stat: String, _v: float) -> void:
 		_hint("upgrade", "Your gun keeps the upgrade for the rest of this run."))
@@ -53,6 +54,27 @@ func _process(delta: float) -> void:
 
 ## Show a hint once ever. `id` is namespaced in the save so a later hint added
 ## to the game does not collide with an old one.
+## One line the first time a biome with a hazard is entered.
+##
+## The hazard zones are painted in the biome's own water texture, so they are
+## visible before they are felt - but "visible" and "understood" are not the
+## same thing, and the first ember pool should not have to be learned by
+## standing in it.
+const BIOME_HINTS := {
+	BiomeDB.FENLAND: "The Fenland is waterlogged. Standing water slows you down.",
+	BiomeDB.ASHFALL: "Ashfall still burns. The glowing pools will hurt you.",
+	BiomeDB.HOLLOW: "Little light reaches The Hollow. You will not see them coming as early.",
+	BiomeDB.HEARTWOOD: "Heartwood sap is poison. Stay out of the violet pools.",
+}
+
+
+func _on_biome_changed(id: String, display_name: String) -> void:
+	if BIOME_HINTS.has(id):
+		_hint("biome_" + id, String(BIOME_HINTS[id]))
+	else:
+		_hint("biome_" + id, "%s. The forest has changed around you." % display_name)
+
+
 func _hint(id: String, text: String) -> void:
 	if _shown_this_run.has(id):
 		return

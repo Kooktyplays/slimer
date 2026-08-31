@@ -31,6 +31,7 @@ func _run() -> void:
 	_test_loadout()
 	_test_meta_progression()
 	_test_forest_smoke()
+	_test_biomes()
 	_test_arena_is_sealed()
 	_test_nightmare()
 	_test_achievements()
@@ -661,18 +662,142 @@ func _test_meta_progression() -> void:
 
 
 ## A small sweep here; tests/test_forest.gd runs the full 200-seed version.
+##
+## Run for EVERY biome, not just the default. Each biome swaps the prop tables
+## the generator scatters from, so each is a fresh chance to author a table
+## that produces a map the player cannot walk - and the whole point of these
+## assertions is that a generated forest is always playable.
 func _test_forest_smoke() -> void:
-	for i in 12:
-		var g := ForestGenerator.generate(5000 + i * 313)
-		_check(g.failure.is_empty(), "seed %d degraded: %s" % [g.seed_value, g.failure])
-		_check(g.is_open(g.spawn_point), "seed %d spawns inside an obstacle" % g.seed_value)
-		_check(g.spawn_zones.size() > 50, "seed %d has too few spawn zones" % g.seed_value)
-		_check(g.clearings.size() >= ForestGenerator.CLEARING_MIN,
-			"seed %d generated too few clearings" % g.seed_value)
-		# a boss must fit somewhere near the player
-		var boss_spot := g.nearest_open_for(g.spawn_point + Vector2(620, 0), 240.0)
-		_check(g.has_clearance(boss_spot, 240.0),
-			"seed %d has nowhere for a boss to stand" % g.seed_value)
+	for biome: String in BiomeDB.ORDER:
+		for i in 12:
+			var g := ForestGenerator.generate(5000 + i * 313, biome)
+			var tag := "%s seed %d" % [biome, g.seed_value]
+			_check(g.failure.is_empty(), "%s degraded: %s" % [tag, g.failure])
+			_check(g.is_open(g.spawn_point), "%s spawns inside an obstacle" % tag)
+			_check(g.spawn_zones.size() > 50, "%s has too few spawn zones" % tag)
+			_check(g.clearings.size() >= ForestGenerator.CLEARING_MIN,
+				"%s generated too few clearings" % tag)
+			# a boss must fit somewhere near the player
+			var boss_spot := g.nearest_open_for(g.spawn_point + Vector2(620, 0), 240.0)
+			_check(g.has_clearance(boss_spot, 240.0),
+				"%s has nowhere for a boss to stand" % tag)
+
+
+## The five biomes, and the promise the HUD has been making since launch.
+func _test_biomes() -> void:
+	_check(BiomeDB.ORDER.size() == 5, "expected five biomes")
+	_check(BiomeDB.DEFS.size() == BiomeDB.ORDER.size(),
+		"a biome is declared but not in ORDER, or the other way round")
+
+	# Depth is 1-based and the run never ends, so both ends must be safe.
+	_check(BiomeDB.id_for_depth(0) == BiomeDB.ORDER[0],
+		"depth 0 should clamp to the first biome")
+	_check(BiomeDB.id_for_depth(1) == BiomeDB.GREENWOOD, "depth 1 is not Greenwood")
+	_check(BiomeDB.id_for_depth(999) == BiomeDB.ORDER[-1],
+		"the deepest biome must hold forever - the run has no last wave")
+
+	# Never goes backwards, and every biome is actually reachable by play.
+	var seen := {}
+	var previous := -1
+	for depth in range(1, 40):
+		var idx := BiomeDB.ORDER.find(BiomeDB.id_for_depth(depth))
+		_check(idx >= previous, "the biome went backwards at depth %d" % depth)
+		previous = idx
+		seen[BiomeDB.id_for_depth(depth)] = true
+	_check(seen.size() == BiomeDB.ORDER.size(),
+		"only %d of %d biomes are reachable" % [seen.size(), BiomeDB.ORDER.size()])
+
+	# All five are met by wave 21, so dying at wave 15 still shows three of
+	# them. A biome nobody reaches is content that does not exist.
+	_check(BiomeDB.id_for_depth(Game.depth_for_wave(21)) == BiomeDB.ORDER[-1],
+		"the last biome should be reached by wave 21")
+
+	# Greenwood teaches; it does not also test.
+	_check(String(BiomeDB.get_def(BiomeDB.GREENWOOD)["hazard"]) == BiomeDB.HAZARD_NONE,
+		"the first biome must have no hazard - it is where the game is taught")
+
+	var hazards := {}
+	var implemented := _terrain_hazard_names()
+	for id: String in BiomeDB.ORDER:
+		var def := BiomeDB.get_def(id)
+		for key: String in ["name", "ground", "trees", "scatter", "clearing",
+				"detail", "hazard", "ponds", "prop_tint"]:
+			_check(def.has(key), "%s declares no '%s'" % [id, key])
+
+		# four ground slots, always, and each pointing at a real texture
+		var ground: Dictionary = def["ground"]
+		for slot: String in ["grass", "clearing", "path", "water"]:
+			_check(ground.has(slot), "%s has no '%s' ground" % [id, slot])
+			_check(ResourceLoader.exists(BiomeDB.ground_path(id, slot)),
+				"%s '%s' ground texture is missing: %s"
+					% [id, slot, BiomeDB.ground_path(id, slot)])
+
+		# every prop a biome scatters has to exist in the catalogue
+		for table: String in ["trees", "scatter", "clearing", "detail"]:
+			var weights: Dictionary = def[table]
+			_check(not weights.is_empty(), "%s has an empty '%s' table" % [id, table])
+			for prop: String in weights:
+				_check(PropCatalog.DEFS.has(prop),
+					"%s '%s' names an unknown prop '%s'" % [id, table, prop])
+
+		var hazard := String(def["hazard"])
+		if hazard != BiomeDB.HAZARD_NONE:
+			_check(not hazards.has(hazard),
+				"%s and %s share the hazard '%s'" % [id, hazards.get(hazard, "?"), hazard])
+			hazards[hazard] = id
+			# A hazard nothing implements is a biome that quietly does nothing.
+			_check(implemented.has(hazard),
+				"%s names hazard '%s', which nothing applies" % [id, hazard])
+			# ...and it needs somewhere to happen
+			var ponds: Vector2i = def["ponds"]
+			if hazard != BiomeDB.HAZARD_GLOOM:
+				_check(ponds.x >= 1,
+					"%s can generate zero hazard zones, so its hazard may never fire" % id)
+
+
+## Hazard ids the game can actually act on, read out of the source rather than
+## restated here, so the test cannot drift away from what it guards.
+##
+## Only *dispatch* counts. An earlier version of this searched each file for
+## the constant anywhere, which meant deleting a hazard's match arm still
+## passed - the id was still mentioned on a line that merely picked its damage
+## number. A guard that cannot fail is worse than no guard, because it is
+## trusted. So: match arms in Run._tick_terrain, and an explicit comparison in
+## the HUD for gloom, which is a screen effect rather than a place to stand.
+func _terrain_hazard_names() -> Dictionary:
+	var out := {}
+	var ids: Array[String] = [BiomeDB.HAZARD_WATER, BiomeDB.HAZARD_FIRE,
+		BiomeDB.HAZARD_GLOOM, BiomeDB.HAZARD_BRAMBLE]
+
+	var run_src := _read_source("res://world/run.gd")
+	for line: String in run_src.split("\n"):
+		var trimmed := line.strip_edges()
+		# a match arm: "BiomeDB.HAZARD_X:" or "BiomeDB.HAZARD_X, BiomeDB.HAZARD_Y:"
+		if not trimmed.ends_with(":") or not trimmed.begins_with("BiomeDB.HAZARD_"):
+			continue
+		for id: String in ids:
+			if trimmed.contains(_hazard_const(id)):
+				out[id] = true
+
+	var hud_src := _read_source("res://ui/hud.gd")
+	if hud_src.contains("== BiomeDB." + _hazard_const(BiomeDB.HAZARD_GLOOM)):
+		out[BiomeDB.HAZARD_GLOOM] = true
+	return out
+
+
+## "water_slow" -> "HAZARD_WATER"; the constant name the code refers to it by.
+func _hazard_const(id: String) -> String:
+	return "HAZARD_" + id.to_upper().split("_")[0]
+
+
+func _read_source(path: String) -> String:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		_check(false, "could not read %s" % path)
+		return ""
+	var text := f.get_as_text()
+	f.close()
+	return text
 
 
 ## The navigation grid and the physics wall must agree about where the arena

@@ -7,7 +7,7 @@ Everything in the game, and how the pieces fit together.
 ## 1. The loop
 
 ```
-Main menu → pick 2 abilities → forest generates from a fresh seed
+Main menu → pick 3 abilities (1 movement, 2 general) → forest generates
       ↓
    Wave 1 … 4        ordinary waves
    Wave 5            MINI-BOSS  → shop
@@ -34,8 +34,9 @@ that survives, and it buys permanent unlocks between runs.
 | Aim | Mouse |
 | Shoot | Left click (hold) |
 | Reload | R (automatic when empty) |
-| Ability 1 | Space / Right click |
-| Ability 2 | Shift / E |
+| Movement ability | Space |
+| Ability 1 | Shift |
+| Ability 2 | E |
 | Continue past shop | F |
 | Pause | Esc |
 | Screenshot | F9 |
@@ -55,7 +56,7 @@ Rebuilt from a new seed every run by `world/forest_generator.gd`, on a
 1. Scatter 9–13 **clearings** with a minimum separation, then relax them apart.
 2. Connect them with **paths** using a minimum spanning tree, plus three extra
    edges so the map has loops to circle-strafe rather than dead ends.
-3. Stamp 2–4 **ponds**, never on a clearing or a path.
+3. Stamp **ponds** (count per biome, see below), never on a clearing or a path.
 4. Scatter trees, rocks, logs, bushes, grass and flowers on a jittered grid
    (blue-noise-ish spacing), with a solid tree wall around the border.
 5. Rasterise every blocker into a **64 px walkable grid**, inflated by the
@@ -74,6 +75,45 @@ you run through.
 
 Ambience: swaying foliage, drifting leaves and motes, rippling ponds. All of
 it freezes on pause (see §11).
+
+### Biomes — what FOREST DEPTH means
+
+`world/biome_db.gd`. `Balance.WAVES_PER_DEPTH` and `MINI_BOSS_EVERY` are both
+5, so depth increments exactly on boss waves — every depth boundary is already
+a boss followed by a shop. **The forest is regenerated during that shop**, when
+the arena is empty by construction: the boss is dead, its adds are swept and
+every coin is banked.
+
+| Depth | Waves | Biome | Hazard |
+| --- | --- | --- | --- |
+| 1 | 1–5 | **Greenwood** | none |
+| 2 | 6–10 | **Fenland** | standing water slows you to 0.62× |
+| 3 | 11–15 | **Ashfall** | ember pools burn |
+| 4 | 16–20 | **The Hollow** | sight shrinks to a lantern circle |
+| 5+ | 21+ | **Heartwood** | sap pools poison |
+
+Regenerating rather than recolouring is the point: the forest is a place that
+rearranges itself so it cannot be learned, and a new palette over identical
+geometry would say the opposite. One biome per depth means all five are seen
+by wave 21 — dying at wave 15 still shows you three.
+
+Greenwood has no hazard deliberately. The first five waves are where the
+colour language and the movement are taught, and a hazard there would be
+teaching two things at once.
+
+Every hazard is a different *meaning* for geometry the generator already
+produces. `layout.ponds` is the same list of `{center, radius}` in all five
+biomes; the biome decides whether that is water to wade through, embers to
+avoid, or sap. Which is also why each is legible — the pools are painted in
+the biome's own water texture, so the hazard is visible long before it is
+felt. The Hollow is the exception: its hazard is the dark, a second vignette
+kept off the middle of the screen, because the centre is where you are
+fighting.
+
+Biomes tint the **props and the drifting particles, never the actors.** A
+canvas modulate over the whole world would tint the enemies too, and an
+enemy's colour is a promise about what it does — atmosphere does not get to
+make the roster harder to read.
 
 ---
 

@@ -17,10 +17,9 @@ extends Node2D
 const SWAY_SHADER := preload("res://assets/shaders/sway.gdshader")
 const WATER_SHADER := preload("res://assets/shaders/water.gdshader")
 
-const TEX_GRASS := preload("res://assets/sprites/gen/ground_grass.png")
-const TEX_CLEARING := preload("res://assets/sprites/gen/ground_clearing.png")
-const TEX_PATH := preload("res://assets/sprites/gen/ground_path.png")
-const TEX_WATER := preload("res://assets/sprites/gen/ground_water.png")
+## Ground is loaded per biome rather than preloaded: which four tiles the floor
+## uses is the single biggest thing that makes a depth look like a different
+## place, and it is not known until the run reaches that depth.
 const TEX_LEAF := [
 	preload("res://assets/sprites/gen/leaf_0.png"),
 	preload("res://assets/sprites/gen/leaf_1.png"),
@@ -28,6 +27,8 @@ const TEX_LEAF := [
 ]
 
 var layout: ForestGenerator = null
+var biome: String = BiomeDB.GREENWOOD
+var biome_def: Dictionary = BiomeDB.get_def(BiomeDB.GREENWOOD)
 var sorted_layer: Node2D
 var ground_layer: Node2D
 var ambience_layer: Node2D
@@ -42,9 +43,11 @@ func _ready() -> void:
 
 ## Build the whole forest for `seed_value`. Returns the layout so the run
 ## controller can read spawn points out of it.
-func build(seed_value: int) -> ForestGenerator:
+func build(seed_value: int, biome_id: String = BiomeDB.GREENWOOD) -> ForestGenerator:
 	_clear()
-	layout = ForestGenerator.generate(seed_value)
+	biome = biome_id
+	biome_def = BiomeDB.get_def(biome_id)
+	layout = ForestGenerator.generate(seed_value, biome_id)
 	if not layout.failure.is_empty():
 		push_warning("Slimer: forest generation degraded - %s" % layout.failure)
 
@@ -75,6 +78,9 @@ func _clear() -> void:
 	for child in get_children():
 		child.queue_free()
 	_sway_materials.clear()
+	# The ground entries are keyed by slot, not by biome, so a rebuild into a
+	# different biome would otherwise keep painting the previous one's floor.
+	_texture_cache.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +98,7 @@ func _build_ground() -> void:
 	# coordinates and the extension does not seam against the rest of the ground.
 	var over := ForestGenerator.OVERDRAW
 	var base := Sprite2D.new()
-	base.texture = TEX_GRASS
+	base.texture = _ground("grass")
 	base.centered = false
 	base.position = Vector2(-over, -over)
 	base.region_enabled = true
@@ -109,11 +115,11 @@ func _build_ground() -> void:
 
 	for c: Dictionary in layout.clearings:
 		ground_layer.add_child(_blob_polygon(
-			c["center"], float(c["radius"]), TEX_CLEARING, 0.10, 3))
+			c["center"], float(c["radius"]), _ground("clearing"), 0.10, 3))
 
 	for pond: Dictionary in layout.ponds:
 		var water := _blob_polygon(
-			pond["center"], float(pond["radius"]), TEX_WATER, 0.13, 5)
+			pond["center"], float(pond["radius"]), _ground("water"), 0.13, 5)
 		var mat := ShaderMaterial.new()
 		mat.shader = WATER_SHADER
 		water.material = mat
@@ -162,7 +168,7 @@ func _path_polygon(a: Vector2, b: Vector2, width: float) -> Polygon2D:
 		pts.append(a.lerp(b, t) - n * w)
 	var poly := Polygon2D.new()
 	poly.polygon = pts
-	poly.texture = TEX_PATH
+	poly.texture = _ground("path")
 	poly.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	return poly
 
@@ -179,6 +185,10 @@ func _build_props() -> void:
 		sprite.position = prop["pos"]
 		sprite.scale = Vector2.ONE * float(prop["scale"])
 		sprite.flip_h = bool(prop["flip"])
+		# One tint across every prop in the biome. The prop art is shared
+		# between biomes, so this is what stops Ashfall's dead trees from being
+		# the same warm brown as Greenwood's.
+		sprite.modulate = biome_def.get("prop_tint", Color.WHITE)
 		# anchor the sprite so its base sits on the ground point, which is also
 		# what y-sorting compares
 		sprite.offset = Vector2(0, -sprite.texture.get_height() * 0.5 + float(def["anchor"]))
@@ -191,6 +201,15 @@ func _build_props() -> void:
 			ground_layer.add_child(sprite)
 		else:
 			sorted_layer.add_child(sprite)
+
+
+## One of the biome's four ground tiles. Cached per build - the floor polygons
+## ask for the same four textures hundreds of times.
+func _ground(slot: String) -> Texture2D:
+	var key := "ground:" + slot
+	if not _texture_cache.has(key):
+		_texture_cache[key] = load(BiomeDB.ground_path(biome, slot))
+	return _texture_cache[key]
 
 
 func _texture_for(id: String) -> Texture2D:
@@ -288,7 +307,14 @@ func _build_ambience() -> void:
 	# Faint and green. At full opacity a drifting leaf is the same size and
 	# contrast as an enemy projectile, and the player should never have to
 	# work out whether a moving object can hurt them.
-	leaves.modulate = Color(0.72, 0.90, 0.62, 0.34)
+	# Tinted per biome - ash drifts through Ashfall, not green leaves.
+	#
+	# Deliberately the particles and the props, never a CanvasModulate over the
+	# whole world: that would tint the enemies too, and the colour of an enemy
+	# is a promise about what it does. Atmosphere does not get to make the
+	# roster harder to read.
+	var amb: Color = biome_def.get("ambience", Color.WHITE)
+	leaves.modulate = Color(0.72, 0.90, 0.62, 0.34) * Color(amb.r, amb.g, amb.b, 1.0)
 	leaves.process_material = _leaf_material()
 	leaves.add_to_group("ambient_particles")
 	ambience_layer.add_child(leaves)
@@ -300,7 +326,7 @@ func _build_ambience() -> void:
 	motes.preprocess = 3.0
 	motes.texture = preload("res://assets/sprites/gen/glow.png")
 	motes.local_coords = false
-	motes.modulate = Color(1.0, 0.98, 0.82, 0.30)
+	motes.modulate = Color(1.0, 0.98, 0.82, 0.30) * Color(amb.r, amb.g, amb.b, 1.0)
 	motes.process_material = _mote_material()
 	motes.add_to_group("ambient_particles")
 	ambience_layer.add_child(motes)

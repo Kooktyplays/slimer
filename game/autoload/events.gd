@@ -10,6 +10,8 @@ extends Node
 signal enemy_spawned(enemy: Node2D)
 signal enemy_damaged(enemy: Node2D, amount: float, is_crit: bool, at: Vector2)
 signal enemy_died(enemy: Node2D, at: Vector2)
+## The run has descended into a new biome and the forest has been rebuilt.
+signal biome_changed(biome_id: String, display_name: String)
 signal player_damaged(amount: float, from: Vector2)
 signal player_healed(amount: float)
 signal player_died()

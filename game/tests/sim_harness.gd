@@ -30,6 +30,11 @@ const STALL_FRAMES := 14400
 
 var _frames := 0
 var _failures: Array[String] = []
+## Biomes the run actually descended into. The forest is torn down and rebuilt
+## at every depth boundary, with the player reparented across the rebuild - the
+## single most breakable thing in the biome work, and the only place it can be
+## caught headlessly is here, in a run that crosses four of those boundaries.
+var _biomes_seen: Array[String] = []
 var _notes: Array[String] = []
 
 var _last_wave := 0
@@ -67,6 +72,9 @@ func _ready() -> void:
 		_waves_seen.append(w)
 		_last_wave = w
 		_last_progress_frame = _frames)
+	Events.biome_changed.connect(func(id: String, _n: String) -> void:
+		if not _biomes_seen.has(id):
+			_biomes_seen.append(id))
 	Events.boss_spawned.connect(func(_b: Node2D, _n: String, major: bool) -> void:
 		if major:
 			_major_waves_seen.append(Game.wave())
@@ -392,6 +400,7 @@ func _finish() -> void:
 	print("abilities used:   move x%d, slot 1 x%d, slot 2 x%d"
 		% [_abilities_fired[0], _abilities_fired[1], _abilities_fired[2]])
 	print("potions consumed: %s" % (str(_potions) if not _potions.is_empty() else "none"))
+	print("biomes descended: %s" % (str(_biomes_seen) if not _biomes_seen.is_empty() else "none"))
 	print("peak enemies:     %d (cap %d)" % [_peak_enemies, Balance.MAX_CONCURRENT_ENEMIES])
 	print("peak pooled live: %d" % _pool_peak)
 	print("orphan nodes:     %d" % Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
@@ -413,6 +422,19 @@ func _finish() -> void:
 func _check_sequence() -> void:
 	if _last_wave < TARGET_WAVE:
 		_fail("only reached wave %d of %d" % [_last_wave, TARGET_WAVE])
+
+	# The forest must have descended once per depth boundary crossed, and the
+	# run must still be standing afterwards. Reaching wave 22 in Greenwood
+	# would mean the rebuild silently never fired; reaching it with a dead
+	# player reference would mean the reparent lost them.
+	var expected_biomes: Array[String] = []
+	for depth in range(2, Game.depth_for_wave(_last_wave) + 1):
+		var id := BiomeDB.id_for_depth(depth)
+		if not expected_biomes.has(id):
+			expected_biomes.append(id)
+	if _biomes_seen != expected_biomes:
+		_fail("descended into %s, expected %s"
+			% [str(_biomes_seen), str(expected_biomes)])
 
 	# waves must be consecutive with no gaps or repeats
 	for i in _waves_seen.size():

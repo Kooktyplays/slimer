@@ -1309,6 +1309,41 @@ def gen_ground_tiles():
         "ground_clearing": ((72, 106, 60), (84, 120, 68), (97, 134, 77)),
         "ground_path": ((104, 86, 60), (120, 100, 70), (134, 114, 82)),
         "ground_water": ((36, 108, 156), (46, 128, 178), (62, 152, 202)),
+
+        # --- biome floors -------------------------------------------------
+        # APPEND ONLY, never insert. The noise seed below is `1000 + idx`,
+        # indexed by position in this dict, so inserting an entry renumbers
+        # every tile after it and silently rewrites ground art that has
+        # already shipped. (Adding one sound in the middle of gen_sfx.py
+        # rewrote 25 existing .wav files exactly this way.)
+        #
+        # Each biome keeps the same four roles - floor, clearing, path, water -
+        # so the forest reads the same way in every one of them: the lighter
+        # tone is where you fight, the brown-ish one is where you walk.
+
+        # Fenland: waterlogged, the green going grey at the edges
+        "ground_fen": ((42, 62, 50), (50, 74, 58), (58, 86, 66)),
+        "ground_fen_clearing": ((62, 86, 62), (74, 98, 70), (86, 110, 80)),
+        "ground_fen_path": ((78, 76, 58), (92, 88, 66), (106, 102, 78)),
+
+        # Ashfall: burnt out. Even the water is grey here.
+        "ground_ash": ((46, 42, 40), (56, 51, 48), (68, 61, 57)),
+        "ground_ash_clearing": ((72, 64, 58), (86, 76, 68), (100, 89, 79)),
+        "ground_ash_path": ((88, 72, 58), (102, 84, 66), (116, 96, 76)),
+        "ground_ash_water": ((70, 66, 72), (84, 79, 86), (98, 92, 100)),
+
+        # The Hollow: cold and dark. The floor is nearly out of value range,
+        # which is the point - the vignette does the rest.
+        "ground_hollow": ((28, 34, 46), (34, 42, 56), (41, 50, 66)),
+        "ground_hollow_clearing": ((42, 52, 68), (50, 62, 80), (59, 72, 92)),
+        "ground_hollow_path": ((58, 56, 66), (68, 66, 78), (80, 77, 90)),
+        "ground_hollow_water": ((24, 54, 80), (30, 66, 96), (38, 80, 114)),
+
+        # Heartwood: old, and violet where the Sovereign's colour bleeds in
+        "ground_heart": ((40, 52, 58), (48, 62, 68), (57, 73, 80)),
+        "ground_heart_clearing": ((66, 78, 80), (78, 90, 92), (90, 104, 106)),
+        "ground_heart_path": ((92, 80, 88), (106, 94, 102), (120, 108, 116)),
+        "ground_heart_water": ((48, 52, 96), (58, 64, 114), (72, 80, 136)),
     }
     for idx, (name, tones) in enumerate(specs.items()):
         n = _seamless_noise(size, [(9, 1.0), (4, 0.5), (2, 0.25)], 1000 + idx)

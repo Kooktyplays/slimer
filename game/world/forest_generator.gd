@@ -60,6 +60,11 @@ var rng := RandomNumberGenerator.new()
 
 # --- output -----------------------------------------------------------------
 var seed_value: int = 0
+## Which biome this layout was generated for. Drives the prop tables and the
+## pond count; the geometry rules are the same in every biome, because a
+## clearing has to stay a place you can fight in no matter what colour it is.
+var biome: String = BiomeDB.GREENWOOD
+var biome_def: Dictionary = BiomeDB.get_def(BiomeDB.GREENWOOD)
 var bounds := Rect2(Vector2.ZERO, WORLD_SIZE)
 var cols: int = 0
 var rows: int = 0
@@ -79,9 +84,11 @@ var failure: String = ""
 # ---------------------------------------------------------------------------
 # entry point
 # ---------------------------------------------------------------------------
-static func generate(seed_v: int) -> ForestGenerator:
+static func generate(seed_v: int, biome_id: String = BiomeDB.GREENWOOD) -> ForestGenerator:
 	var g := ForestGenerator.new()
 	g.seed_value = seed_v
+	g.biome = biome_id
+	g.biome_def = BiomeDB.get_def(biome_id)
 	g._build()
 	return g
 
@@ -211,7 +218,10 @@ func _carve_paths() -> void:
 
 
 func _place_ponds() -> void:
-	var want := rng.randi_range(POND_MIN, POND_MAX)
+	# Per biome: Fenland is mostly standing water, Ashfall has almost none.
+	# POND_MIN/MAX stay as the fallback for a biome that declares nothing.
+	var range_: Vector2i = biome_def.get("ponds", Vector2i(POND_MIN, POND_MAX))
+	var want := rng.randi_range(range_.x, range_.y)
 	var inset := BORDER + POND_RADIUS.y
 	var tries := 0
 	while ponds.size() < want and tries < 400:
@@ -252,10 +262,10 @@ func _scatter_water_edge(center: Vector2, radius: float) -> void:
 # ---------------------------------------------------------------------------
 func _scatter_props() -> void:
 	_scatter_border()
-	_scatter_layer(TREE_SPACING, PropCatalog.FOREST_TREES, "forest")
-	_scatter_layer(SCATTER_SPACING, PropCatalog.FOREST_SCATTER, "forest")
-	_scatter_layer(DETAIL_SPACING, PropCatalog.CLEARING_SCATTER, "clearing")
-	_scatter_layer(DETAIL_SPACING * 1.35, PropCatalog.DETAIL_SCATTER, "path")
+	_scatter_layer(TREE_SPACING, biome_def["trees"], "forest")
+	_scatter_layer(SCATTER_SPACING, biome_def["scatter"], "forest")
+	_scatter_layer(DETAIL_SPACING, biome_def["clearing"], "clearing")
+	_scatter_layer(DETAIL_SPACING * 1.35, biome_def["detail"], "path")
 	_add_prop("shop_lantern", shop_point + Vector2(0, -150))
 	_add_prop("campfire", shop_point)
 
@@ -269,18 +279,18 @@ func _scatter_border() -> void:
 	while x < WORLD_SIZE.x:
 		for band in range(0, int(depth / step)):
 			var inset := band * step + rng.randf_range(-20.0, 20.0)
-			_add_prop(PropCatalog.pick(rng, PropCatalog.FOREST_TREES),
+			_add_prop(PropCatalog.pick(rng, biome_def["trees"]),
 				Vector2(x + rng.randf_range(-24, 24), inset))
-			_add_prop(PropCatalog.pick(rng, PropCatalog.FOREST_TREES),
+			_add_prop(PropCatalog.pick(rng, biome_def["trees"]),
 				Vector2(x + rng.randf_range(-24, 24), WORLD_SIZE.y - inset))
 		x += step
 	var y := 40.0
 	while y < WORLD_SIZE.y:
 		for band in range(0, int(depth / step)):
 			var inset := band * step + rng.randf_range(-20.0, 20.0)
-			_add_prop(PropCatalog.pick(rng, PropCatalog.FOREST_TREES),
+			_add_prop(PropCatalog.pick(rng, biome_def["trees"]),
 				Vector2(inset, y + rng.randf_range(-24, 24)))
-			_add_prop(PropCatalog.pick(rng, PropCatalog.FOREST_TREES),
+			_add_prop(PropCatalog.pick(rng, biome_def["trees"]),
 				Vector2(WORLD_SIZE.x - inset, y + rng.randf_range(-24, 24)))
 		y += step
 	_scatter_outer_treeline()
@@ -309,7 +319,7 @@ func _scatter_outer_treeline() -> void:
 			if rng.randf() < 0.30:
 				y += step
 				continue
-			_add_decor_prop(PropCatalog.pick(rng, PropCatalog.FOREST_TREES),
+			_add_decor_prop(PropCatalog.pick(rng, biome_def["trees"]),
 				Vector2(x + rng.randf_range(-30, 30), y + rng.randf_range(-30, 30)))
 			y += step
 		x += step

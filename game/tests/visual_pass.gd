@@ -79,6 +79,29 @@ func _run() -> void:
 	await _settle(1.4)
 	await _shot("wave_all_colours")
 
+	# --- 5b. every biome ---------------------------------------------------
+	# Walked rather than described: five palettes that all look like a forest
+	# would pass every assertion in the suite and still be one biome.
+	for depth in range(2, BiomeDB.ORDER.size() + 1):
+		Game.run.wave = (depth - 1) * Balance.WAVES_PER_DEPTH
+		run.call("_maybe_descend")
+		await _settle(0.8)
+		_expect(run.forest.biome == BiomeDB.id_for_depth(depth),
+			"depth %d did not descend into %s" % [depth, BiomeDB.id_for_depth(depth)])
+		_expect(is_instance_valid(run.player),
+			"the player did not survive the rebuild into %s" % run.forest.biome)
+		_expect(run.player.get_parent() == run.forest.sorted_layer,
+			"the player was not reparented into the new forest")
+		_expect(run.layout.is_open(run.player.global_position),
+			"the player landed inside an obstacle in %s" % run.forest.biome)
+		await _shot("biome_%s" % run.forest.biome)
+
+	# back to the shallows for the rest of the pass
+	Game.run.wave = 1
+	run.call("_maybe_descend")
+	await _settle(0.6)
+	player = run.player
+
 	# --- 6. combat: shoot for a bit ----------------------------------------
 	for frame in 40:
 		player.gun.try_fire(Vector2.RIGHT.rotated(sin(frame * 0.3) * 0.9))

@@ -31,6 +31,13 @@ var _reload_bar: ColorRect
 var _reload_holder: Control
 var _slots: Array = []
 var _vignette: ColorRect
+## The Hollow's dark. A second vignette under the health one, because that one
+## is already driven by low health and damage flashes and the two would fight
+## over a single intensity. Pulled wider and kept off the middle of the screen:
+## the shader's own note is that the centre is where the player is fighting and
+## tinting it trades information for atmosphere, which is exactly the trade a
+## "reduced sight" biome must not make.
+var _gloom: ColorRect
 var _boss_panel: Control
 var _boss_name: Label
 var _boss_fill: ColorRect
@@ -68,7 +75,7 @@ func bind(p: Player, w: WaveController) -> void:
 	else:
 		# bound during the calm beat before wave 1 - "WAVE 0" is not a thing
 		_wave_label.text = "GET READY"
-		_depth_label.text = "FOREST DEPTH 1"
+		_depth_label.text = "GREENWOOD  \u00b7  DEPTH 1"
 
 
 func _connect_events() -> void:
@@ -112,7 +119,37 @@ func _build_vignette() -> void:
 	mat.set_shader_parameter("intensity", 0.0)
 	mat.set_shader_parameter("tint", Color(0.85, 0.10, 0.12))
 	_vignette.material = mat
+
+	_gloom = ColorRect.new()
+	_gloom.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_gloom.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var gmat := ShaderMaterial.new()
+	gmat.shader = VIGNETTE_SHADER
+	gmat.set_shader_parameter("intensity", 0.0)
+	gmat.set_shader_parameter("tint", Color(0.04, 0.05, 0.10))
+	gmat.set_shader_parameter("inner", 0.45)
+	gmat.set_shader_parameter("outer", 1.35)
+	_gloom.material = gmat
+	add_child(_gloom)          # under the health vignette, added next
+
 	add_child(_vignette)
+	Events.biome_changed.connect(func(id: String, display_name: String) -> void:
+		set_gloom(String(BiomeDB.get_def(id)["hazard"]) == BiomeDB.HAZARD_GLOOM)
+		var def := BiomeDB.get_def(id)
+		show_toast("%s — %s" % [display_name.to_upper(),
+			String(def.get("subtitle", ""))], Color(0.82, 0.88, 1.0)))
+
+
+## Fade the dark in or out. Tweened rather than snapped: descending into The
+## Hollow should feel like the light going, not like a setting changing.
+func set_gloom(on: bool) -> void:
+	if _gloom == null:
+		return
+	var mat := _gloom.material as ShaderMaterial
+	var t := create_tween()
+	t.tween_method(func(v: float) -> void:
+		mat.set_shader_parameter("intensity", v),
+		float(mat.get_shader_parameter("intensity")), 0.72 if on else 0.0, 1.1)
 
 
 func _build_health() -> void:
@@ -217,7 +254,7 @@ func _build_top_bar() -> void:
 	_wave_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(_wave_label)
 
-	_depth_label = UITheme.label("FOREST DEPTH 1", 19, UITheme.TEXT_DIM)
+	_depth_label = UITheme.label("GREENWOOD  \u00b7  DEPTH 1", 19, UITheme.TEXT_DIM)
 	_depth_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_depth_label.position = Vector2(-140, 64)
 	_depth_label.size = Vector2(280, 24)
@@ -444,7 +481,10 @@ func _on_money_changed(total: int, delta: int) -> void:
 
 func _on_wave_started(wave: int, depth: int) -> void:
 	_wave_label.text = "WAVE %d" % wave
-	_depth_label.text = "FOREST DEPTH %d" % depth
+	# The label has printed a bare depth number since launch, promising a
+	# change that never arrived. Naming the biome is the promise being kept.
+	_depth_label.text = "%s  \u00b7  DEPTH %d" % [
+		String(BiomeDB.for_depth(depth)["name"]).to_upper(), depth]
 	var t := create_tween()
 	t.tween_property(_wave_label, "scale", Vector2.ONE * 1.28, 0.14) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)

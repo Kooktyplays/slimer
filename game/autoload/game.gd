@@ -134,7 +134,14 @@ func is_nightmare() -> bool:
 func depth() -> int:
 	if run == null:
 		return 1
-	return int(ceil(maxi(run.wave, 1) / float(Balance.WAVES_PER_DEPTH)))
+	return depth_for_wave(run.wave)
+
+
+## Depth of an arbitrary wave. Split out because the run has to know the depth
+## of the wave it is *about* to start, not the one it just finished - that is
+## what decides whether the forest regenerates into a new biome.
+static func depth_for_wave(wave: int) -> int:
+	return int(ceil(maxi(wave, 1) / float(Balance.WAVES_PER_DEPTH)))
 
 
 static func is_mini_boss_wave(wave: int) -> bool:
