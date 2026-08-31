@@ -194,7 +194,12 @@ const DEFS := {
 ## that visibly connected passed straight through.
 
 ## Elite modifiers layered on top of a base type once elites unlock.
-const ELITE_MODS := ["shielded", "enraged", "splitter"]
+## Three of these existed for the whole life of the game, which meant an elite
+## at wave 40 was one of the same three things it was at wave 13. Elite mods are
+## the cheapest variety in the codebase - a match arm and a table entry - so
+## there is no good reason for the list to be short.
+const ELITE_MODS := ["shielded", "enraged", "splitter",
+	"volatile", "vampiric", "phasing", "warding"]
 
 const ELITE_MOD_INFO := {
 	"shielded": {
@@ -209,7 +214,26 @@ const ELITE_MOD_INFO := {
 		"name": "Splitter",
 		"desc": "breaks into smaller slimes when killed",
 	},
+	"volatile": {
+		"name": "Volatile",
+		"desc": "detonates when it dies - kill it at range",
+	},
+	"vampiric": {
+		"name": "Vampiric",
+		"desc": "heals itself with every hit it lands on you",
+	},
+	"phasing": {
+		"name": "Phasing",
+		"desc": "flickers out of reach - time your shots",
+	},
+	"warding": {
+		"name": "Warding",
+		"desc": "shields nearby slimes from your abilities",
+	},
 }
+
+## How far a Warding elite's aura reaches.
+const WARD_AURA_RADIUS := 300.0
 
 
 static func get_def(id: String) -> Dictionary:

@@ -199,6 +199,38 @@ func _test_elites() -> void:
 		"elites must cost extra threat, or a wave gets strictly harder for free")
 	_check(EnemyTypes.ELITE_MODS.size() >= 3, "expected at least three elite modifiers")
 
+	# every modifier must be described, or the tutor hint for it is blank
+	for mod: String in EnemyTypes.ELITE_MODS:
+		_check(EnemyTypes.ELITE_MOD_INFO.has(mod),
+			"elite modifier '%s' has no ELITE_MOD_INFO entry" % mod)
+		var info: Dictionary = EnemyTypes.ELITE_MOD_INFO.get(mod, {})
+		_check(not String(info.get("name", "")).is_empty(), "%s has no name" % mod)
+		_check(not String(info.get("desc", "")).is_empty(), "%s has no description" % mod)
+	_check(EnemyTypes.ELITE_MOD_INFO.size() == EnemyTypes.ELITE_MODS.size(),
+		"ELITE_MOD_INFO describes a modifier that is never rolled")
+
+	# A pooled enemy has to come back clean. A Phasing elite clears its hurtbox
+	# layer to become untargetable; if configure() did not restore it, the next
+	# slime out of the pool would be permanently unhittable and the wave could
+	# never end. This is the guard on that.
+	var scene: PackedScene = load("res://actors/enemy.tscn")
+	var e: Enemy = scene.instantiate()
+	add_child(e)
+	e.configure(EnemyTypes.GREEN, 20, "phasing")
+	# force it out of phase, the way the elite tick would
+	e.call("_tick_elite", 999.0)
+	var phased_layer: int = e.get_node("Hurtbox").collision_layer
+	_check(phased_layer == 0, "a phasing elite should be untargetable while out")
+	# ...and now recycled as an ordinary slime
+	e.configure(EnemyTypes.GREEN, 20, "")
+	_check(e.get_node("Hurtbox").collision_layer == Layers.ENEMY,
+		"a recycled enemy kept a phasing elite's disabled hurtbox - it would be "
+		+ "permanently untargetable")
+	_check(is_equal_approx(e.get_node("Visual").modulate.a, 1.0),
+		"a recycled enemy kept a phasing elite's faded sprite")
+	e.die(false)
+	e.queue_free()
+
 
 ## The two rules that keep five bosses from being one boss.
 ##

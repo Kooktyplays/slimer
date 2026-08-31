@@ -167,9 +167,24 @@ Two quality-of-life rules on top:
 - **Finisher mode** — once the wave has spawned everything and ≤ 4 remain,
   every survivor commits. Hoarders stop fleeing, Spitters stop kiting.
 
-**Elite modifiers** (from wave 13, up to 30% chance) wear a gold crown:
-*Shielded* absorbs a burst first, *Enraged* is faster and speeds up further
-below half health, *Splitter* breaks into two smaller slimes on death.
+**Elite modifiers** (from wave 13, up to 30% chance) wear a gold crown. Seven
+of them, because three meant an elite at wave 40 was one of the same three
+things it was at wave 13:
+
+| Modifier | What it does |
+| --- | --- |
+| Shielded | Absorbs a burst of damage before taking any |
+| Enraged | Much faster, and faster again below half health |
+| Splitter | Breaks into two smaller slimes on death |
+| Volatile | Detonates when it dies — hurts you *and* the pack around it |
+| Vampiric | Heals off every hit it lands on you |
+| Phasing | Flickers untargetable on a cycle; time your shots |
+| Warding | Lends nearby slimes the Warded slime's ability-immunity |
+
+None of them can make a wave unclearable, which is the constraint they were
+designed against. Phasing cycles rather than rolling a dodge chance, so it is
+a window to time rather than luck. Warding blocks abilities only — bullets
+still land, and the player always has a gun.
 
 Enemies also have stuck-handling — a short steering nudge, and a silent
 relocation if one is genuinely pinned on terrain far from the player. Without

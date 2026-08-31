@@ -101,6 +101,26 @@ var _shell_timer := 0.0
 ## compares a frame to ask a question whose answer cannot change.
 var _is_turtle := false
 
+## Phasing elites flicker out of reach on a cycle. Cycling rather than being a
+## random dodge chance so the window is something the player can time, and so
+## it can never be untargetable indefinitely.
+var _phased := false
+var _phase_timer := 0.0
+const PHASE_OUT := 0.9
+const PHASE_IN := 1.8
+
+## Set each think by a nearby Warding elite, with an expiry rather than a flag
+## the granter has to remember to clear - the granter usually dies, and a
+## permanently warded pack would be a wave that a whole build cannot answer.
+var _ward_until := 0.0
+var _ward_tick := 0.0
+## How often a Warding elite refreshes its aura. The grant lasts longer than
+## the interval, so the aura is continuous while costing one area query every
+## 0.15 s instead of one every frame - at 68 enemies that is the difference
+## between a rounding error and a measurable cost.
+const WARD_REFRESH := 0.15
+const WARD_GRANT := 0.4
+
 ## Stuck handling. Enemies steer straight at their target with no pathfinding,
 ## which is fine in the open and fails in a pocket between two rocks: the
 ## slime grinds against geometry forever and the wave can never end.
@@ -163,6 +183,17 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	_is_turtle = String(def["behavior"]) == "turtle"
 	_shell_up = true
 	_shell_timer = float(def.get("shell_up", 0.0)) * randf_range(0.35, 1.0)
+	_phased = false
+	_phase_timer = PHASE_IN * randf_range(0.3, 1.0)
+	_ward_until = 0.0
+	_ward_tick = 0.0
+	# Both of these MUST be restored here, not just in _ready. Enemies are
+	# pooled: a Phasing elite that died while phased would otherwise be handed
+	# back out as an ordinary slime with its hurtbox layer still cleared and
+	# its sprite still faded - permanently untargetable, and a wave that can
+	# never end.
+	_hurtbox.collision_layer = Layers.ENEMY
+	_visual.modulate.a = 1.0
 
 	var visual_scale := float(def["scale"])
 	shield = 0.0
@@ -180,6 +211,19 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 				contact_damage *= 1.25
 			"splitter":
 				max_hp *= 1.1
+			"volatile":
+				# Slightly frail: it is dangerous when it dies, not while alive,
+				# and stacking both would just be a better Brute.
+				max_hp *= 0.8
+			"vampiric":
+				contact_damage *= 1.15
+			"phasing":
+				# It is untargetable a third of the time, so it does not also
+				# need the full elite health pool on top.
+				max_hp *= 0.75
+			"warding":
+				# The aura is the threat. Left at elite baseline.
+				pass
 
 	hp = max_hp
 	_body.texture = load(EnemyTypes.texture_path(id))
@@ -228,6 +272,8 @@ func _physics_process(delta: float) -> void:
 	_attack_timer = maxf(0.0, _attack_timer - scaled)
 	if _is_turtle:
 		_tick_shell(scaled)
+	if is_elite:
+		_tick_elite(scaled)
 
 	_think_timer -= delta
 	var target := _target_position()
@@ -521,6 +567,13 @@ func _tick_contact(delta: float, _target: Vector2) -> void:
 			p.call("apply_poison",
 				contact_damage * Balance.CONTACT_POISON_FRACTION,
 				Balance.CONTACT_POISON_DURATION)
+		if elite_mod == "vampiric":
+			# Off damage *dealt*, so it is answered by not being touched rather
+			# than by out-damaging it. Capped at max_hp, so this can stall a
+			# kill but never reverse one past full.
+			hp = minf(max_hp, hp + contact_damage * 0.75)
+			FX.floating_text(hit_center() + Vector2(0, -46), "+",
+				Color(0.9, 0.35, 0.45))
 		_contact_timer = 0.85
 		_squash(1.35)
 
@@ -645,10 +698,64 @@ func _tick_shell(delta: float) -> void:
 		FX.ring(hit_center(), hit_radius * 1.5, DEFLECT_COLOR, 0.25, 0.35)
 
 
+## Elite behaviour that runs on a clock rather than on an event.
+func _tick_elite(delta: float) -> void:
+	match elite_mod:
+		"phasing":
+			_phase_timer -= delta
+			if _phase_timer <= 0.0:
+				_phased = not _phased
+				_phase_timer = PHASE_OUT if _phased else PHASE_IN
+				# The hurtbox is what bullets look for, so dropping its layer
+				# is what actually makes it untargetable rather than merely
+				# invulnerable - shots pass through instead of pinging off.
+				_hurtbox.collision_layer = 0 if _phased else Layers.ENEMY
+				var t := create_tween()
+				t.tween_property(_visual, "modulate:a", 0.25 if _phased else 1.0, 0.18)
+				if not _phased:
+					FX.ring(hit_center(), hit_radius * 1.4,
+						Color(0.75, 0.7, 0.95), 0.25, 0.3)
+		"warding":
+			_ward_tick -= delta
+			if _ward_tick <= 0.0:
+				_ward_tick = WARD_REFRESH
+				_ward_neighbours()
+
+
+## Lend ability-immunity to everything nearby, on a short expiry.
+##
+## Pushed onto neighbours rather than read from them: the check in _is_immune
+## runs on every single hit, and walking the enemy list there would put an
+## area query in the hottest path in the game. Refreshing on the think tick
+## costs one query per Warding elite instead.
+func _ward_neighbours() -> void:
+	var until := Time.get_ticks_msec() / 1000.0 + WARD_GRANT
+	for e: Node2D in Combat.enemies_in_radius(hit_center(),
+			EnemyTypes.WARD_AURA_RADIUS):
+		if e == self or e.is_in_group("boss"):
+			continue
+		e.set("_ward_until", until)
+	# Drawn every couple of seconds rather than every frame: the player has to
+	# be able to see which slime is doing this, without a strobe.
+	if _flash <= 0.0 and randf() < 0.02:
+		FX.ring(hit_center(), EnemyTypes.WARD_AURA_RADIUS,
+			Color(0.7, 0.6, 0.95, 0.5), 0.6, 0.25)
+
+
 ## Whether `source` bounces off this enemy right now.
 ##
 ## Warded's immunity is permanent; Carapace's holds only while the shell is up.
 func _is_immune(source: String) -> bool:
+	# Phasing is out of reach of everything while it is out - it is a window to
+	# time, not a source to counter.
+	if _phased:
+		return true
+	# A Warding elite lends its neighbours the Warded slime's trick. Bullets
+	# still work, which is what stops an aura from being unanswerable: the
+	# player always has a gun.
+	if source == Combat.SOURCE_ABILITY \
+			and Time.get_ticks_msec() / 1000.0 < _ward_until:
+		return true
 	if immune_to.is_empty() or source != immune_to:
 		return false
 	return _shell_up if _is_turtle else true
@@ -688,12 +795,35 @@ func die(award: bool = true) -> void:
 	if award:
 		FX.burst(at, def["tint"], 14 if not is_elite else 22, 1.0 if not is_elite else 1.5)
 		Audio.play_throttled("enemy_death", 0.05, -11.0, 0.18)
+		if elite_mod == "volatile":
+			# Deferred for the same reason as _split: death usually arrives
+			# from a bullet's body_entered, mid physics flush.
+			_detonate_volatile.call_deferred(at, spawn_wave)
 		if elite_mod == "splitter":
 			# deferred for the same reason as _spawn_bullet: death usually
 			# arrives from a bullet's body_entered, mid physics flush
 			_split.call_deferred(at, type_id, spawn_wave)
 	Events.enemy_died.emit(self, at)
 	Pools.release(self)
+
+
+## Volatile elites leave a blast behind them, which turns every kill into a
+## question of where you were standing when you took it.
+##
+## Takes its arguments explicitly because it runs deferred, by which point this
+## enemy has been recycled and its fields have moved on - the same reason
+## _split does.
+func _detonate_volatile(at: Vector2, for_wave: int) -> void:
+	var radius := 200.0
+	var damage := 22.0 * Balance.damage_scale(for_wave, Game.is_nightmare())
+	FX.explosion(at, radius, Color(1.0, 0.55, 0.3))
+	Audio.play("explosion", -7.0)
+	Game.shake(Balance.SHAKE_EXPLOSION * 0.6, 0.25)
+	Combat.explode_on_player(at, radius, damage)
+	# It hurts the pack too, exactly like a Bloater, which is what makes a
+	# volatile in a crowd an opportunity as well as a threat. Untagged, so it
+	# lands on Warded and Carapace alike.
+	Combat.explode(at, radius, damage * 0.5, 220.0, true, Combat.SOURCE_OTHER)
 
 
 ## Splitter elites break into two ordinary slimes of the same colour.

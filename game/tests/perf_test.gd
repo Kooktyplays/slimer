@@ -75,7 +75,10 @@ func _fill_arena(run: Node, player: Player) -> void:
 		var angle := TAU * i / float(Balance.MAX_CONCURRENT_ENEMIES)
 		var at: Vector2 = player.global_position \
 			+ Vector2.RIGHT.rotated(angle) * randf_range(340.0, 900.0)
-		var elite: String = "" if i % 4 != 0 else EnemyTypes.ELITE_MODS[i % 3]
+		# Indexed by the real list length. This was hardcoded to 3, so every
+		# elite modifier added after the first three went untested for perf.
+		var elite: String = ("" if i % 4 != 0
+			else EnemyTypes.ELITE_MODS[i % EnemyTypes.ELITE_MODS.size()])
 		waves.spawn_at(types[i % types.size()], at, 30, elite)
 	run.bosses.call("spawn_for_wave", 30, player.global_position)
 
