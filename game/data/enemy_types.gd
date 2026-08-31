@@ -12,8 +12,11 @@ const PURPLE := "purple"
 const ORANGE := "orange"
 const VIOLET := "violet"
 const GREY := "grey"
+const TEAL := "teal"
+const PALE := "pale"
 
-const ORDER: Array[String] = [GREEN, BLUE, RED, PURPLE, YELLOW, ORANGE, VIOLET, GREY]
+const ORDER: Array[String] = [GREEN, BLUE, RED, PURPLE, YELLOW, ORANGE,
+	VIOLET, GREY, TEAL, PALE]
 
 const DEFS := {
 	GREEN: {
@@ -185,6 +188,50 @@ const DEFS := {
 		# window - which is exactly the adapting the pair exists to ask for.
 		"shell_up": 2.2,
 		"shell_down": 1.3,
+	},
+	# ---------------------------------------------------------------------
+	# The two that go after something other than your health.
+	# ---------------------------------------------------------------------
+	TEAL: {
+		"name": "Thief",
+		"behavior": "thief",
+		"tint": Color(0.20, 0.75, 0.70),
+		"hp": 42.0,
+		"speed": 190.0,
+		"contact_damage": 3.0,       # it is not here to hurt you
+		"threat": 2.0,
+		"money": Vector2i(8, 13),
+		"scale": 0.58,
+		"radius": 27.0,
+		"unlock_wave": 16,
+		"weight": 0.6,
+		"hint": "Teal thieves steal your coins and run. Kill one to get them back.",
+		# The counterpart to the Hoarder: one hoards gold, one takes yours.
+		"steal": Vector2i(28, 55),
+		# Once it has your money it wants distance, so it reuses the skittish
+		# flee steering rather than a second implementation of running away.
+		"flee_range": 620.0,
+		"separation_scale": 2.6,
+		"hoards": true,              # drops its haul as a burst, like a Hoarder
+	},
+	PALE: {
+		"name": "Mimic",
+		"behavior": "mimic",
+		"tint": Color(0.85, 0.80, 0.55),
+		"hp": 70.0,
+		"speed": 150.0,
+		"contact_damage": 22.0,
+		"threat": 2.5,
+		"money": Vector2i(16, 24),
+		"scale": 0.66,
+		"radius": 30.0,
+		"unlock_wave": 20,
+		"weight": 0.5,
+		"hint": "That was not a coin. Mimics wait on the ground - read what you pick up.",
+		# Sits still wearing a pickup's sprite until you get close. Makes the
+		# player read the ground, which is a whole layer of attention the game
+		# did not previously use.
+		"disguise_range": 150.0,
 	},
 }
 

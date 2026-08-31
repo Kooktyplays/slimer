@@ -69,6 +69,24 @@ var _charge_velocity := Vector2.ZERO
 var _charging := false
 var _projectile_texture: Texture2D
 var _rng := RandomNumberGenerator.new()
+
+## Pose frames on the body strip: idle, the wind-up crouch, the strike.
+##
+## These are the two moments the fight already stops for. Every attack calls
+## _wind_up() and then lands on a tween callback, and until now both of those
+## were carried by a scale tween on a single static sprite - which is most of
+## why Notion's read on the bosses was "rigid".
+const POSE_IDLE := 0
+const POSE_WINDUP := 1
+const POSE_STRIKE := 2
+const POSE_COUNT := 3
+## Must mirror BOSS_POSES in tools/gen_art.py. The eyes are a child of the body
+## sprite, so hframes does not move them - they have to be transformed to match
+## the pose or the Ancient Oak ends up looking at its own shoulder.
+const POSE_SQUASH: Array[float] = [1.00, 0.88, 1.00]
+const POSE_STRETCH: Array[float] = [1.00, 1.08, 0.90]
+
+var _eye_home := Vector2.ZERO
 ## Final collision radius in world pixels, matched to the drawn sprite.
 var hit_radius := 110.0
 
@@ -108,8 +126,11 @@ func configure(boss_id: String, for_wave: int, repeat_index: int) -> void:
 	_damage_scale = Balance.boss_damage_scale(for_wave)
 
 	_body.texture = load(def["body"])
+	_body.hframes = POSE_COUNT
 	_eyes.texture = load(def["eyes"])
 	_eyes.position = def["eye_offset"]
+	_eye_home = def["eye_offset"]
+	set_pose(POSE_IDLE)
 	_projectile_texture = load(def["projectile"])
 
 	var s := float(def["scale"]) * (1.0 + 0.06 * repeat_index)
@@ -366,15 +387,40 @@ func _wind_up(duration: float) -> Tween:
 	_busy = true
 	velocity = Vector2.ZERO
 	Audio.play("telegraph", -6.0)
+	set_pose(POSE_WINDUP)
 	var t := create_tween()
-	t.tween_property(_visual, "scale", _visual.scale * Vector2(0.85, 1.18), duration * 0.7) \
+	# The scale tween is kept but softened from 0.85/1.18 to 0.94/1.07. It was
+	# standing in for an anticipation pose the sprite did not have; now the
+	# sprite has one, and running both at full strength deforms twice.
+	t.tween_property(_visual, "scale", _visual.scale * Vector2(0.94, 1.07), duration * 0.7) \
 		.set_ease(Tween.EASE_IN)
 	t.tween_interval(duration * 0.3)
+	t.tween_callback(func() -> void: set_pose(POSE_STRIKE))
 	return t
+
+
+## Switch pose, carrying the eyes with it.
+##
+## The body squashes about its feet, so the drawn face moves down by half of
+## whatever height the pose lost. The eyes are offset by exactly that and
+## scaled to match, which is what keeps them on the face instead of floating
+## where the face used to be.
+func set_pose(index: int) -> void:
+	var i := clampi(index, 0, POSE_COUNT - 1)
+	_body.frame = i
+	var sq := POSE_SQUASH[i]
+	var xs := POSE_STRETCH[i]
+	var h := 0.0
+	if _body.texture != null:
+		h = float(_body.texture.get_height())
+	_eyes.position = Vector2(_eye_home.x * xs,
+		_eye_home.y * sq + (1.0 - sq) * h * 0.5)
+	_eyes.scale = Vector2(xs, sq)
 
 
 func _recover() -> void:
 	_busy = false
+	set_pose(POSE_IDLE)
 
 
 # ---------------------------------------------------------------------------

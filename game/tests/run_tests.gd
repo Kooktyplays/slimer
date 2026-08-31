@@ -22,6 +22,8 @@ func _run() -> void:
 	_test_enemy_unlocks()
 	_test_elites()
 	_test_adaptation_pair()
+	_test_animation()
+	_test_thief_and_mimic()
 	_test_boss_phases()
 	_test_gun_upgrades()
 	_test_upgrade_pricing()
@@ -312,6 +314,116 @@ func _boss_attack_names() -> Dictionary:
 		out[m.get_string("name")] = true
 	_check(out.size() >= 14, "found only %d boss attacks in the dispatch" % out.size())
 	return out
+
+
+## Frame animation, and the one mistake that would break every hurtbox.
+##
+## Enemy._apply_hit_shapes and Boss._apply_hit_shapes both size their hurtbox
+## from texture.get_height(). Every animated sheet in the game is therefore a
+## HORIZONTAL strip: laid out vertically, get_height() would return the height
+## of the whole column and silently inflate - or, on a re-tuned sheet, shrink -
+## every hit shape in the game. Nothing else in the codebase would notice.
+func _test_animation() -> void:
+	var sheets := {}
+	# one slime, hue-rotated into the whole roster - so all of them must agree
+	for id: String in EnemyTypes.ORDER:
+		sheets[EnemyTypes.texture_path(id)] = 4
+	for id: String in BossDB.DEFS:
+		sheets[String(BossDB.get_def(id)["body"])] = Boss.POSE_COUNT
+
+	for path: String in sheets:
+		var tex: Texture2D = load(path)
+		_check(tex != null, "missing animated sheet %s" % path)
+		if tex == null:
+			continue
+		var frames: int = sheets[path]
+		_check(tex.get_width() > tex.get_height(),
+			"%s is not a horizontal strip - a vertical one silently resizes "
+				% path + "every hit shape in the game")
+		_check(tex.get_width() % frames == 0,
+			"%s is %d wide, which does not divide into %d frames"
+				% [path, tex.get_width(), frames])
+
+	# Anything that DRAWS an enemy body has to page the strip, not stretch it.
+	# The menu backdrop is the one place outside the actors that does, and it
+	# rendered every slime four frames wide until this was caught by looking at
+	# the running game - no assertion in the suite would have noticed.
+	var deco := Node2D.new()
+	deco.set_script(load("res://ui/menu_backdrop.gd"))
+	add_child(deco)
+	var checked := 0
+	for child: Node in deco.get_children():
+		var spr := child as Sprite2D
+		if spr == null or spr.texture == null:
+			continue
+		if not String(spr.texture.resource_path).contains("enemy_"):
+			continue
+		checked += 1
+		_check(spr.hframes == 4,
+			"a menu backdrop slime has hframes=%d - it will draw the whole "
+				% spr.hframes + "walk strip instead of one frame")
+	_check(checked > 0, "found no enemy sprites in the menu backdrop to check")
+	deco.queue_free()
+
+	# the boss pose tables have to agree with the strip the art tool emits
+	_check(Boss.POSE_SQUASH.size() == Boss.POSE_COUNT,
+		"boss pose squash table does not cover every frame")
+	_check(Boss.POSE_STRETCH.size() == Boss.POSE_COUNT,
+		"boss pose stretch table does not cover every frame")
+	for v: float in Boss.POSE_SQUASH:
+		_check(v <= 1.0,
+			"a boss pose stretches past full height - the strip is anchored at "
+			+ "the feet, so anything over 1.0 crops the top of the sprite")
+
+
+## Thief and Mimic: the two that go after something other than your health.
+func _test_thief_and_mimic() -> void:
+	var thief := EnemyTypes.get_def(EnemyTypes.TEAL)
+	var mimic := EnemyTypes.get_def(EnemyTypes.PALE)
+	_check(thief.has("steal"), "the Thief has nothing to steal with")
+	_check(mimic.has("disguise_range"), "the Mimic has no reveal range")
+
+	var scene: PackedScene = load("res://actors/enemy.tscn")
+
+	# --- theft is bounded by what the player actually has -------------------
+	var t: Enemy = scene.instantiate()
+	add_child(t)
+	t.configure(EnemyTypes.TEAL, 20)
+	var before := t.money_value
+	Game.run.money = 12                      # less than the steal range
+	t.call("_steal")
+	_check(Game.run.money == 0,
+		"a Thief left %d behind - theft should be capped at what you have"
+			% Game.run.money)
+	_check(t.money_value == before + 12,
+		"a Thief's haul did not go onto its payout, so killing it loses the money")
+	t.die(false)
+	t.queue_free()
+
+	# --- a Mimic must come back from the pool undisguised -------------------
+	var m: Enemy = scene.instantiate()
+	add_child(m)
+	m.configure(EnemyTypes.PALE, 20)
+	_check(bool(m.get("_disguised")), "a Mimic did not spawn disguised")
+	_check(not m.get_node("Visual/Body/Face").visible,
+		"a disguised Mimic is showing its face")
+	_check(not m.get_node("Visual/Body/Badge").visible,
+		"a disguised Mimic is showing its marker, which gives the trap away")
+
+	# reveal, then recycle as an ordinary slime
+	m.call("_reveal")
+	_check(not bool(m.get("_disguised")), "a Mimic did not reveal")
+	_check(m.get_node("Visual/Body/Face").visible,
+		"a revealed Mimic has no face - it is a threat now and must read as one")
+	m.configure(EnemyTypes.GREEN, 20)
+	_check(not bool(m.get("_disguised")),
+		"a recycled Mimic came back still disguised")
+	_check(m.get_node("Visual/Body").hframes == 4,
+		"a recycled Mimic kept a pickup's frame count instead of the walk cycle")
+	_check(m.get_node("Visual/Body/Face").visible,
+		"a recycled Mimic came back faceless")
+	m.die(false)
+	m.queue_free()
 
 
 ## The Warded/Carapace pair: the first enemies that refuse a whole damage

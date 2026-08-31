@@ -1,9 +1,9 @@
 # Slimer
 
 An endless, procedurally generated top-down forest roguelike, built in
-**Godot 4.4.1**. Eight enemy colours, five bosses, fifteen abilities of which
-you carry three, and five biomes of forest generated fresh from a seed every
-run — and regenerated every time you go deeper.
+**Godot 4.4.1**. Ten enemy colours, five bosses, fifteen abilities of which you
+carry three, and five biomes of forest generated fresh from a seed every run —
+and regenerated every time you go deeper.
 
 **Free — may be shared, not sold.** See [Licensing](#licensing).
 
@@ -12,7 +12,7 @@ run — and regenerated every time you go deeper.
 | Play in your browser | *(link added when the site is deployed)* |
 | Download | [Releases](../../releases/latest) — macOS, Windows, Linux |
 | Engine | Godot 4.4.1 |
-| Scale | 60 GDScript files, ~11,400 lines, 26 scenes, 88 sprites, 46 sound effects |
+| Scale | 64 GDScript files, ~15,000 lines, 28 scenes, 135 sprites, 47 sound effects |
 
 ## What it is
 
@@ -113,7 +113,7 @@ the original slime, and selling the game was not permitted at any price.
 
 Those thirteen have been replaced with originals authored in
 `game/tools/gen_art.py`, and the pack files are gone from the project. Every
-sprite in `game/assets/sprites/gen/` and all 46 sound effects are generated,
+sprite in `game/assets/sprites/gen/` and all 47 sound effects are generated,
 deterministically, from `tools/gen_art.py` and `tools/gen_sfx.py`.
 
 The only third-party material left is MIT: the Godot engine, and the tween

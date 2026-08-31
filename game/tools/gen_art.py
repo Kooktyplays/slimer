@@ -201,33 +201,79 @@ class P:
     PINE_L = (58, 152, 92)
 
 
-def gen_slime_body():
-    """The slime every enemy colour is derived from.
+# Walk-cycle squash factors, neutral first. Compression only, never stretch:
+# the neutral silhouette already touches the top of its 108x90 frame, so any
+# value above 1.0 would clip the dome flat. The "tall" half of the bounce comes
+# from the vertical hop Enemy._animate already applies - these frames supply
+# the deformation, that supplies the height.
+#
+# Ordered monotonically so the frame index maps straight off the hop phase:
+# frame 0 at the top of the arc, frame 3 on the ground.
+SLIME_WALK = (1.00, 0.96, 0.91, 0.86)
 
-    Hue-rotated into six colours by gen_enemies(), so the shading has to read
-    as shading rather than as hue - hence four tones with real value contrast
-    between them, and highlights that stay light after the rotation.
+
+def _draw_slime(a: "Art", sq: float) -> None:
+    """One slime into `a`, squashed by `sq` about the ground line.
+
+    Deforms around y=90 - the feet - so the base stays planted while the body
+    compresses, and around x=54 with partial volume conservation so a squashed
+    slime spreads rather than just getting shorter.
     """
-    a = Art(108, 90)
-    # Fills the canvas edge to edge, because the sprite this replaces did. Every
-    # offset tuned against it - the elite crown at y=-34, the face at y=-6, the
-    # hit radii in EnemyTypes - is relative to this frame, so a silhouette that
-    # sits smaller inside the same canvas leaves the crown floating above the
-    # slime's head and the face riding high on its body.
-    a.blob(54, 52, 54, 38, (*P.SLIME_M, 255), wobble=0.04, seed=11)
-    a.ellipse(54, 34, 45, 34, (*P.SLIME_M, 255))     # dome, up to the top edge
-    a.ellipse(54, 68, 53, 22, (*P.SLIME_M, 255))     # base, down to the bottom
+    xs = 1.0 / (sq ** 0.5)
+
+    def Y(y: float) -> float:
+        return 90 - (90 - y) * sq
+
+    def X(x: float) -> float:
+        return 54 + (x - 54) * xs
+
+    def RX(r: float) -> float:
+        return r * xs
+
+    def RY(r: float) -> float:
+        return r * sq
+
+    # Fills the canvas edge to edge at sq=1.0, because the sprite this replaces
+    # did. Every offset tuned against it - the elite crown at y=-34, the face at
+    # y=-6, the badge at y=14, the hit radii in EnemyTypes - is relative to this
+    # frame, so the neutral frame has to stay exactly what it was.
+    a.blob(X(54), Y(52), RX(54), RY(38), (*P.SLIME_M, 255), wobble=0.04, seed=11)
+    a.ellipse(X(54), Y(34), RX(45), RY(34), (*P.SLIME_M, 255))   # dome
+    a.ellipse(X(54), Y(68), RX(53), RY(22), (*P.SLIME_M, 255))   # base
     # the base darkens where it meets the ground
-    a.light(lambda s, c: s.ellipse(54, 96, 58, 30, c), (*P.SLIME_D, 255))
+    a.light(lambda s, c: s.ellipse(X(54), Y(96), RX(58), RY(30), c), (*P.SLIME_D, 255))
     # top-lit dome
-    a.light(lambda s, c: s.ellipse(46, 20, 44, 34, c), (*P.SLIME_L, 255))
-    a.light(lambda s, c: s.ellipse(40, 10, 26, 20, c), (*P.SLIME_XL, 255))
+    a.light(lambda s, c: s.ellipse(X(46), Y(20), RX(44), RY(34), c), (*P.SLIME_L, 255))
+    a.light(lambda s, c: s.ellipse(X(40), Y(10), RX(26), RY(20), c), (*P.SLIME_XL, 255))
     # One soft specular, clipped to the dome. dot() paints unclipped, so a
     # highlight placed near the top edge hangs off the silhouette and reads as a
     # bubble stuck to the slime; light() masks to what is already drawn.
-    a.light(lambda s, c: s.ellipse(38, 18, 17, 11, c), (255, 255, 255, 110))
-    a.light(lambda s, c: s.ellipse(34, 15, 7, 5, c), (255, 255, 255, 200))
-    a.save("slime_body.png")
+    a.light(lambda s, c: s.ellipse(X(38), Y(18), RX(17), RY(11), c), (255, 255, 255, 110))
+    a.light(lambda s, c: s.ellipse(X(34), Y(15), RX(7), RY(5), c), (255, 255, 255, 200))
+
+
+def gen_slime_body():
+    """The slime every enemy colour is derived from, as a 4-frame walk strip.
+
+    Hue-rotated into eight colours by gen_enemies(), so the shading has to read
+    as shading rather than as hue - hence four tones with real value contrast
+    between them, and highlights that stay light after the rotation. recolor()
+    is size-agnostic, so animating this one slime animates the whole roster.
+
+    HORIZONTAL strip, and that is not a style choice: Enemy._apply_hit_shapes
+    sizes the hurtbox from texture.get_height(). Laid out vertically, this
+    would silently shrink every hurtbox in the game.
+    """
+    frames = []
+    for sq in SLIME_WALK:
+        f = Art(108, 90)
+        _draw_slime(f, sq)
+        frames.append(f.finish())
+    sheet = Image.new("RGBA", (108 * len(frames), 90), (0, 0, 0, 0))
+    for i, f in enumerate(frames):
+        sheet.paste(f, (i * 108, 0))
+    OUT.mkdir(parents=True, exist_ok=True)
+    sheet.save(OUT / "slime_body.png")
 
 
 def gen_slime_face():
@@ -396,6 +442,8 @@ ENEMY_TINTS = {
     # green, are the two hardest reads in the roster.
     "violet": (265, 0.42, 1.10),
     "grey":   (120, 0.16, 0.88),
+    "teal":   (172, 0.85, 1.00),
+    "pale":   (44,  0.34, 1.06),
 }
 
 
@@ -513,9 +561,20 @@ def gen_type_badges():
                for i in range(6)]
         a.poly(pts, col)
 
+    def cross(a, col, g):
+        arm = 3.6 + g
+        a.rrect(c - r - g, c - arm, c + r + g, c + arm, 1.6, col)
+        a.rrect(c - arm, c - r - g, c + arm, c + r + g, 1.6, col)
+
+    def halfdisc(a, col, g):
+        # flat-bottomed dome: the most distinct remaining silhouette at 30 px
+        a.ellipse(c, c + 3.0, r + g, r + g, col)
+        a.rrect(c - r - g - 1, c + 3.0, c + r + g + 1, c + r + g + 4, 1.0, col)
+
     shapes = {
         "green": circle, "blue": chevron, "red": square, "purple": diamond,
         "yellow": triangle, "orange": burst, "violet": ring, "grey": hexagon,
+        "teal": cross, "pale": halfdisc,
     }
     for name, fn in shapes.items():
         a = _badge()
@@ -770,6 +829,41 @@ def gen_shop_props():
 # --------------------------------------------------------------------------
 # 3. bosses - unique silhouettes, each with a separate eye layer to animate
 # --------------------------------------------------------------------------
+# Boss poses: idle | wind-up | strike, as squash-and-stretch about the ground
+# line. Anticipation is a wide crouch, the strike is tall and narrow - the two
+# oldest readable poses in animation, and the two that boss.gd already stops
+# and waits at.
+#
+# NEITHER value exceeds 1.0 vertically, on purpose. The frame is anchored at
+# the feet, so a value above 1.0 would crop the top of the sprite, and the
+# amount of headroom differs per boss.
+BOSS_POSES = (
+    (1.00, 1.00),   # idle
+    (0.88, 1.08),   # wind-up: sinks and spreads
+    (1.00, 0.90),   # strike: snaps upright and narrow
+)
+
+
+def save_posed(a: "Art", name: str) -> None:
+    """Save `a` as a horizontal 3-frame pose strip.
+
+    HORIZONTAL, like the slime walk cycle and for the same reason: the actors
+    size their hit shapes from texture height, and a vertical strip would
+    silently resize every one of them.
+    """
+    img = a.finish()
+    w, h = img.size
+    sheet = Image.new("RGBA", (w * len(BOSS_POSES), h), (0, 0, 0, 0))
+    for i, (sq, xs) in enumerate(BOSS_POSES):
+        nw, nh = max(1, round(w * xs)), max(1, round(h * sq))
+        scaled = img.resize((nw, nh), Image.LANCZOS)
+        frame = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        frame.paste(scaled, ((w - nw) // 2, h - nh))   # anchored at the feet
+        sheet.paste(frame, (i * w, 0))
+    OUT.mkdir(parents=True, exist_ok=True)
+    sheet.save(OUT / name)
+
+
 def gen_boss_bramble():
     """Mini-boss 1: Bramble Warden - thorny root creature."""
     w, h = 208, 196
@@ -795,7 +889,7 @@ def gen_boss_bramble():
         a.line([(w / 2 - 54, h * yy), (w / 2 - 18, h * (yy + 0.04)),
                 (w / 2 + 20, h * (yy - 0.02)), (w / 2 + 54, h * (yy + 0.03))],
                (*C.LEAF_M, 255), 7)
-    a.save("boss_bramble_body.png")
+    save_posed(a, "boss_bramble_body.png")
 
     a = Art(96, 40)
     a.ellipse(24, 20, 15, 13, (30, 24, 18, 255))
@@ -834,7 +928,7 @@ def gen_boss_toad():
     for sx in (-1, 1):
         a.ellipse(w / 2 + sx * 38, h * 0.26, 30, 26, (*C.LEAF_M, 255))
         a.ellipse(w / 2 + sx * 38 - 4, h * 0.22, 22, 16, (*C.LEAF_L, 255))
-    a.save("boss_toad_body.png")
+    save_posed(a, "boss_toad_body.png")
 
     a = Art(160, 56)
     for cx in (34, 126):
@@ -864,7 +958,7 @@ def gen_boss_wisp():
         a.circle(w / 2 + math.cos(ang) * 68, h / 2 + math.sin(ang) * 68, 13,
                  (*C.ESSENCE_L, 235))
     a.dot(w * 0.36, h * 0.32, 9, C.WHITE, 190)
-    a.save("boss_wisp_body.png")
+    save_posed(a, "boss_wisp_body.png")
 
     a = Art(96, 40)
     for cx in (26, 70):
@@ -910,7 +1004,7 @@ def gen_boss_oak():
     can.light(lambda s, c: s.blob(w * 0.36, h * 0.09, 56, 26, c, wobble=0.18, seed=37),
               (*C.LEAF_L, 255))
     a.img.alpha_composite(can.img)
-    a.save("boss_oak_body.png")
+    save_posed(a, "boss_oak_body.png")
 
     a = Art(200, 80)
     for cx in (52, 148):
@@ -956,7 +1050,7 @@ def gen_boss_sovereign():
     a.rrect(w / 2 - 100, cy - 4, w / 2 + 100, cy + 9, 6, (*C.GOLD_M, 255))
     for gx in (-64, -22, 22, 64):
         a.circle(w / 2 + gx, cy + 9, 8, (86, 196, 236, 255))
-    a.save("boss_sovereign_body.png")
+    save_posed(a, "boss_sovereign_body.png")
 
     a = Art(220, 90)
     for cx in (58, 162):
@@ -1233,7 +1327,9 @@ def gen_icons():
     store page and in a taskbar.
     """
     sizes = [16, 32, 48, 64, 128, 256, 512, 1024]
-    body = Image.open(OUT / "slime_body.png").convert("RGBA")
+    # Frame 0 only. slime_body.png is a 4-frame walk strip, and resizing the
+    # whole thing would put four flattened slimes on the app icon.
+    body = Image.open(OUT / "slime_body.png").convert("RGBA").crop((0, 0, 108, 90))
     face = Image.open(OUT / "slime_face.png").convert("RGBA")
 
     master = Art(1024, 1024)

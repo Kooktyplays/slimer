@@ -19,6 +19,10 @@ var _ability_prompt_at := 22.0
 
 func _ready() -> void:
 	Events.enemy_spawned.connect(_on_enemy_spawned)
+	# A Mimic's hint has to wait for the reveal. Firing it on spawn would print
+	# "that was not a coin" while the thing is still pretending to be one,
+	# several hundred pixels off screen, and give the trap away for free.
+	Events.enemy_revealed.connect(_on_enemy_spawned)
 	Events.pickup_collected.connect(_on_pickup)
 	Events.reload_started.connect(_on_reload)
 	Events.shop_opened.connect(func() -> void: _hint("shop",
@@ -103,6 +107,10 @@ func _on_enemy_spawned(enemy: Node2D) -> void:
 		return
 	var id := String(enemy.get("type_id"))
 	if id.is_empty():
+		return
+	# ...and the same reason in the other direction: say nothing while it is
+	# still disguised. enemy_revealed brings it back here the moment it is not.
+	if bool(enemy.get("_disguised")):
 		return
 	var def := EnemyTypes.get_def(id)
 	_hint("enemy_" + id, String(def["hint"]))

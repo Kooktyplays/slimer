@@ -16,6 +16,8 @@ extends CharacterBody2D
 ##   bomber   (orange) - closes and detonates
 ##   ward     (violet) - unflinching, immune to abilities: shoot it
 ##   turtle   (grey)   - hunkers behind a shell, immune to bullets: use a cooldown
+##   thief    (teal)   - takes your coins and runs; kill it to get them back
+##   mimic    (pale)   - sits disguised as a pickup until you walk into it
 
 const FLASH_SHADER := preload("res://assets/shaders/flash.gdshader")
 const PROJECTILE := preload("res://weapons/projectile.tscn")
@@ -113,6 +115,22 @@ const PHASE_IN := 1.8
 ## the granter has to remember to clear - the granter usually dies, and a
 ## permanently warded pack would be a wave that a whole build cannot answer.
 var _ward_until := 0.0
+
+## Thief. How much of the player's money it is carrying; killing it gives that
+## back on top of its own payout, so the chase is worth committing to.
+var _stolen := 0
+const THIEF_ESCAPE_DISTANCE := 1500.0
+
+## Mimic. Wearing a pickup's sprite and standing still. It reveals on
+## proximity, on being shot, or when finisher_mode turns on - that last one is
+## what stops a Mimic nobody walked near from hanging the wave forever.
+var _disguised := false
+const MIMIC_TEXTURES: Array[String] = [
+	"res://assets/sprites/gen/coin_strip.png",
+	"res://assets/sprites/gen/potion_red.png",
+	"res://assets/sprites/gen/potion_blue.png",
+	"res://assets/sprites/gen/potion_purple.png",
+]
 var _ward_tick := 0.0
 ## How often a Warding elite refreshes its aura. The grant lasts longer than
 ## the interval, so the aura is continuous while costing one area query every
@@ -194,6 +212,11 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	# never end.
 	_hurtbox.collision_layer = Layers.ENEMY
 	_visual.modulate.a = 1.0
+	_stolen = 0
+	# Undisguise first, unconditionally. Enemies are pooled, and a Mimic handed
+	# back out as an ordinary slime still wearing a coin sprite would be the
+	# same class of bug the Phasing elite had.
+	_disguised = false
 
 	var visual_scale := float(def["scale"])
 	shield = 0.0
@@ -227,6 +250,7 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 
 	hp = max_hp
 	_body.texture = load(EnemyTypes.texture_path(id))
+	_body.hframes = 4
 	_face.texture = FACE_ANGRY if is_elite else FACE_NORMAL
 	_crown.visible = is_elite
 	if is_elite:
@@ -253,6 +277,8 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	_stuck_time = 0.0
 	_unstuck_timer = 0.0
 	_last_position = global_position
+	if String(def["behavior"]) == "mimic":
+		_disguise()
 	visible = true
 	set_physics_process(true)
 	Combat.register_enemy(self)
@@ -429,6 +455,28 @@ func _think(target: Vector2) -> void:
 			# without reading its colour.
 			_desired = Vector2.ZERO if _shell_up else dir
 
+		"thief":
+			# Straight at you until it has your money, then straight away with
+			# it. The flee leg is the Hoarder's, so there is one implementation
+			# of running away rather than two.
+			if _stolen <= 0:
+				_desired = dir
+			else:
+				_desired = (-dir + dir.orthogonal() * 0.4 * _flank_sign).normalized()
+				if dist > THIEF_ESCAPE_DISTANCE:
+					_escape()
+
+		"mimic":
+			# Bait until it is not. Reveals on proximity, and on finisher_mode
+			# regardless of distance - without that second condition a Mimic
+			# nobody wandered near would keep a wave alive forever.
+			if _disguised:
+				_desired = Vector2.ZERO
+				if dist < float(def["disguise_range"]) or Combat.finisher_mode:
+					_reveal()
+			else:
+				_desired = dir
+
 		_:
 			_desired = dir
 
@@ -552,7 +600,7 @@ func _tick_contact(delta: float, _target: Vector2) -> void:
 			return
 
 	_contact_timer = maxf(0.0, _contact_timer - delta)
-	if contact_damage <= 0.0 or _contact_timer > 0.0:
+	if _disguised or contact_damage <= 0.0 or _contact_timer > 0.0:
 		return
 	var p := Combat.player()
 	if p == null:
@@ -567,6 +615,8 @@ func _tick_contact(delta: float, _target: Vector2) -> void:
 			p.call("apply_poison",
 				contact_damage * Balance.CONTACT_POISON_FRACTION,
 				Balance.CONTACT_POISON_DURATION)
+		if String(def["behavior"]) == "thief" and _stolen <= 0:
+			_steal()
 		if elite_mod == "vampiric":
 			# Off damage *dealt*, so it is answered by not being touched rather
 			# than by out-damaging it. Capped at max_hp, so this can stall a
@@ -605,8 +655,17 @@ func _animate(delta: float) -> void:
 	var bounce := absf(sin(_hop))
 	var base: float = float(def["scale"]) * (Balance.ELITE_SCALE if is_elite else 1.0)
 
-	# the pack's slime squashes on landing and stretches at the top of its hop
-	var squash := 1.0 + bounce * 0.10 - 0.05
+	# The walk cycle. Frame 0 is the neutral silhouette at the top of the arc
+	# and frame 3 is fully compressed on the ground, so the strip is indexed
+	# straight off the hop phase and the two can never drift apart.
+	if not _disguised:
+		_body.frame = clampi(int((1.0 - bounce) * float(_body.hframes)),
+			0, _body.hframes - 1)
+
+	# A trace of the old procedural squash is kept, but only a trace: it used to
+	# be +/-5% and it is now the frames' job. Running both at full strength
+	# deforms the sprite twice.
+	var squash := 1.0 + bounce * 0.04 - 0.02
 	_visual.scale = Vector2(base * (2.0 - squash), base * squash)
 	_visual.position.y = -bounce * (4.0 + (10.0 if moving else 0.0))
 	_shadow.scale = Vector2.ONE * base * (0.95 - bounce * 0.12)
@@ -642,6 +701,9 @@ func take_damage(amount: float, is_crit: bool = false, from: Vector2 = Vector2.Z
 	# Warded shrugs off abilities, Carapace shrugs off bullets. The deflect has
 	# to be as loud as a hit or the player reads "I missed" instead of "that
 	# does not work on this one", and goes on missing.
+	if _disguised:
+		_reveal()
+
 	if _is_immune(source):
 		_deflect(from)
 		return
@@ -682,6 +744,89 @@ func take_damage(amount: float, is_crit: bool = false, from: Vector2 = Vector2.Z
 
 	if hp <= 0.0:
 		die(true)
+
+
+# ---------------------------------------------------------------------------
+# thief and mimic
+# ---------------------------------------------------------------------------
+## Take a bite out of the player's purse.
+##
+## Bounded by what they actually have, so a Thief can never push the balance
+## negative, and what it carries is added to its own payout - killing it hands
+## the money straight back, which is what makes the chase worth breaking off
+## for.
+func _steal() -> void:
+	if Game.run == null:
+		return
+	var want: Vector2i = def.get("steal", Vector2i(20, 40))
+	var take := mini(randi_range(want.x, want.y), Game.run.money)
+	if take <= 0:
+		return
+	_stolen = take
+	Game.run.money -= take
+	Events.money_changed.emit(Game.run.money, -take)
+	money_value += take
+	FX.floating_text(hit_center() + Vector2(0, -60), "-%d" % take,
+		Color(1.0, 0.5, 0.4))
+	Audio.play("coin", -6.0)
+	_squash(1.4)
+
+
+## It got away with it. Despawns without a payout, which is the whole cost of
+## letting one escape.
+##
+## die(false) still emits enemy_died, so the wave controller decrements its
+## live count and the wave can end - a Thief that simply stopped existing
+## would leave the wave waiting for it forever.
+func _escape() -> void:
+	FX.burst(hit_center(), def["tint"], 10, 1.0)
+	FX.floating_text(hit_center() + Vector2(0, -60), "got away",
+		Color(0.8, 0.75, 0.7))
+	money_value = 0
+	die(false)
+
+
+## Drop the costume.
+##
+## The face and badge come back here rather than being visible all along: a
+## Mimic wearing its shape marker would not be a Mimic. That is a deliberate
+## exception to the markers rule, and a narrow one - the badges promise that
+## an enemy presenting as an enemy can be read without colour, and a disguised
+## Mimic is not presenting as one. The instant it is a threat, it is marked.
+func _reveal() -> void:
+	if not _disguised:
+		return
+	_disguised = false
+	_body.texture = load(EnemyTypes.texture_path(type_id))
+	_body.hframes = 4
+	_body.frame = 0
+	_face.visible = true
+	_crown.visible = is_elite
+	refresh_badge()
+	_visual.scale = Vector2.ONE * float(def["scale"]) \
+		* (Balance.ELITE_SCALE if is_elite else 1.0)
+	FX.burst(hit_center(), def["tint"], 16, 1.3)
+	FX.ring(hit_center(), hit_radius * 2.2, Color(1.0, 0.9, 0.5), 0.35, 0.2)
+	Audio.play("enemy_death", -8.0, 0.4)
+	Game.shake(3.0, 0.2)
+	Events.enemy_revealed.emit(self)
+
+
+## Put the costume on. Called at the end of configure(), after the hit shapes
+## have been sized off the real slime texture - the Mimic is a slime in a
+## costume and has to stay hittable at its own size, so shooting a suspicious
+## coin works.
+func _disguise() -> void:
+	_disguised = true
+	var pick: String = MIMIC_TEXTURES[randi() % MIMIC_TEXTURES.size()]
+	_body.texture = load(pick)
+	_body.hframes = 6 if pick.ends_with("coin_strip.png") else 1
+	_body.frame = 0
+	_face.visible = false
+	_crown.visible = false
+	_badge.visible = false
+	# Pickups are drawn far smaller than a slime.
+	_visual.scale = Vector2.ONE * 0.85
 
 
 ## Open and close the Carapace's shell. Both transitions are visible: it stops

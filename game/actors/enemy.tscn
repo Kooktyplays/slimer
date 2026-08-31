@@ -28,6 +28,7 @@ texture = ExtResource("2_sh")
 [node name="Body" type="Sprite2D" parent="Visual"]
 position = Vector2(0, -32)
 texture = ExtResource("3_b")
+hframes = 4
 
 [node name="Face" type="Sprite2D" parent="Visual/Body"]
 position = Vector2(0, -6)

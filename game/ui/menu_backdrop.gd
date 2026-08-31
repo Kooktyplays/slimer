@@ -1,8 +1,8 @@
 extends Node2D
 ## Slimes bobbing across the menu background.
 ##
-## Purely decorative, but it does one useful job: it shows the six enemy
-## colours on the title screen, so the colour language is familiar before the
+## Purely decorative, but it does one useful job: it shows every enemy
+## colour on the title screen, so the colour language is familiar before the
 ## first wave rather than something to decode mid-fight.
 
 const SPEED := 26.0
@@ -23,6 +23,11 @@ func _ready() -> void:
 		var id: String = EnemyTypes.ORDER[i % EnemyTypes.ORDER.size()]
 		var s := Sprite2D.new()
 		s.texture = load(EnemyTypes.texture_path(id))
+		# The body texture is a 4-frame walk strip. Without this the backdrop
+		# draws all four frames side by side and every slime on the menu is
+		# four times too wide.
+		s.hframes = 4
+		s.frame = i % 4
 		s.modulate.a = 0.30
 		var scale := rng.randf_range(0.5, 1.3)
 		s.scale = Vector2.ONE * scale
