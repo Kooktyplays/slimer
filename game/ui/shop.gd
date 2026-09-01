@@ -42,7 +42,8 @@ func open() -> void:
 # offers
 # ---------------------------------------------------------------------------
 func _roll_offers() -> void:
-	var pool := UpgradesDB.available_ids(Save.unlocks)
+	var pool := UpgradesDB.available_ids(Save.unlocks,
+		Game.run.class_id if Game.run != null else "")
 	var weighted: Array[String] = []
 	for id: String in pool:
 		var def := UpgradesDB.get_def(id)

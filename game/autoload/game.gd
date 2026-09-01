@@ -105,10 +105,12 @@ func go_to_credits() -> void:
 
 ## Begin a fresh run. Everything temporary is discarded here - this single
 ## line is the whole of "death resets the run".
-func start_run(seed_value: int = 0, nightmare: bool = false) -> void:
+func start_run(seed_value: int = 0, nightmare: bool = false,
+		character: String = "") -> void:
 	var s := seed_value if seed_value != 0 else int(Time.get_unix_time_from_system() * 1000) ^ randi()
 	rng.seed = s
-	run = RunState.create(s, Save.unlocks, Save.loadout.duplicate(), nightmare)
+	var pick := character if not character.is_empty() else String(Save.character)
+	run = RunState.create(s, Save.unlocks, Save.loadout.duplicate(), nightmare, pick)
 	run.wave = 0
 	_was_low_health = false
 	set_paused(false)

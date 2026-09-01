@@ -26,6 +26,9 @@ const _VERSIONED_ABILITY_ACTIONS: Array[String] = [
 var essence: int = 0
 var unlocks: Array[String] = []
 var loadout: Array[String] = ["dash", "grenade", "nova"]
+## Last character picked. Sanitised on load, so a save from before classes
+## existed comes back as the default rather than an empty string.
+var character: String = "warden"
 var seen_hints: Array[String] = []
 var stats := {
 	"runs": 0,
@@ -86,6 +89,7 @@ func to_dict() -> Dictionary:
 		"essence": essence,
 		"unlocks": unlocks,
 		"loadout": loadout,
+		"character": character,
 		"seen_hints": seen_hints,
 		"stats": stats,
 		"settings": settings,
@@ -96,6 +100,7 @@ func to_dict() -> Dictionary:
 
 func from_dict(d: Dictionary) -> void:
 	essence = int(d.get("essence", 0))
+	character = ClassesDB.sanitise(String(d.get("character", "")))
 	unlocks = _to_string_array(d.get("unlocks", []))
 	seen_hints = _to_string_array(d.get("seen_hints", []))
 	achievements = _to_string_array(d.get("achievements", []))

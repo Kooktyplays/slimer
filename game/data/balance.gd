@@ -12,7 +12,25 @@ const PLAYER_SPEED := 265.0
 const PLAYER_ACCEL := 3600.0
 const PLAYER_FRICTION := 3000.0
 const PLAYER_RADIUS := 22.0
-const PLAYER_IFRAMES := 0.55
+## Invulnerability after taking a hit. Raised from 0.55: being hit once in a
+## crowd used to roll straight into being hit again before you could react, and
+## the crowd is exactly what the threat budget spends its money on.
+const PLAYER_IFRAMES := 0.78
+
+## Grace after landing a dash or a leap. Was 0.12, which is barely a frame and a
+## half at 60fps - long enough to be technically true and too short to be felt.
+## Landing in a crowd should not immediately cost a contact hit.
+const LANDING_GRACE := 0.34
+
+## Damage taken while Surge is up.
+##
+## Surge is the movement ability with NO invulnerability - that is its whole
+## identity, and the headless sim runs a Surge loadout specifically to prove the
+## bosses are beatable without blinking. Widening Dash and Vault's grace without
+## touching Surge would quietly make it a trap pick and bring back the bug the
+## movement-slot rework existed to fix. So it gets flat damage reduction
+## instead: still no i-frames, still literally true, sim guard still meaningful.
+const SURGE_DAMAGE_REDUCTION := 0.35
 const LOW_HEALTH_FRACTION := 0.30
 
 # --- starting gun -----------------------------------------------------------
@@ -129,14 +147,42 @@ static func elite_chance(wave: int) -> float:
 	return minf(0.06 + 0.012 * (wave - ELITE_UNLOCK_WAVE), 0.30)
 
 # --- bosses -----------------------------------------------------------------
+## Boss health has to be QUADRATIC, because a wave's health is.
+##
+## These were straight lines (520 + 95w, 1600 + 240w) while a wave's total pool
+## is wave_budget(w) - already quadratic - multiplied again by hp_scale(w). The
+## two diverged permanently, and measurably: a mini-boss was 1.14x a wave's
+## whole health pool at wave 5, 0.48x by wave 15 and 0.22x by wave 30. Bosses
+## were not tuned easy, they were on the wrong curve.
+##
+## And parity is not parity. A wave arrives as thirty-odd bodies from every
+## direction with stacking contact poison; a boss is one target with attacks
+## that are deliberately telegraphed and walkable. So the boss curve is aimed
+## *above* the wave curve, not level with it.
+##
+## `_test_boss_curve` asserts the ratio never falls below its floor for any
+## wave 1-100, so this can never quietly drift back into a straight line.
 static func mini_boss_hp(wave: int) -> float:
-	return 520.0 + 95.0 * wave
+	return 460.0 + 80.0 * wave + 12.0 * wave * wave
 
 static func major_boss_hp(wave: int) -> float:
-	return 1600.0 + 240.0 * wave
+	return 1400.0 + 200.0 * wave + 22.0 * wave * wave
 
+## Roughly what a whole wave is worth in enemy health, used to keep the boss
+## curve honest. ~34 HP per point of threat is the roster average at base
+## stats; the exact constant matters less than the shape, which has to match
+## whatever wave_budget is doing.
+const WAVE_HP_PER_THREAT := 34.0
+
+static func wave_hp_pool(wave: int, nightmare: bool = false) -> float:
+	return wave_budget(wave, nightmare) * WAVE_HP_PER_THREAT * hp_scale(wave)
+
+
+## Also lifted off a straight line, for the same reason. A boss that hits for
+## the same fraction of your health at wave 40 as at wave 5 is a boss you have
+## outgrown.
 static func boss_damage_scale(wave: int) -> float:
-	return 1.0 + 0.045 * wave
+	return 1.0 + 0.045 * wave + 0.0016 * wave * wave
 
 static func mini_boss_reward(wave: int) -> int:
 	return int(180 + 26 * wave)

@@ -60,6 +60,7 @@ func _ready() -> void:
 
 	Pools.prewarm(PICKUP_SCENE, 60)
 	Events.enemy_died.connect(_on_enemy_died)
+	Events.pickup_collected.connect(_on_pickup_charge)
 	Events.hit_stop.connect(_apply_hit_stop)
 	Events.shop_closed.connect(_on_shop_closed)
 	Events.wave_cleared.connect(_on_wave_cleared)
@@ -103,6 +104,7 @@ func _process(delta: float) -> void:
 		if Game.run != null:
 			Game.run.health_potion_guard = maxf(
 				0.0, Game.run.health_potion_guard - delta)
+			Game.run.tick_combo(delta)
 
 	_tick_terrain(delta)
 
@@ -139,6 +141,8 @@ func _on_wave_finished(wave: int) -> void:
 func _on_boss_cleared(_boss: Node2D) -> void:
 	if Game.state != Game.State.RUN:
 		return
+	if Game.run != null:
+		Game.run.add_ultimate_charge(ClassesDB.CHARGE_ELITES, 4.0)
 	# sweep up any adds the boss left behind before the shop opens
 	waves.clear_all_enemies()
 	# ...and bank the payout before anything can read the balance. This has to
@@ -312,10 +316,36 @@ func _maybe_descend() -> void:
 # ---------------------------------------------------------------------------
 # drops
 # ---------------------------------------------------------------------------
+func _on_pickup_charge(_kind: String, _at: Vector2) -> void:
+	if Game.run != null:
+		Game.run.add_ultimate_charge(ClassesDB.CHARGE_PICKUPS, 1.0)
+
+
 func _on_enemy_died(enemy: Node2D, at: Vector2) -> void:
 	if Game.run == null:
 		return
 	Game.run.kills += 1
+
+	# The chain, and its payoff. Shake scales with the tier rather than firing
+	# at full strength on every kill - a constant rumble is not feedback, it is
+	# noise, and Game.shake is already scaled by the accessibility slider.
+	Game.run.add_combo()
+	var tier := Game.run.combo_tier()
+	# Two classes read this moment: the Engineer off the chain itself, the
+	# Warden off what died. add_ultimate_charge ignores anything that is not
+	# this class's own condition, so both can be fed unconditionally.
+	Game.run.add_ultimate_charge(ClassesDB.CHARGE_COMBO, float(Game.run.combo))
+
+	# Crimson Hour: a kill spreads to whatever was standing next to it.
+	if player != null and is_instance_valid(player) and player.is_contagious():
+		FX.burst(at, Color(0.9, 0.3, 0.4), 12, 1.4)
+		Combat.explode(at, 210.0, 55.0, 120.0, true, Combat.SOURCE_ABILITY)
+	if bool(enemy.get("is_elite")):
+		Game.run.add_ultimate_charge(ClassesDB.CHARGE_ELITES, 1.0)
+	if tier > 0:
+		Game.shake(1.0 + 1.4 * tier, 0.10 + 0.03 * tier)
+		if Game.run.combo % 5 == 0:
+			Audio.play_throttled("crit", 0.06, -14.0 + 2.0 * tier, 0.10 * tier)
 
 	var money := int(enemy.get("money_value"))
 	if money > 0:

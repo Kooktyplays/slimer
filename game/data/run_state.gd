@@ -11,6 +11,16 @@ var wave: int = 0
 var money: int = 0
 ## Nightmare difficulty, chosen before the run and fixed for its lifetime.
 var nightmare: bool = false
+## Which character this run is. Sanitised on creation, so a save from before
+## classes existed loads as the default rather than erroring.
+var class_id: String = "warden"
+
+## Ultimate charge, 0..1. Earned by doing what this class used to do - see the
+## charge conditions in ClassesDB. Clamped at both ends: the HUD reads it as a
+## fraction and an ultimate that could charge past full would show a meter
+## that lies.
+var ultimate_charge: float = 0.0
+var ultimates_used: int = 0
 
 # gun stats, copied from Balance.GUN_BASE then mutated by upgrades
 var gun: Dictionary = {}
@@ -26,6 +36,11 @@ var ability_extra_charges: int = 0
 var lifesteal: float = 0.0
 var money_mul: float = 1.0
 var free_rerolls: int = 0
+## Class-upgrade stats. `ultimate_rate` scales how fast charge accrues,
+## `ultimate_power` how long an ultimate lasts. Both live here rather than on
+## the class so a run can buy into them.
+var ultimate_rate: float = 1.0
+var ultimate_power: float = 1.0
 
 # loadout
 var abilities: Array[String] = ["dash", "grenade", "nova"]
@@ -39,6 +54,22 @@ var damage_dealt: float = 0.0
 var money_earned: int = 0
 var rerolls_used: int = 0
 var health_potion_guard: float = 0.0     # seconds left on the anti-farm guard
+
+## Combo: kills chained without being hit.
+##
+## The game had no reason to fight aggressively rather than kite - every kill
+## was worth the same whenever it happened. A combo that rises on quick kills
+## and dies the moment you are hit is the risk side of that, and it is the
+## charge condition the Engineer's ultimate reads.
+##
+## It resets on damage on purpose, which pulls against the wider i-frames added
+## in the same pass. That is the intended split: forgiveness comes from the
+## i-frames, so a struggling player is not punished twice, and the combo is what
+## a confident one is playing for.
+var combo: int = 0
+var combo_best: int = 0
+var combo_timer: float = 0.0
+const COMBO_WINDOW := 2.2
 var started_at_ms: int = 0
 
 
@@ -49,10 +80,11 @@ func _init() -> void:
 
 ## Build a run from the player's permanent unlocks.
 static func create(seed_v: int, save_unlocks: Array, loadout: Array[String],
-		nightmare_mode: bool = false) -> RunState:
+		nightmare_mode: bool = false, character: String = "") -> RunState:
 	var rs := RunState.new()
 	rs.seed_value = seed_v
 	rs.nightmare = nightmare_mode
+	rs.class_id = ClassesDB.sanitise(character)
 	rs.abilities = loadout.duplicate()
 	var essence_mul := 0.0
 	for id: String in save_unlocks:
@@ -76,6 +108,15 @@ static func create(seed_v: int, save_unlocks: Array, loadout: Array[String],
 				rs.free_rerolls += int(amount)
 			"essence_mul":
 				essence_mul += amount
+	# The class passive rides the same _apply_effect machinery every shop
+	# upgrade uses, so it inherits every stat cap for free - a class can lift a
+	# stat but never past the ceiling the game already enforces.
+	var cls := ClassesDB.get_def(rs.class_id)
+	var passive: Dictionary = cls.get("passive", {})
+	if not passive.is_empty():
+		rs._apply_effect(String(passive["stat"]), int(passive["kind"]),
+			float(passive["amount"]))
+
 	rs.hp = rs.max_hp
 	rs.set_meta("essence_mul", 1.0 + essence_mul)
 	return rs
@@ -84,6 +125,97 @@ static func create(seed_v: int, save_unlocks: Array, loadout: Array[String],
 ## Essence multiplier granted by permanent passives.
 func essence_multiplier() -> float:
 	return float(get_meta("essence_mul", 1.0))
+
+
+# ---------------------------------------------------------------------------
+# ultimate charge
+# ---------------------------------------------------------------------------
+## Feed the ultimate. `source` is a ClassesDB.CHARGE_* id; anything that is not
+## this class's own condition is ignored, which is what makes the five classes
+## play differently rather than all filling from the same firehose.
+##
+## Every CHARGE_* constant must appear as a match arm here. The logic suite
+## reads the arms out of this file, so a class naming a condition nothing
+## implements fails the build rather than shipping an ultimate that never
+## charges.
+func add_ultimate_charge(source: String, magnitude: float) -> void:
+	if ultimate_charge >= 1.0:
+		return
+	var want := String(ClassesDB.get_def(class_id)["charge"])
+	if source != want:
+		return
+
+	var gain := 0.0
+	match source:
+		ClassesDB.CHARGE_ELITES:
+			gain = magnitude * 0.16          # magnitude 1 per elite, 4 per boss
+		ClassesDB.CHARGE_TAKEN:
+			gain = magnitude / 420.0
+		ClassesDB.CHARGE_DEALT:
+			gain = magnitude / 5200.0
+		ClassesDB.CHARGE_COMBO:
+			gain = magnitude * 0.012         # magnitude is the combo count
+		ClassesDB.CHARGE_PICKUPS:
+			gain = magnitude * 0.014
+	gain *= ultimate_rate
+	if gain <= 0.0:
+		return
+	var before := ultimate_charge
+	ultimate_charge = clampf(ultimate_charge + gain, 0.0, 1.0)
+	if ultimate_charge != before:
+		Events.ultimate_charge_changed.emit(ultimate_charge)
+
+
+func ultimate_ready() -> bool:
+	return ultimate_charge >= 1.0
+
+
+## Spend it. Returns false if it was not full, so the caller cannot half-fire.
+func spend_ultimate() -> bool:
+	if not ultimate_ready():
+		return false
+	ultimate_charge = 0.0
+	ultimates_used += 1
+	Events.ultimate_charge_changed.emit(0.0)
+	return true
+
+
+## One more link in the chain. Returns the new combo count.
+func add_combo() -> int:
+	combo += 1
+	combo_best = maxi(combo_best, combo)
+	combo_timer = COMBO_WINDOW
+	Events.combo_changed.emit(combo, combo_tier())
+	return combo
+
+
+func break_combo() -> void:
+	if combo <= 0:
+		return
+	combo = 0
+	combo_timer = 0.0
+	Events.combo_changed.emit(0, 0)
+
+
+## Ticks the window down. Called from run.gd, like health_potion_guard.
+func tick_combo(delta: float) -> void:
+	if combo <= 0:
+		return
+	combo_timer -= delta
+	if combo_timer <= 0.0:
+		break_combo()
+
+
+## 0-3. Drives shake strength, audio pitch and the HUD - one number so those
+## three can never disagree about how well you are doing.
+func combo_tier() -> int:
+	if combo >= 30:
+		return 3
+	if combo >= 15:
+		return 2
+	if combo >= 6:
+		return 1
+	return 0
 
 
 func hp_fraction() -> float:
@@ -156,6 +288,10 @@ func _apply_effect(stat: String, kind: int, amount: float) -> void:
 			lifesteal = minf(after, 0.35)
 		"money_mul":
 			money_mul = after
+		"ultimate_rate":
+			ultimate_rate = minf(after, 2.5)
+		"ultimate_power":
+			ultimate_power = minf(after, 2.5)
 
 
 func _combine(current: float, kind: int, amount: float) -> float:
@@ -190,6 +326,8 @@ func stat_value(stat: String) -> float:
 		"ability_extra_charges": return float(ability_extra_charges)
 		"lifesteal": return lifesteal
 		"money_mul": return money_mul
+		"ultimate_rate": return ultimate_rate
+		"ultimate_power": return ultimate_power
 		_: return 0.0
 
 

@@ -15,6 +15,12 @@ signal biome_changed(biome_id: String, display_name: String)
 ## A Mimic has dropped its disguise. Separate from enemy_spawned because the
 ## moment that matters for a Mimic is the reveal, not the spawn.
 signal enemy_revealed(enemy: Node2D)
+## Combo count and its 0-3 tier. Emitted on every change, including the break.
+signal combo_changed(count: int, tier: int)
+## Ultimate charge, 0..1. Emitted on every change, including the spend.
+signal ultimate_charge_changed(fraction: float)
+## Fired when an ultimate actually goes off, for the HUD flourish and the tutor.
+signal ultimate_fired(class_id: String, ultimate_id: String)
 signal player_damaged(amount: float, from: Vector2)
 signal player_healed(amount: float)
 signal player_died()

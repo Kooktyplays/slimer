@@ -20,6 +20,7 @@ func _ready() -> void:
 		"Movement, then two more. You can swap them at any forest rest.", false)
 	_picker.connect("closed", _start)
 
+	_build_class_picker()
 	_build_difficulty()
 
 	var back := UITheme.button("BACK", 22)
@@ -35,6 +36,44 @@ func _ready() -> void:
 ## Deliberately a toggle on this screen rather than a separate menu entry: the
 ## choice belongs next to the loadout, because the two are the same decision -
 ## what you are taking in, and what you are taking it into.
+## Who you were. Sits beside the difficulty toggle rather than replacing the
+## ability grid - the class is layered on top of the loadout, not instead of it.
+var _class_button: Button = null
+
+
+func _build_class_picker() -> void:
+	_class_button = UITheme.button("", 22)
+	_class_button.custom_minimum_size = Vector2(360, 52)
+	_class_button.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_class_button.position = Vector2(-180, -170)
+	_class_button.size = Vector2(360, 52)
+	_class_button.pressed.connect(func() -> void:
+		var order := ClassesDB.ORDER
+		var i := order.find(ClassesDB.sanitise(String(Save.character)))
+		Save.character = order[(i + 1) % order.size()]
+		Save.save_game()
+		Audio.play_ui("ui_click", -8.0)
+		_refresh_class())
+	add_child(_class_button)
+	_refresh_class()
+
+
+func _refresh_class() -> void:
+	if _class_button == null:
+		return
+	var id := ClassesDB.sanitise(String(Save.character))
+	var def := ClassesDB.get_def(id)
+	_class_button.text = String(def["name"]).to_upper()
+	_class_button.add_theme_color_override("font_color", def["tint"])
+	_class_button.tooltip_text = "%s\n\n%s\n%s\n\nULTIMATE - %s\n%s" % [
+		String(def["blurb"]),
+		String(def["passive_text"]),
+		String(def["charge_text"]),
+		String(def["ultimate_name"]),
+		String(def["ultimate_text"]),
+	]
+
+
 func _build_difficulty() -> void:
 	_nightmare_button = UITheme.button("", 22)
 	_nightmare_button.custom_minimum_size = Vector2(360, 52)
@@ -64,4 +103,4 @@ func _refresh_difficulty() -> void:
 
 func _start() -> void:
 	Audio.play_ui("ui_confirm")
-	Game.start_run(0, _nightmare)
+	Game.start_run(0, _nightmare, ClassesDB.sanitise(String(Save.character)))

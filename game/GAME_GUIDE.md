@@ -35,6 +35,7 @@ that survives, and it buys permanent unlocks between runs.
 | Shoot | Left click (hold) |
 | Reload | R (automatic when empty) |
 | Movement ability | Space |
+| Ultimate | Q |
 | Ability 1 | Shift |
 | Ability 2 | E |
 | Continue past shop | F |
@@ -318,6 +319,54 @@ The shop pool supports three recognisable builds:
 
 Bullets do their own swept collision rather than using Area2D entry events —
 see §11.
+
+---
+
+## 7b. Characters and ultimates
+
+`data/classes_db.gd`. A class sits **on top of** the loadout, not instead of
+it: you pick a character *and* your three abilities, and nothing the Essence
+economy sells is invalidated.
+
+The framing, from the story: **a class is who you were before you died.** That
+is why the ultimate is re-earned every run rather than owned — you have to
+remember yourself before you can be that person again — and why each charges
+from doing what that person used to do.
+
+| Class | Passive | Charges from | Ultimate |
+| --- | --- | --- | --- |
+| The Warden | +25 max health | Elite and boss kills | **Recall the Wood** — roots erupt in rings outward |
+| The Warrior | 10% less damage taken | Damage taken | **Last Stand** — what hits you comes back out, ×3 |
+| The Vampire | 6% lifesteal | Damage dealt | **Crimson Hour** — kills spread to their neighbours |
+| The Engineer | 12% cooldown reduction | Combos | **Overclock** — every ability fires, three times |
+| The Herbalist | Wider pickup range | Pickups | **Bloom** — the ground burns for twelve ticks |
+
+Class passives ride the same `_apply_effect` machinery every shop upgrade
+uses, so they inherit every stat cap for free — a class can lift a stat but
+never past a ceiling the game already enforces. Each class also unlocks one
+shop upgrade only it is offered.
+
+**Two things are asserted rather than documented**, because both fail silently:
+a charge condition with no arm in `RunState.add_ultimate_charge` is an ultimate
+that never fills, and an ultimate id with no arm in `AbilityController` is a
+button that does nothing. The suite reads both sets of `match` arms out of the
+source.
+
+The ultimate flourish is **combat punctuation, not a cutscene** — hit-stop,
+shake, a ring and a name card, all under a second. Players see it hundreds of
+times in a game whose appeal is continuous pressure.
+
+### Combos
+
+Kills chained within 2.2 s. Rises on each kill, **resets when you are hit**,
+and drives shake strength, audio and the HUD counter off one 0–3 tier so those
+three can never disagree. It is the Engineer's charge condition and the game's
+only reason to fight aggressively rather than kite.
+
+It breaks on damage on purpose, which pulls against the wider i-frames added in
+the same pass. That is the intended split: forgiveness comes from the i-frames
+so a struggling player is not punished twice, and the combo is what a confident
+one is playing for.
 
 ---
 

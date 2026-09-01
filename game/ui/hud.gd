@@ -106,6 +106,8 @@ func _build() -> void:
 	_build_top_bar()
 	_build_ammo()
 	_build_abilities()
+	_build_ultimate()
+	_build_combo()
 	_build_boss_bar()
 	_build_toasts()
 
@@ -335,6 +337,107 @@ func _build_abilities() -> void:
 		slot.refresh_hotkey()
 		root.add_child(slot)
 		_slots.append(slot)
+
+
+## The ultimate meter, sat to the right of the three ability slots.
+##
+## Deliberately a different shape from an ability slot - those are square and
+## keyed, this is a bar that fills - because an ultimate is not a fourth
+## ability. It is the thing you are working toward for the whole run.
+var _ult_root: Control = null
+var _ult_fill: ColorRect = null
+var _ult_label: Label = null
+var _ult_ready := false
+
+
+func _build_ultimate() -> void:
+	_ult_root = Control.new()
+	_ult_root.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	_ult_root.position = Vector2(320, -252)
+	_ult_root.custom_minimum_size = Vector2(210, 74)
+	_ult_root.size = Vector2(210, 74)
+	_ult_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_ult_root)
+
+	var back := ColorRect.new()
+	back.color = Color(0, 0, 0, 0.42)
+	back.position = Vector2(0, 44)
+	back.size = Vector2(210, 18)
+	_ult_root.add_child(back)
+
+	_ult_fill = ColorRect.new()
+	_ult_fill.position = Vector2(2, 46)
+	_ult_fill.size = Vector2(0, 14)
+	_ult_root.add_child(_ult_fill)
+
+	_ult_label = UITheme.label("", 17, UITheme.TEXT_DIM, 4)
+	_ult_label.position = Vector2(0, 20)
+	_ult_label.size = Vector2(210, 22)
+	_ult_root.add_child(_ult_label)
+
+	Events.ultimate_charge_changed.connect(_on_ultimate_charge)
+	_on_ultimate_charge(Game.run.ultimate_charge if Game.run != null else 0.0)
+
+
+func _on_ultimate_charge(fraction: float) -> void:
+	if _ult_fill == null or Game.run == null:
+		return
+	var def := ClassesDB.get_def(Game.run.class_id)
+	var tint: Color = def["tint"]
+	_ult_fill.size.x = 206.0 * clampf(fraction, 0.0, 1.0)
+	var ready := fraction >= 1.0
+	_ult_fill.color = tint if ready else Color(tint.r, tint.g, tint.b, 0.55)
+	if ready and not _ult_ready:
+		# Only on the transition, not every frame it stays full.
+		Audio.play_ui("unlock", -6.0)
+		FX.floating_text(player.global_position + Vector2(0, -130),
+			"%s READY" % String(def["ultimate_name"]).to_upper(), tint) \
+			if player != null and is_instance_valid(player) else null
+	_ult_ready = ready
+	_ult_label.text = ("%s  [%s]" % [String(def["ultimate_name"]).to_upper(),
+		InputBinds.label_for_action(Save.keybinds, "ultimate", Game.input_device).to_upper()]) if ready \
+		else String(def["ultimate_name"]).to_upper()
+	_ult_label.add_theme_color_override("font_color",
+		tint if ready else UITheme.TEXT_DIM)
+
+
+## Combo counter. Only on screen while a chain is alive, so it is a reward for
+## doing something rather than a permanent piece of furniture.
+var _combo_label: Label = null
+
+
+func _build_combo() -> void:
+	_combo_label = UITheme.label("", 30, UITheme.TEXT, 6)
+	_combo_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
+	_combo_label.position = Vector2(-260, -40)
+	_combo_label.size = Vector2(220, 44)
+	_combo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_combo_label.visible = false
+	add_child(_combo_label)
+	Events.combo_changed.connect(_on_combo)
+
+
+const COMBO_TIER_COLOURS: Array[Color] = [
+	Color(0.80, 0.85, 0.80), Color(0.75, 0.95, 0.70),
+	Color(1.00, 0.85, 0.35), Color(1.00, 0.55, 0.35),
+]
+
+
+func _on_combo(count: int, tier: int) -> void:
+	if _combo_label == null:
+		return
+	# Below the first tier there is nothing to celebrate yet, and a counter that
+	# flickers on at every single kill is noise rather than feedback.
+	if count < 4:
+		_combo_label.visible = false
+		return
+	_combo_label.visible = true
+	_combo_label.text = "%d×" % count
+	_combo_label.add_theme_color_override("font_color",
+		COMBO_TIER_COLOURS[clampi(tier, 0, COMBO_TIER_COLOURS.size() - 1)])
+	var t := create_tween()
+	t.tween_property(_combo_label, "scale", Vector2.ONE * (1.0 + 0.05 * tier), 0.06)
+	t.tween_property(_combo_label, "scale", Vector2.ONE, 0.12)
 
 
 func _build_boss_bar() -> void:

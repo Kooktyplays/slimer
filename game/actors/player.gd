@@ -51,6 +51,22 @@ var poison_dps := 0.0
 var _poison_tick := 0.0
 var shield_absorb := 0.0
 var lifesteal_bonus := 0.0
+
+## Warrior's Last Stand: while this is in the future, damage taken is thrown
+## back out around you. Stored as a timestamp rather than a bool so it expires
+## on its own and cannot be left stuck on by a tween that outlived the run.
+var retaliating_until := 0.0
+## Vampire's Crimson Hour: while this is in the future, a kill near you spreads
+## to whatever is beside it.
+var contagion_until := 0.0
+
+
+func is_retaliating() -> bool:
+	return Time.get_ticks_msec() / 1000.0 < retaliating_until
+
+
+func is_contagious() -> bool:
+	return Time.get_ticks_msec() / 1000.0 < contagion_until
 var dashing := false
 
 var _bob := 0.0
@@ -68,6 +84,12 @@ func _ready() -> void:
 	hurtbox.collision_mask = 0
 	collision_mask = Layers.WORLD
 	_shadow.texture = SHADOW_TEXTURE
+	# Who you were before you died. Falls back to the scene's own texture if
+	# there is no run, so the player still draws in the editor and in tests.
+	if Game.run != null:
+		var path := ClassesDB.sprite_path(Game.run.class_id)
+		if ResourceLoader.exists(path):
+			_body.texture = load(path)
 	_shadow.modulate = Color(0, 0, 0, 0.28)
 	# pure white: the player is the only white thing in a green forest full of
 	# saturated slimes, and that is the whole readability strategy
@@ -106,6 +128,49 @@ func _move(delta: float) -> void:
 	_hold_in_bounds()
 
 
+## Lift the drawn character off its own shadow for the length of a leap.
+##
+## This is the whole difference between a jump and a dash, and it is cheap
+## because Shadow and Visual are siblings in player.tscn: raising one and not
+## the other IS the jump. The shadow shrinks and fades toward the apex, which
+## is what makes the landing point readable before the landing happens.
+##
+## The collision mask is dropped for the flight so the leap passes over trees.
+## A leap that stops at a trunk is not a leap - but it does mean the landing has
+## to be pushed to open ground, or you come down inside one.
+const LEAP_HEIGHT := 78.0
+
+
+func begin_leap(duration: float) -> void:
+	airborne = true
+	dashing = true
+	collision_mask = 0
+	var t := create_tween()
+	t.set_parallel(true)
+	# a parabola, not a slide: up fast, hang, down fast
+	t.tween_method(func(v: float) -> void:
+		if is_instance_valid(_visual):
+			_visual.position.y = -LEAP_HEIGHT * sin(v * PI),
+		0.0, 1.0, duration)
+	t.tween_method(func(v: float) -> void:
+		if is_instance_valid(_shadow):
+			var shrink := 1.0 - 0.45 * sin(v * PI)
+			_shadow.scale = Vector2.ONE * shrink
+			_shadow.modulate.a = 0.28 * shrink,
+		0.0, 1.0, duration)
+
+
+func end_leap() -> void:
+	airborne = false
+	dashing = false
+	collision_mask = Layers.WORLD
+	if is_instance_valid(_visual):
+		_visual.position.y = 0.0
+	if is_instance_valid(_shadow):
+		_shadow.scale = Vector2.ONE
+		_shadow.modulate.a = 0.28
+
+
 ## Offset from the physics origin - the feet, where the shadow is drawn - to the
 ## middle of the drawn character. Visual/Body sits at y=-28 inside Visual, which
 ## player.tscn scales by 1.18.
@@ -136,6 +201,11 @@ func _hold_in_bounds() -> void:
 ## Set by the run each frame from whatever the player is standing in. Kept
 ## separate from speed_multiplier so terrain and a Swift potion can both apply
 ## without either one clobbering the other's bookkeeping.
+## True while a leap is in the air. Distinct from `dashing`, which only means
+## "moving under an ability's own velocity": airborne additionally means the
+## player is ABOVE the forest and passes over blockers.
+var airborne := false
+
 var terrain_speed_mul := 1.0
 
 ## Damage per second from whatever the player is standing in, set by the run
@@ -247,6 +317,18 @@ func _animate(delta: float) -> void:
 # ---------------------------------------------------------------------------
 # damage
 # ---------------------------------------------------------------------------
+## Brief mercy after an ability puts you down somewhere new. Shared by Dash and
+## the Vault so the two can never drift apart.
+func grant_landing_grace() -> void:
+	invulnerable_until = maxf(invulnerable_until,
+		Time.get_ticks_msec() / 1000.0 + Balance.LANDING_GRACE)
+
+
+## Extra damage reduction from a temporary source - currently Surge, which
+## trades invulnerability for a smaller, constant cushion.
+var bonus_damage_reduction := 0.0
+
+
 func is_invulnerable() -> bool:
 	return dashing or Time.get_ticks_msec() / 1000.0 < invulnerable_until
 
@@ -256,7 +338,8 @@ func take_damage(amount: float, _crit: bool = false, from: Vector2 = Vector2.ZER
 	if not alive or is_invulnerable() or Game.run == null:
 		return
 
-	var incoming := amount * (1.0 - Game.run.damage_reduction)
+	var incoming := amount * (1.0 - Game.run.damage_reduction) \
+		* (1.0 - bonus_damage_reduction)
 
 	# a shield eats damage before health does, and reports what it absorbed
 	if shield_absorb > 0.0:
@@ -273,6 +356,19 @@ func take_damage(amount: float, _crit: bool = false, from: Vector2 = Vector2.ZER
 	Game.run.hp = maxf(0.0, Game.run.hp - incoming)
 	invulnerable_until = Time.get_ticks_msec() / 1000.0 + Balance.PLAYER_IFRAMES
 	_hurt_flash = 1.0
+	Game.run.break_combo()
+	# The Warrior's whole identity: the only class that wants to be hit.
+	Game.run.add_ultimate_charge(ClassesDB.CHARGE_TAKEN, incoming)
+
+	# Last Stand. What hits you comes back out - which is why the Warrior is
+	# the one class that wants to be hit, and why its ultimate is the only one
+	# that gets better the worse things are going.
+	if is_retaliating():
+		var out := incoming * 3.0
+		FX.ring(global_position, 300.0, Color(0.95, 0.55, 0.4), 0.35, 0.2)
+		Combat.explode(global_position, 300.0, out, 280.0, false,
+			Combat.SOURCE_ABILITY)
+		on_damage_dealt(out)
 
 	Audio.play("player_hurt", -3.0)
 	Game.shake(Balance.SHAKE_HIT, 0.22)
@@ -380,6 +476,7 @@ func on_damage_dealt(amount: float) -> void:
 	if Game.run == null:
 		return
 	Game.run.damage_dealt += amount
+	Game.run.add_ultimate_charge(ClassesDB.CHARGE_DEALT, amount)
 	var fraction := Game.run.lifesteal + lifesteal_bonus
 	if fraction > 0.0:
 		heal(amount * fraction)

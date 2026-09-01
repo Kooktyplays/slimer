@@ -25,6 +25,10 @@ func _run() -> void:
 	_test_animation()
 	_test_thief_and_mimic()
 	_test_boss_phases()
+	_test_boss_curve()
+	_test_classes()
+	_test_combo()
+	_test_leap()
 	_test_gun_upgrades()
 	_test_upgrade_pricing()
 	_test_economy()
@@ -234,6 +238,273 @@ func _test_elites() -> void:
 	e.queue_free()
 
 
+## The five characters, and the two ways a class can silently not work.
+func _test_classes() -> void:
+	_check(ClassesDB.ORDER.size() == 5, "expected five classes")
+	_check(ClassesDB.DEFS.size() == ClassesDB.ORDER.size(),
+		"a class is declared but not in ORDER, or the other way round")
+	_check(ClassesDB.is_valid(ClassesDB.DEFAULT), "the default class does not exist")
+
+	# An unknown id must fall back, not error - a save written before classes
+	# existed carries no class at all.
+	_check(ClassesDB.sanitise("") == ClassesDB.DEFAULT, "empty class id did not fall back")
+	_check(ClassesDB.sanitise("nonesuch") == ClassesDB.DEFAULT,
+		"an unknown class id did not fall back")
+
+	var charges := _charge_arms()
+	var ultimates := _ultimate_arms()
+	var seen_charge := {}
+	var seen_ult := {}
+
+	for id: String in ClassesDB.ORDER:
+		var def := ClassesDB.get_def(id)
+		for key: String in ["name", "title", "blurb", "tint", "passive",
+				"passive_text", "charge", "charge_text", "ultimate",
+				"ultimate_name", "ultimate_text"]:
+			_check(def.has(key), "class %s declares no '%s'" % [id, key])
+
+		# A charge condition nothing implements is an ultimate that never fills.
+		var charge := String(def["charge"])
+		_check(charges.has(charge),
+			"class %s charges from '%s', which RunState.add_ultimate_charge "
+				% [id, charge] + "has no arm for - its ultimate would never fill")
+		_check(not seen_charge.has(charge),
+			"%s and %s share the charge condition '%s'"
+				% [id, seen_charge.get(charge, "?"), charge])
+		seen_charge[charge] = id
+
+		# An ultimate nothing dispatches is a button that does nothing.
+		var ult := String(def["ultimate"])
+		_check(ultimates.has(ult),
+			"class %s names ultimate '%s', which nothing dispatches" % [id, ult])
+		_check(not seen_ult.has(ult),
+			"%s and %s share an ultimate" % [id, seen_ult.get(ult, "?")])
+		seen_ult[ult] = id
+
+		# The passive has to be a stat the run actually understands.
+		var passive: Dictionary = def["passive"]
+		var stat := String(passive["stat"])
+		var rs := RunState.create(1, [], ["dash", "grenade", "nova"], false, id)
+		_check(rs.class_id == id, "RunState did not keep the class it was given")
+		_check(rs.stat_value(stat) != 0.0 or stat == "damage_reduction",
+			"class %s's passive stat '%s' reads as nothing" % [id, stat])
+
+		# ...and it must not blow through the caps every upgrade respects.
+		_check(rs.damage_reduction <= 0.70, "%s pushed damage reduction past its cap" % id)
+		_check(rs.move_speed_mul <= 1.85, "%s pushed move speed past its cap" % id)
+		_check(rs.lifesteal <= 0.35, "%s pushed lifesteal past its cap" % id)
+		_check(rs.ability_cdr <= 0.60, "%s pushed cooldown reduction past its cap" % id)
+
+		# every class needs a face
+		_check(ResourceLoader.exists(ClassesDB.sprite_path(id)),
+			"class %s has no sprite at %s" % [id, ClassesDB.sprite_path(id)])
+
+	# --- charge is bounded, and cannot be spent twice ----------------------
+	var rs2 := RunState.create(1, [], ["dash", "grenade", "nova"], false,
+		ClassesDB.WARRIOR)
+	_check(not rs2.ultimate_ready(), "a run started with a full ultimate")
+	_check(not rs2.spend_ultimate(), "an empty ultimate could be spent")
+	for i in 400:
+		rs2.add_ultimate_charge(ClassesDB.CHARGE_TAKEN, 50.0)
+	_check(rs2.ultimate_charge <= 1.0,
+		"ultimate charge ran past full to %.2f" % rs2.ultimate_charge)
+	_check(rs2.ultimate_ready(), "the ultimate never filled")
+	_check(rs2.spend_ultimate(), "a full ultimate could not be spent")
+	_check(rs2.ultimate_charge == 0.0, "spending did not empty the meter")
+	_check(not rs2.spend_ultimate(), "an ultimate was spent twice")
+
+	# ...and only from its own condition, or all five classes play the same
+	var rs3 := RunState.create(1, [], ["dash", "grenade", "nova"], false,
+		ClassesDB.WARRIOR)
+	rs3.add_ultimate_charge(ClassesDB.CHARGE_DEALT, 100000.0)
+	_check(rs3.ultimate_charge == 0.0,
+		"the Warrior charged from damage dealt, which is the Vampire's condition")
+
+	# Every id the shop can offer must carry every field the shop reads. The
+	# class upgrades shipped with "price"/"category" instead of "cost"/"cat"
+	# and no "weight" at all, which made _roll_offers error and quietly sold
+	# nothing for a whole run - the suite passed the entire time.
+	for cls: String in ClassesDB.ORDER:
+		for id: String in UpgradesDB.available_ids([], cls):
+			var def := UpgradesDB.any_def(id)
+			for key: String in ["name", "cat", "stat", "kind", "amount",
+					"desc", "cost", "weight"]:
+				_check(def.has(key),
+					"shop upgrade '%s' has no '%s' - the shop reads it" % [id, key])
+			_check(UpgradesDB.price(id, 0) > 0, "upgrade '%s' is free" % id)
+			_check(float(def["weight"]) > 0.0, "upgrade '%s' can never be rolled" % id)
+
+	# every class upgrade must be reachable by exactly the class it is for
+	for id: String in UpgradesDB.CLASS_LOCKED:
+		var owner := String(UpgradesDB.CLASS_LOCKED[id])
+		_check(ClassesDB.is_valid(owner),
+			"class upgrade %s is locked to unknown class %s" % [id, owner])
+		_check(not UpgradesDB.any_def(id).is_empty(),
+			"class upgrade %s is locked but never defined" % id)
+		_check(UpgradesDB.available_ids([], owner).has(id),
+			"%s is never offered to %s, the only class that can use it" % [id, owner])
+		for other: String in ClassesDB.ORDER:
+			if other == owner:
+				continue
+			_check(not UpgradesDB.available_ids([], other).has(id),
+				"%s is offered to %s as well as %s" % [id, other, owner])
+
+
+## Charge conditions RunState can actually act on, read out of the match arms
+## rather than restated here - the same shape as the boss-attack and biome
+## hazard guards, and for the same reason: a guard that cannot fail is worse
+## than no guard.
+func _charge_arms() -> Dictionary:
+	return _match_arms("res://data/run_state.gd", "ClassesDB.CHARGE_")
+
+
+## Ultimates the ability controller can dispatch.
+func _ultimate_arms() -> Dictionary:
+	var out := {}
+	var src := _read_source("res://abilities/ability_controller.gd")
+	var re := RegEx.new()
+	re.compile('"(?<name>[a-z_]+)":\\s*_ult_')
+	for m: RegExMatch in re.search_all(src):
+		out[m.get_string("name")] = true
+	return out
+
+
+## Constants named on the left of a `match` arm in `path`. Only arms count -
+## a mention anywhere else in the file is not a dispatch.
+func _match_arms(path: String, prefix: String) -> Dictionary:
+	var out := {}
+	for line: String in _read_source(path).split("\n"):
+		var trimmed := line.strip_edges()
+		if not trimmed.ends_with(":") or not trimmed.begins_with(prefix):
+			continue
+		# "ClassesDB.CHARGE_ELITES:" -> the constant's value
+		var name := trimmed.trim_suffix(":").split(".")[-1]
+		for c: String in [ClassesDB.CHARGE_ELITES, ClassesDB.CHARGE_TAKEN,
+				ClassesDB.CHARGE_DEALT, ClassesDB.CHARGE_COMBO,
+				ClassesDB.CHARGE_PICKUPS]:
+			if name.to_lower().ends_with(c.to_lower()):
+				out[c] = true
+	return out
+
+
+## The leap has to put everything back.
+##
+## begin_leap drops the collision mask so the arc carries over trees and lifts
+## the sprite off its own shadow. If end_leap fails to restore either, the
+## player is left walking through the forest permanently, floating.
+func _test_leap() -> void:
+	var scene: PackedScene = load("res://actors/player.tscn")
+	var pl: Player = scene.instantiate()
+	add_child(pl)
+
+	var mask := pl.collision_mask
+	_check(mask != 0, "the player starts with no collision mask at all")
+
+	pl.begin_leap(0.2)
+	_check(pl.airborne, "begin_leap did not mark the player airborne")
+	_check(pl.dashing, "an airborne player should also be dashing (i-frames)")
+	_check(pl.collision_mask == 0,
+		"a leap did not drop the collision mask - it would stop at the first tree")
+
+	pl.end_leap()
+	_check(not pl.airborne, "end_leap did not clear airborne")
+	_check(not pl.dashing, "end_leap did not clear dashing")
+	_check(pl.collision_mask == mask,
+		"end_leap did not restore the collision mask - the player would walk "
+		+ "through the forest for the rest of the run")
+	_check(is_equal_approx(pl.get_node("Visual").position.y, 0.0),
+		"end_leap left the player floating above their own shadow")
+	_check(is_equal_approx(pl.get_node("Shadow").scale.x, 1.0),
+		"end_leap left the shadow shrunk")
+	pl.queue_free()
+
+
+## Combos: the risk half of the pass that made damage more forgiving.
+func _test_combo() -> void:
+	var rs := RunState.create(1, [], ["dash", "grenade", "nova"], false)
+	_check(rs.combo == 0, "a run started mid-combo")
+	for i in 8:
+		rs.add_combo()
+	_check(rs.combo == 8, "the combo did not count to 8")
+	_check(rs.combo_best == 8, "the best combo was not recorded")
+	_check(rs.combo_tier() >= 1, "eight kills did not reach the first tier")
+
+	# it dies on damage - that is the whole risk side of it
+	rs.break_combo()
+	_check(rs.combo == 0, "the combo survived a break")
+	_check(rs.combo_best == 8, "breaking the combo erased the best, which is a record")
+
+	# ...and it dies on its own if you stop
+	for i in 5:
+		rs.add_combo()
+	rs.tick_combo(RunState.COMBO_WINDOW + 0.1)
+	_check(rs.combo == 0, "the combo did not expire when the window ran out")
+
+	# tiers have to actually rise, or the shake and the HUD read one number
+	var last := -1
+	for n in [0, 6, 15, 30]:
+		rs.break_combo()
+		for i in n:
+			rs.add_combo()
+		var tier := rs.combo_tier()
+		_check(tier > last or n == 0, "combo tier did not rise at %d kills" % n)
+		last = tier
+
+
+## Bosses must not fall behind the waves.
+##
+## This is the guard on a measured, structural bug rather than a matter of
+## taste. Boss health was linear (520 + 95w) while a wave's total health pool
+## is quadratic - wave_budget is already w-squared before hp_scale multiplies
+## it again - so the two diverged permanently: a mini-boss was 1.14x a whole
+## wave's health at wave 5, 0.48x by wave 15 and 0.22x by wave 30.
+##
+## The floor is deliberately below 1.0. A boss does not need more health than a
+## wave to be harder than one: a wave is thirty-odd bodies from every direction
+## with stacking poison, a boss is one target with walkable telegraphs. But it
+## must not fall to a fifth of one.
+const BOSS_HP_FLOOR := 0.70
+
+
+func _test_boss_curve() -> void:
+	var worst := INF
+	var worst_wave := 0
+	for wave in range(1, 101):
+		if not (Game.is_mini_boss_wave(wave) or Game.is_major_boss_wave(wave)):
+			continue
+		var boss_hp := (Balance.major_boss_hp(wave) if Game.is_major_boss_wave(wave)
+			else Balance.mini_boss_hp(wave))
+		var ratio := boss_hp / Balance.wave_hp_pool(wave)
+		if ratio < worst:
+			worst = ratio
+			worst_wave = wave
+	_check(worst >= BOSS_HP_FLOOR,
+		("boss health falls to %.2fx a wave's pool at wave %d - the boss curve "
+		+ "has drifted back below the wave curve") % [worst, worst_wave])
+
+	# ...and a major must always be the bigger event of the two.
+	for wave in range(20, 101, 20):
+		_check(Balance.major_boss_hp(wave) > Balance.mini_boss_hp(wave) * 1.5,
+			"the major boss at wave %d is not meaningfully bigger than a mini" % wave)
+
+	# Both curves have to actually curve. A straight line is what caused this.
+	# Second difference of a quadratic is positive and constant; of a line, zero.
+	# Second difference of a quadratic is positive; of a straight line, zero.
+	var mini_second: float = (Balance.mini_boss_hp(30)
+		- 2.0 * Balance.mini_boss_hp(20) + Balance.mini_boss_hp(10))
+	var major_second: float = (Balance.major_boss_hp(30)
+		- 2.0 * Balance.major_boss_hp(20) + Balance.major_boss_hp(10))
+	_check(mini_second > 1.0,
+		"the mini-boss health curve is linear again - it has to grow with the "
+		+ "wave budget, which is quadratic")
+	_check(major_second > 1.0,
+		"the major-boss health curve is linear again")
+
+	# Boss damage must keep pace with the player's growing health pool too.
+	_check(Balance.boss_damage_scale(40) > Balance.boss_damage_scale(20) * 1.6,
+		"boss damage barely grows between wave 20 and wave 40")
+
+
 ## The two rules that keep five bosses from being one boss.
 ##
 ## Both of these were broken until the adaptation pass: every phase list was
@@ -386,6 +657,16 @@ func _test_thief_and_mimic() -> void:
 	var scene: PackedScene = load("res://actors/enemy.tscn")
 
 	# --- theft is bounded by what the player actually has -------------------
+	#
+	# The run has to exist first. Without it Game.run is null, the assignment
+	# below errors, _steal() returns early on its own null guard, and this whole
+	# block asserts nothing while still reporting a pass - which is exactly what
+	# it did until this was caught.
+	var had_run := Game.run != null
+	if not had_run:
+		Game.start_run(4242)
+	_check(Game.run != null, "could not start a run to test theft against")
+
 	var t: Enemy = scene.instantiate()
 	add_child(t)
 	t.configure(EnemyTypes.TEAL, 20)
@@ -397,8 +678,22 @@ func _test_thief_and_mimic() -> void:
 			% Game.run.money)
 	_check(t.money_value == before + 12,
 		"a Thief's haul did not go onto its payout, so killing it loses the money")
+
+	# ...and it cannot take from an empty purse, or the balance goes negative
+	Game.run.money = 0
+	var t2: Enemy = scene.instantiate()
+	add_child(t2)
+	t2.configure(EnemyTypes.TEAL, 20)
+	t2.call("_steal")
+	_check(Game.run.money == 0, "a Thief pushed the balance to %d" % Game.run.money)
+	_check(int(t2.get("_stolen")) == 0, "a Thief claimed a haul it never took")
+	t2.die(false)
+	t2.queue_free()
+
 	t.die(false)
 	t.queue_free()
+	if not had_run:
+		Game.abandon_run()
 
 	# --- a Mimic must come back from the pool undisguised -------------------
 	var m: Enemy = scene.instantiate()

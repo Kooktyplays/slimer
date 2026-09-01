@@ -101,6 +101,139 @@ func _unhandled_input(event: InputEvent) -> void:
 		use(1)
 	elif event.is_action_pressed("ability_2"):
 		use(2)
+	elif event.is_action_pressed("ultimate"):
+		use_ultimate()
+
+
+# ---------------------------------------------------------------------------
+# ultimates
+# ---------------------------------------------------------------------------
+## Fire this run's class ultimate, if it is charged.
+##
+## Every ClassesDB ultimate id must appear as a match arm below. The logic suite
+## reads the arms out of this file, so a class naming an ultimate nothing
+## implements fails the build rather than shipping a button that does nothing.
+func use_ultimate() -> bool:
+	if Game.run == null or player == null or not player.alive:
+		return false
+	if not Game.run.ultimate_ready():
+		Audio.play_ui("ui_deny", -10.0)
+		return false
+	if not Game.run.spend_ultimate():
+		return false
+
+	var class_id: String = Game.run.class_id
+	var def := ClassesDB.get_def(class_id)
+	var ult := String(def["ultimate"])
+
+	_ultimate_flourish(def)
+	match ult:
+		"recall_the_wood": _ult_recall_the_wood()
+		"last_stand": _ult_last_stand()
+		"crimson_hour": _ult_crimson_hour()
+		"overclock": _ult_overclock()
+		"bloom": _ult_bloom()
+	Events.ultimate_fired.emit(class_id, ult)
+	return true
+
+
+## Combat punctuation, not a cutscene.
+##
+## Deliberately short and made entirely of things that already exist - hit
+## stop, shake, a ring, a name card. Players will see this hundreds of times in
+## a game whose whole appeal is continuous pressure, so anything longer than
+## about a second stops being a payoff and starts being an interruption.
+func _ultimate_flourish(def: Dictionary) -> void:
+	var tint: Color = def["tint"]
+	Events.hit_stop.emit(0.18)
+	Game.shake(9.0, 0.45)
+	FX.ring(player.global_position, 520.0, tint, 0.55, 0.06)
+	FX.burst(player.global_position, tint, 40, 2.4)
+	FX.floating_text(player.global_position + Vector2(0, -120),
+		String(def["ultimate_name"]).to_upper(), tint)
+	Audio.play("boss_phase", 1.0)
+
+
+## WARDEN. The forest remembers you - roots erupt in rings outward, the same
+## shape the Ancient Oak's Rootquake uses, because you were one of them.
+func _ult_recall_the_wood() -> void:
+	var origin := player.global_position
+	var damage := 46.0
+	for step in 5:
+		var t := create_tween()
+		t.tween_interval(0.11 * step)
+		t.tween_callback(func() -> void:
+			if not is_instance_valid(player):
+				return
+			var radius := 150.0 + 165.0 * step
+			for i in 10 + step * 3:
+				var at := origin + Vector2.RIGHT.rotated(
+					TAU * i / float(10 + step * 3)) * radius
+				FX.explosion(at, 110.0, Color(0.45, 0.75, 0.4))
+				Combat.explode(at, 110.0, damage, 240.0, true,
+					Combat.SOURCE_ABILITY)
+			Game.shake(4.0, 0.2))
+
+
+## WARRIOR. What hits you comes back out. The one ultimate you want to be hit
+## during, which is the class in one mechanic.
+func _ult_last_stand() -> void:
+	player.retaliating_until = Time.get_ticks_msec() / 1000.0 + 6.0
+	player.bonus_damage_reduction = maxf(player.bonus_damage_reduction, 0.45)
+	var t := create_tween()
+	t.tween_interval(6.0)
+	t.tween_callback(func() -> void:
+		if is_instance_valid(player):
+			player.bonus_damage_reduction = 0.0)
+
+
+## VAMPIRE. Full lifesteal, and a kill spreads to whatever is beside it.
+func _ult_crimson_hour() -> void:
+	player.lifesteal_bonus += 0.85
+	player.contagion_until = Time.get_ticks_msec() / 1000.0 + 8.0
+	var t := create_tween()
+	t.tween_interval(8.0)
+	t.tween_callback(func() -> void:
+		if is_instance_valid(player):
+			player.lifesteal_bonus = maxf(0.0, player.lifesteal_bonus - 0.85))
+
+
+## ENGINEER. Everything you carry goes off, three times over. Reuses the
+## ability dispatch itself rather than reimplementing five effects.
+func _ult_overclock() -> void:
+	for burst in 3:
+		var t := create_tween()
+		t.tween_interval(0.34 * burst)
+		t.tween_callback(func() -> void:
+			if not is_instance_valid(player):
+				return
+			for slot in slots.size():
+				var s := slots[slot]
+				if s.is_empty():
+					continue
+				var id := String(s["id"])
+				# movement abilities would fling the player around three times
+				if AbilitiesDB.get_def(id).get("class", "") == AbilitiesDB.CLASS_MOVEMENT:
+					continue
+				_execute(id, AbilitiesDB.get_def(id))
+			Game.shake(5.0, 0.25))
+
+
+## HERBALIST. The ground turns on them - a wide, lasting burn centred on you.
+func _ult_bloom() -> void:
+	var at := player.global_position
+	FX.ring(at, 620.0, Color(0.5, 0.9, 0.6), 0.8, 0.1)
+	for tick in 12:
+		var t := create_tween()
+		t.tween_interval(0.28 * tick)
+		t.tween_callback(func() -> void:
+			if not is_instance_valid(player):
+				return
+			var hit := Combat.explode(at, 620.0, 22.0, 0.0, false,
+				Combat.SOURCE_ABILITY)
+			if hit > 0:
+				FX.burst(at, Color(0.55, 0.9, 0.6), 8, 1.4)
+				player.on_damage_dealt(22.0 * hit))
 
 
 func use(slot: int) -> bool:
@@ -215,6 +348,20 @@ func _execute(id: String, def: Dictionary) -> void:
 		"lifesteal": _do_lifesteal(def)
 
 
+## The run's forest layout, for abilities that move the player across it.
+##
+## Read off the wave controller rather than the run node: it already carries the
+## layout, it is already in a group, and it is already re-pointed at the new one
+## when the forest regenerates at a biome boundary.
+func _layout() -> ForestGenerator:
+	if not is_inside_tree():
+		return null
+	var waves := get_tree().get_first_node_in_group("wave_controller")
+	if waves == null:
+		return null
+	return waves.get("layout") as ForestGenerator
+
+
 func _container() -> Node:
 	if effect_container != null and is_instance_valid(effect_container):
 		return effect_container
@@ -250,10 +397,9 @@ func _do_dash(def: Dictionary) -> void:
 			return
 		player.dashing = false
 		player.velocity = dir * player.max_speed() * 0.6
-		# a short grace window after the dash ends, so dashing through a
-		# crowd doesn't immediately eat a contact hit on the far side
-		player.invulnerable_until = maxf(player.invulnerable_until,
-			Time.get_ticks_msec() / 1000.0 + 0.12))
+		# a grace window after the dash ends, so dashing through a crowd does
+		# not immediately eat a contact hit on the far side
+		player.grant_landing_grace())
 
 
 ## Surge trades Dash's invulnerability for duration. It is the answer to the
@@ -261,9 +407,22 @@ func _do_dash(def: Dictionary) -> void:
 ## shockwave, the spiral - and the loadout that proves the bosses are beatable
 ## without a blink at all.
 func _do_surge(def: Dictionary) -> void:
-	player.apply_speed_boost(float(def["multiplier"]), float(def["duration"]))
+	var duration := float(def["duration"])
+	player.apply_speed_boost(float(def["multiplier"]), duration)
 	FX.ring(player.global_position, 90.0, Color(0.6, 1.0, 0.7), 0.35, 0.15)
 	FX.burst(player.global_position, Color(0.7, 1.0, 0.75), 14, 1.2)
+
+	# Flat damage reduction, NOT invulnerability. Dash and the Vault both got a
+	# much wider landing grace this pass; without something in return Surge
+	# becomes the strictly worse pick and the bug the movement slot exists to
+	# prevent comes straight back. Reduction keeps "Surge has no i-frames"
+	# literally true, so the sim's Dash-free guard still means something.
+	player.bonus_damage_reduction = Balance.SURGE_DAMAGE_REDUCTION
+	var guard := create_tween()
+	guard.tween_interval(duration)
+	guard.tween_callback(func() -> void:
+		if is_instance_valid(player):
+			player.bonus_damage_reduction = 0.0)
 
 	# A trail for as long as the boost lasts, so the state is readable.
 	var left := float(def["duration"])
@@ -285,10 +444,14 @@ func _do_vault(def: Dictionary) -> void:
 	var radius := float(def["radius"])
 	var damage := float(def["damage"])
 
-	player.dashing = true
+	# A real leap, not a dash with a marker. begin_leap lifts the sprite off its
+	# own shadow, shrinks the shadow toward the apex so the landing reads before
+	# it lands, and drops the collision mask so the arc carries over trees.
+	player.begin_leap(duration)
 	player.velocity = dir * (distance / duration)
 	FX.telegraph(player.global_position + dir * distance, radius, duration,
 		Color(0.75, 0.95, 1.0))
+	Audio.play("dash", -6.0)
 	Game.shake(2.0, 0.12)
 
 	var end := create_tween()
@@ -296,16 +459,20 @@ func _do_vault(def: Dictionary) -> void:
 	end.tween_callback(func() -> void:
 		if not is_instance_valid(player):
 			return
-		player.dashing = false
+		player.end_leap()
+		# Airborne means the arc passed over blockers, so the landing has to be
+		# pushed to open ground or the player comes down inside a trunk.
+		var layout := _layout()
+		if layout != null and not layout.is_open(player.global_position):
+			player.global_position = layout.nearest_open(player.global_position)
 		player.velocity = dir * player.max_speed() * 0.5
-		# Same grace window Dash gets, for the same reason: landing in a crowd
-		# should not immediately cost a contact hit.
-		player.invulnerable_until = maxf(player.invulnerable_until,
-			Time.get_ticks_msec() / 1000.0 + 0.12)
+		player.grant_landing_grace()
 		var at := player.global_position
 		FX.explosion(at, radius, Color(0.8, 0.95, 1.0))
+		FX.ring(at, radius * 0.7, Color(0.85, 0.95, 1.0), 0.3, 0.15)
 		Audio.play("explosion", -7.0)
-		Game.shake(Balance.SHAKE_EXPLOSION, 0.3)
+		# A landing should land. Heavier than the take-off on purpose.
+		Game.shake(Balance.SHAKE_EXPLOSION * 1.15, 0.32)
 		var hit := Combat.explode(at, radius, damage, float(def["knockback"]),
 			true, Combat.SOURCE_ABILITY)
 		player.on_damage_dealt(damage * hit))

@@ -306,6 +306,77 @@ def gen_player_body():
     a.save("boo_body.png")
 
 
+# Class variants of the player, by the same trick the enemy roster uses: one
+# authored sprite, hue-rotated, plus one small mark each so they are separable
+# by silhouette and not only by colour - the same rule the enemy badges follow.
+# RGB, not hue. The player sprite is a pale spirit with almost no saturation,
+# so hue-rotating it - the trick the enemy roster uses - produced five sprites
+# that were all still white. These blend toward a colour instead.
+CLASS_TINTS = {
+    "warden":    (108, 196, 128),
+    "warrior":   (232, 128,  92),
+    "vampire":   (226,  92, 124),
+    "engineer":  (238, 198,  86),
+    "herbalist": (126, 190, 234),
+}
+CLASS_TINT_STRENGTH = 0.46
+
+
+def _blend_toward(img: Image.Image, rgb, amount: float) -> Image.Image:
+    """Pull every opaque pixel toward `rgb`, keeping its own shading."""
+    src = img.convert("RGBA")
+    px = src.load()
+    out = Image.new("RGBA", src.size)
+    opx = out.load()
+    for y in range(src.height):
+        for x in range(src.width):
+            r, g, b, al = px[x, y]
+            if al == 0:
+                opx[x, y] = (0, 0, 0, 0)
+                continue
+            opx[x, y] = (
+                round(r + (rgb[0] - r) * amount),
+                round(g + (rgb[1] - g) * amount),
+                round(b + (rgb[2] - b) * amount),
+                al,
+            )
+    return out
+
+
+def gen_player_classes():
+    """One body per class: tinted, with a distinguishing mark."""
+    body = Image.open(OUT / "boo_body.png").convert("RGBA")
+    w, h = body.size
+    for name, rgb in CLASS_TINTS.items():
+        tinted = _blend_toward(body, rgb, CLASS_TINT_STRENGTH)
+        a = Art(w, h)
+        # the mark is the same hue but much stronger, so it reads on the body
+        col = (max(0, rgb[0] - 62), max(0, rgb[1] - 62), max(0, rgb[2] - 62), 255)
+        cx = w / 2.0
+        if name == "warden":                       # antlers
+            for side in (-1, 1):
+                a.line([(cx + side * 8, 16), (cx + side * 17, 4),
+                        (cx + side * 24, 8)], col, 3.0)
+        elif name == "warrior":                    # helm bar
+            a.rrect(cx - 17, 12, cx + 17, 19, 2.5, col)
+        elif name == "vampire":                    # high collar
+            for side in (-1, 1):
+                a.poly([(cx + side * 6, 30), (cx + side * 21, 16),
+                        (cx + side * 19, 33)], col)
+        elif name == "engineer":                   # goggle band
+            a.rrect(cx - 20, 20, cx + 20, 26, 3.0, col)
+            a.circle(cx - 11, 23, 5.0, (*C.INK, 210))
+            a.circle(cx + 11, 23, 5.0, (*C.INK, 210))
+        elif name == "herbalist":                  # sprig
+            a.line([(cx + 9, 18), (cx + 16, 6)], col, 2.6)
+            a.ellipse(cx + 19, 6, 5, 3, col)
+            a.ellipse(cx + 13, 10, 4, 2.5, col)
+        mark = a.finish()
+        out = tinted.copy()
+        out.alpha_composite(mark)
+        out.save(OUT / f"player_{name}.png")
+
+
 def gen_player_face():
     a = Art(48, 25)
     a.ellipse(13, 12, 6, 8, (*P.GHOST_EYE, 255))
@@ -1472,6 +1543,7 @@ def main():
         ("ground tiles", gen_ground_tiles),
         ("app icons", gen_icons),
         ("enemy recolours", gen_enemies),
+        ("player classes", gen_player_classes),
         ("type badges", gen_type_badges),
         ("faces", gen_faces),
         ("trees", gen_trees),

@@ -27,6 +27,7 @@ const ACTIONS: Array[Dictionary] = [
 	{"action": "ability_movement", "label": "Movement ability", "group": GROUP_ABILITIES},
 	{"action": "ability_1", "label": "Ability 1", "group": GROUP_ABILITIES},
 	{"action": "ability_2", "label": "Ability 2", "group": GROUP_ABILITIES},
+	{"action": "ultimate", "label": "Ultimate", "group": GROUP_ABILITIES},
 	{"action": "interact", "label": "Continue / interact", "group": GROUP_INTERFACE},
 	{"action": "pause", "label": "Pause", "group": GROUP_INTERFACE},
 ]
@@ -44,6 +45,7 @@ const _KEY_A := 65
 const _KEY_S := 83
 const _KEY_D := 68
 const _KEY_E := 69
+const _KEY_Q := 81
 const _KEY_R := 82
 const _KEY_F := 70
 const _KEY_SPACE := 32
@@ -101,6 +103,12 @@ const DEFAULTS := {
 	"ability_2": [
 		{"type": "key", "physical": _KEY_E},
 		{"type": "pad_button", "button": JOY_BUTTON_LEFT_SHOULDER},
+	],
+	# Q, and no save migration needed: only rebound actions are stored, so an
+	# action that did not exist when a save was written simply falls back here.
+	"ultimate": [
+		{"type": "key", "physical": _KEY_Q},
+		{"type": "pad_button", "button": JOY_BUTTON_RIGHT_STICK},
 	],
 	"interact": [
 		{"type": "key", "physical": _KEY_F},

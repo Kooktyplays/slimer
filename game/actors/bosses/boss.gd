@@ -347,8 +347,11 @@ func _choose_attack() -> void:
 		return
 	var pick: String = options[_rng.randi() % options.size()]
 	var interval: Vector2 = def["attack_interval"]
-	# later phases attack more often
-	var pace := 1.0 - 0.13 * (phase - 1)
+	# Later phases attack more often. Steepened from 0.13 to 0.19 per phase,
+	# and floored: at 0.13 a phase-4 boss was still only 39% faster than its
+	# phase 1, which is not enough to read as a different fight. The floor is
+	# what stops the pace from collapsing to nothing on a deep repeat.
+	var pace := maxf(1.0 - 0.19 * (phase - 1), 0.34)
 	_attack_timer = _rng.randf_range(interval.x, interval.y) * pace
 
 	match pick:

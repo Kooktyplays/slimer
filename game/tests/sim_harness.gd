@@ -35,6 +35,8 @@ var _failures: Array[String] = []
 ## single most breakable thing in the biome work, and the only place it can be
 ## caught headlessly is here, in a run that crosses four of those boundaries.
 var _biomes_seen: Array[String] = []
+var _ultimates_fired := 0
+var _best_combo := 0
 var _notes: Array[String] = []
 
 var _last_wave := 0
@@ -72,6 +74,8 @@ func _ready() -> void:
 		_waves_seen.append(w)
 		_last_wave = w
 		_last_progress_frame = _frames)
+	Events.combo_changed.connect(func(count: int, _tier: int) -> void:
+		_best_combo = maxi(_best_combo, count))
 	Events.biome_changed.connect(func(id: String, _n: String) -> void:
 		if not _biomes_seen.has(id):
 			_biomes_seen.append(id))
@@ -114,13 +118,20 @@ func _boot() -> void:
 	# The three are also chosen so every slot always has something to do, rather
 	# than one sitting on a dead target.
 	Save.loadout = ["surge", "nova", "grenade"]
+
+	# Pick a class, and rotate it by day so every one of the five gets exercised
+	# across runs rather than four of them never being instantiated. A class
+	# whose ultimate crashes on use would otherwise sit undiscovered until a
+	# player found it.
+	Save.character = ClassesDB.ORDER[
+		int(Time.get_unix_time_from_system() / 86400.0) % ClassesDB.ORDER.size()]
 	Save.unlocks = ["ab_surge"]
 	# Seed the global RNG too. Game.start_run seeds its own generator, but
 	# spawn placement, bullet spread and drop rolls use the global one, so
 	# without this the run differs every time and a failure cannot be
 	# reproduced.
 	seed(987654)
-	Game.start_run(987654)
+	Game.start_run(987654, false, Save.character)
 
 	# Damage assist. This test exists to prove the *loop* holds - waves
 	# advance, bosses die, shops open and close, death resets - not to prove a
@@ -168,6 +179,15 @@ func _tick_waves() -> void:
 		return
 
 	_peak_enemies = maxi(_peak_enemies, Combat.enemy_count())
+
+	# Spend the ultimate the moment it is ready. This is the only automated
+	# thing that ever calls one, so an ultimate that errors or hangs shows up
+	# here rather than in someone's hands.
+	if Game.run != null and Game.run.ultimate_ready():
+		var p := Combat.player()
+		if p != null and p.has_method("get") and p.get("abilities") != null:
+			if bool(p.abilities.call("use_ultimate")):
+				_ultimates_fired += 1
 	_pool_peak = maxi(_pool_peak, Pools.total_live())
 
 	# Keep the run alive: this test is about the loop not wedging, not about
@@ -400,6 +420,9 @@ func _finish() -> void:
 	print("abilities used:   move x%d, slot 1 x%d, slot 2 x%d"
 		% [_abilities_fired[0], _abilities_fired[1], _abilities_fired[2]])
 	print("potions consumed: %s" % (str(_potions) if not _potions.is_empty() else "none"))
+	print("class:            %s (%d ultimates fired, best combo %d)"
+		% [ClassesDB.display_name(Game.run.class_id) if Game.run != null else "?",
+			_ultimates_fired, _best_combo])
 	print("biomes descended: %s" % (str(_biomes_seen) if not _biomes_seen.is_empty() else "none"))
 	print("peak enemies:     %d (cap %d)" % [_peak_enemies, Balance.MAX_CONCURRENT_ENEMIES])
 	print("peak pooled live: %d" % _pool_peak)
@@ -422,6 +445,15 @@ func _finish() -> void:
 func _check_sequence() -> void:
 	if _last_wave < TARGET_WAVE:
 		_fail("only reached wave %d of %d" % [_last_wave, TARGET_WAVE])
+
+	# A 22-wave run that never charged its ultimate once means the charge rate
+	# is wrong, or the condition is never fed. Either way the class does not
+	# work, and it would be invisible without this.
+	if _ultimates_fired < 1:
+		_fail("the ultimate never charged in %d waves - class %s"
+			% [_last_wave, Game.run.class_id if Game.run != null else "?"])
+	if _best_combo < 5:
+		_fail("the best combo across the whole run was %d" % _best_combo)
 
 	# The forest must have descended once per depth boundary crossed, and the
 	# run must still be standing afterwards. Reaching wave 22 in Greenwood
