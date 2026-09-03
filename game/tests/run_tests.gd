@@ -22,6 +22,7 @@ func _run() -> void:
 	_test_enemy_unlocks()
 	_test_elites()
 	_test_adaptation_pair()
+	_test_harness_scripts()
 	_test_animation()
 	_test_thief_and_mimic()
 	_test_boss_phases()
@@ -296,9 +297,24 @@ func _test_classes() -> void:
 		_check(rs.lifesteal <= 0.35, "%s pushed lifesteal past its cap" % id)
 		_check(rs.ability_cdr <= 0.60, "%s pushed cooldown reduction past its cap" % id)
 
-		# every class needs a face
+		# every class needs a face, and so does every skin
 		_check(ResourceLoader.exists(ClassesDB.sprite_path(id)),
 			"class %s has no sprite at %s" % [id, ClassesDB.sprite_path(id)])
+		for skin: String in ClassesDB.skins_for(id):
+			var sdef: Dictionary = ClassesDB.skins_for(id)[skin]
+			for key: String in ["name", "cost", "desc"]:
+				_check(sdef.has(key), "skin %s/%s has no '%s'" % [id, skin, key])
+			_check(int(sdef["cost"]) > 0, "skin %s/%s is free" % [id, skin])
+			var spath := ClassesDB.sprite_path(id, skin)
+			_check(ResourceLoader.exists(spath),
+				"skin %s/%s has no sprite at %s" % [id, skin, spath])
+			# ...and it must not silently be the default's sprite
+			_check(spath != ClassesDB.sprite_path(id),
+				"skin %s/%s resolves to the default sprite" % [id, skin])
+
+		# an unknown skin falls back rather than erroring
+		_check(ClassesDB.sanitise_skin(id, "nonesuch") == ClassesDB.SKIN_DEFAULT,
+			"an unknown skin for %s did not fall back" % id)
 
 	# --- charge is bounded, and cannot be spent twice ----------------------
 	var rs2 := RunState.create(1, [], ["dash", "grenade", "nova"], false,
@@ -334,6 +350,30 @@ func _test_classes() -> void:
 					"shop upgrade '%s' has no '%s' - the shop reads it" % [id, key])
 			_check(UpgradesDB.price(id, 0) > 0, "upgrade '%s' is free" % id)
 			_check(float(def["weight"]) > 0.0, "upgrade '%s' can never be rolled" % id)
+
+	# --- buying a skin ------------------------------------------------------
+	var saved_essence := Save.essence
+	var saved_unlocked := Save.skins_unlocked.duplicate()
+	var cls := ClassesDB.WARDEN
+	var skin: String = ClassesDB.skins_for(cls).keys()[0]
+	var price := int(ClassesDB.skins_for(cls)[skin]["cost"])
+
+	Save.skins_unlocked = []
+	Save.essence = price - 1
+	_check(not Save.buy_skin(cls, skin), "a skin was bought without enough essence")
+	_check(Save.essence == price - 1, "a failed skin purchase still charged")
+
+	Save.essence = price + 10
+	_check(Save.buy_skin(cls, skin), "an affordable skin could not be bought")
+	_check(Save.essence == 10, "buying a skin charged the wrong amount")
+	_check(Save.has_skin(cls, skin), "a bought skin is not owned")
+	_check(not Save.buy_skin(cls, skin), "the same skin was bought twice")
+	_check(Save.essence == 10, "re-buying an owned skin charged again")
+	_check(Save.has_skin(cls, ClassesDB.SKIN_DEFAULT),
+		"the default skin has to be owned by everyone")
+
+	Save.essence = saved_essence
+	Save.skins_unlocked = saved_unlocked
 
 	# every class upgrade must be reachable by exactly the class it is for
 	for id: String in UpgradesDB.CLASS_LOCKED:
@@ -659,6 +699,27 @@ func _boss_attack_names() -> Dictionary:
 		out[m.get_string("name")] = true
 	_check(out.size() >= 14, "found only %d boss attacks in the dispatch" % out.size())
 	return out
+
+
+## Every other test script has to compile.
+##
+## check.sh runs THIS harness, so a parse error here is caught - but the visual
+## pass and the perf test are separate entry points it never loads, and a bad
+## type inference in one of those is invisible until someone runs it by hand
+## with a window open. Loading them from inside the suite closes that: it costs
+## one assertion and it has already caught two.
+func _test_harness_scripts() -> void:
+	for path: String in ["res://tests/visual_pass.gd", "res://tests/perf_test.gd",
+			"res://tests/sim_harness.gd", "res://tests/test_forest.gd"]:
+		# load() returns a non-null GDScript even when compilation failed, so
+		# a null check proves nothing. A script that did not compile has no
+		# methods and cannot be instantiated - that is the discriminator.
+		var script: Variant = ResourceLoader.load(path, "",
+			ResourceLoader.CACHE_MODE_IGNORE)
+		var gd := script as GDScript
+		_check(gd != null and gd.get_script_method_list().size() > 0,
+			"%s does not compile - it is never loaded by check.sh, so nothing "
+				% path + "else would have told you")
 
 
 ## Frame animation, and the one mistake that would break every hurtbox.

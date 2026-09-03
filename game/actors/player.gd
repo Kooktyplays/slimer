@@ -91,7 +91,8 @@ func _ready() -> void:
 	# Who you were before you died. Falls back to the scene's own texture if
 	# there is no run, so the player still draws in the editor and in tests.
 	if Game.run != null:
-		var path := ClassesDB.sprite_path(Game.run.class_id)
+		var path := ClassesDB.sprite_path(Game.run.class_id,
+			Save.skin_of(Game.run.class_id))
 		if ResourceLoader.exists(path):
 			_body.texture = load(path)
 	_shadow.modulate = Color(0, 0, 0, 0.28)

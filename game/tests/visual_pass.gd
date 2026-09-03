@@ -36,6 +36,26 @@ func _run() -> void:
 	await _settle(0.5)
 	await _shot("loadout")
 
+	# --- 2b. the class select screen ---------------------------------------
+	#
+	# Opened through the loadout screen's own button rather than by parenting a
+	# panel somewhere convenient - a screen that only renders when the test
+	# hangs it off the right node is not a screen the player can reach.
+	var loadout := _find_script_node("res://ui/loadout_screen.gd")
+	_expect(loadout != null, "could not find the loadout screen to open classes from")
+	if loadout != null:
+		loadout.call("_open_class_select")
+		await _settle(0.7)
+		var picker: Node = loadout.get("_class_panel")
+		_expect(picker != null, "the class screen did not open")
+		await _shot("class_select")
+		if picker != null:
+			picker.call("_step", 1)
+			await _settle(0.5)
+			await _shot("class_select_next")
+			picker.call("_confirm")
+		await _settle(0.4)
+
 	# --- 3. meta / permanent upgrades --------------------------------------
 	Save.essence = 900
 	Game.go_to_meta()
@@ -505,6 +525,19 @@ func _run() -> void:
 		for f: String in _failures:
 			print("  " + f)
 		get_tree().quit(1)
+
+
+## Find a live node whose script is `path`, anywhere in the tree.
+func _find_script_node(path: String) -> Node:
+	var stack: Array[Node] = [get_tree().root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		var sc: Variant = n.get_script()
+		if sc != null and String(sc.resource_path) == path:
+			return n
+		for c: Node in n.get_children():
+			stack.append(c)
+	return null
 
 
 func _run_node() -> Node:

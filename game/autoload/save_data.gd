@@ -40,6 +40,10 @@ var loadout: Array[String] = ["dash", "grenade", "nova"]
 ## Last character picked. Sanitised on load, so a save from before classes
 ## existed comes back as the default rather than an empty string.
 var character: String = "warden"
+## Cosmetic skins bought with Essence: "class:skin" ids.
+var skins_unlocked: Array[String] = []
+## Which skin each class is wearing. Absent means the default.
+var skin_for_class: Dictionary = {}
 var seen_hints: Array[String] = []
 var stats := {
 	"runs": 0,
@@ -102,6 +106,8 @@ func to_dict() -> Dictionary:
 		"loadout": loadout,
 		"character": character,
 		"refunded_removed_ability": refunded_removed_ability,
+		"skins_unlocked": skins_unlocked,
+		"skin_for_class": skin_for_class,
 		"seen_hints": seen_hints,
 		"stats": stats,
 		"settings": settings,
@@ -113,6 +119,14 @@ func to_dict() -> Dictionary:
 func from_dict(d: Dictionary) -> void:
 	essence = int(d.get("essence", 0))
 	character = ClassesDB.sanitise(String(d.get("character", "")))
+	skins_unlocked = _to_string_array(d.get("skins_unlocked", []))
+	# Sanitised per class, so a save naming a skin that was renamed or removed
+	# comes back wearing the default rather than a texture that cannot load.
+	skin_for_class = {}
+	var raw_skins: Dictionary = d.get("skin_for_class", {})
+	for cls: String in raw_skins:
+		if ClassesDB.is_valid(cls):
+			skin_for_class[cls] = ClassesDB.sanitise_skin(cls, str(raw_skins[cls]))
 
 	unlocks = _to_string_array(d.get("unlocks", []))
 
@@ -158,6 +172,38 @@ func from_dict(d: Dictionary) -> void:
 		if d.get("settings", {}).has(k):
 			var v: Variant = d["settings"][k]
 			settings[k] = bool(v) if settings[k] is bool else float(v)
+
+
+## The skin a class is wearing, or the default.
+func skin_of(class_id: String) -> String:
+	return ClassesDB.sanitise_skin(class_id,
+		str(skin_for_class.get(class_id, ClassesDB.SKIN_DEFAULT)))
+
+
+static func skin_key(class_id: String, skin: String) -> String:
+	return "%s:%s" % [class_id, skin]
+
+
+func has_skin(class_id: String, skin: String) -> bool:
+	return skin == ClassesDB.SKIN_DEFAULT \
+		or skins_unlocked.has(skin_key(class_id, skin))
+
+
+## Buy a skin. Returns false if it is already owned or unaffordable, so the
+## caller cannot spend twice for the same thing.
+func buy_skin(class_id: String, skin: String) -> bool:
+	if has_skin(class_id, skin):
+		return false
+	var def: Dictionary = ClassesDB.skins_for(class_id).get(skin, {})
+	if def.is_empty():
+		return false
+	var cost := int(def["cost"])
+	if essence < cost:
+		return false
+	essence -= cost
+	skins_unlocked.append(skin_key(class_id, skin))
+	save_game()
+	return true
 
 
 func load_game() -> bool:

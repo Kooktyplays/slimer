@@ -343,6 +343,31 @@ def _blend_toward(img: Image.Image, rgb, amount: float) -> Image.Image:
     return out
 
 
+
+def _class_mark(a: "Art", cls: str, cx: float, col) -> None:
+    """The one distinguishing shape each class carries.
+
+    Shared by the base sprites and their skins so a skin cannot drift
+    into being a different character."""
+    if cls == "warden":                       # antlers
+        for side in (-1, 1):
+            a.line([(cx + side * 8, 16), (cx + side * 17, 4),
+                    (cx + side * 24, 8)], col, 3.0)
+    elif cls == "warrior":                    # helm bar
+        a.rrect(cx - 17, 12, cx + 17, 19, 2.5, col)
+    elif cls == "vampire":                    # high collar
+        for side in (-1, 1):
+            a.poly([(cx + side * 6, 30), (cx + side * 21, 16),
+                    (cx + side * 19, 33)], col)
+    elif cls == "engineer":                   # goggle band
+        a.rrect(cx - 20, 20, cx + 20, 26, 3.0, col)
+        a.circle(cx - 11, 23, 5.0, (*C.INK, 210))
+        a.circle(cx + 11, 23, 5.0, (*C.INK, 210))
+    elif cls == "herbalist":                  # sprig
+        a.line([(cx + 9, 18), (cx + 16, 6)], col, 2.6)
+        a.ellipse(cx + 19, 6, 5, 3, col)
+        a.ellipse(cx + 13, 10, 4, 2.5, col)
+
 def gen_player_classes():
     """One body per class: tinted, with a distinguishing mark."""
     body = Image.open(OUT / "boo_body.png").convert("RGBA")
@@ -353,28 +378,38 @@ def gen_player_classes():
         # the mark is the same hue but much stronger, so it reads on the body
         col = (max(0, rgb[0] - 62), max(0, rgb[1] - 62), max(0, rgb[2] - 62), 255)
         cx = w / 2.0
-        if name == "warden":                       # antlers
-            for side in (-1, 1):
-                a.line([(cx + side * 8, 16), (cx + side * 17, 4),
-                        (cx + side * 24, 8)], col, 3.0)
-        elif name == "warrior":                    # helm bar
-            a.rrect(cx - 17, 12, cx + 17, 19, 2.5, col)
-        elif name == "vampire":                    # high collar
-            for side in (-1, 1):
-                a.poly([(cx + side * 6, 30), (cx + side * 21, 16),
-                        (cx + side * 19, 33)], col)
-        elif name == "engineer":                   # goggle band
-            a.rrect(cx - 20, 20, cx + 20, 26, 3.0, col)
-            a.circle(cx - 11, 23, 5.0, (*C.INK, 210))
-            a.circle(cx + 11, 23, 5.0, (*C.INK, 210))
-        elif name == "herbalist":                  # sprig
-            a.line([(cx + 9, 18), (cx + 16, 6)], col, 2.6)
-            a.ellipse(cx + 19, 6, 5, 3, col)
-            a.ellipse(cx + 13, 10, 4, 2.5, col)
+        _class_mark(a, name, cx, col)
         mark = a.finish()
         out = tinted.copy()
         out.alpha_composite(mark)
         out.save(OUT / f"player_{name}.png")
+
+
+# Skin variants: the same body and mark, re-tinted. Keyed to the ids in
+# ClassesDB.SKINS - a skin that has no entry here has no sprite, and the logic
+# suite fails on it rather than shipping a class that cannot be drawn.
+CLASS_SKINS = {
+    "warden":    {"deeproot": (74, 122, 88), "firstwatch": (176, 226, 150)},
+    "warrior":   {"ironclad": (150, 158, 172), "lastbreath": (208, 96, 74)},
+    "vampire":   {"sated": (176, 52, 86), "ashen": (198, 186, 198)},
+    "engineer":  {"brassworks": (206, 150, 68), "scrapheap": (140, 130, 108)},
+    "herbalist": {"bloomtide": (108, 200, 168), "nightshade": (108, 96, 168)},
+}
+
+
+def gen_class_skins():
+    """Re-tints of each class body. The mark is re-drawn in the skin's colour
+    so a skin reads as the same character wearing something else."""
+    body = Image.open(OUT / "boo_body.png").convert("RGBA")
+    for cls, skins in CLASS_SKINS.items():
+        for skin, rgb in skins.items():
+            tinted = _blend_toward(body, rgb, CLASS_TINT_STRENGTH)
+            a = Art(body.size[0], body.size[1])
+            col = (max(0, rgb[0] - 62), max(0, rgb[1] - 62), max(0, rgb[2] - 62), 255)
+            _class_mark(a, cls, body.size[0] / 2.0, col)
+            out = tinted.copy()
+            out.alpha_composite(a.finish())
+            out.save(OUT / f"player_{cls}_{skin}.png")
 
 
 def gen_turret():
@@ -1566,6 +1601,7 @@ def main():
         ("app icons", gen_icons),
         ("enemy recolours", gen_enemies),
         ("player classes", gen_player_classes),
+        ("class skins", gen_class_skins),
         ("turret", gen_turret),
         ("type badges", gen_type_badges),
         ("faces", gen_faces),

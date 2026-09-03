@@ -144,5 +144,69 @@ static func ultimate_id(id: String) -> String:
 	return String(get_def(id)["ultimate"])
 
 
-static func sprite_path(id: String) -> String:
-	return "res://assets/sprites/gen/player_%s.png" % sanitise(id)
+## Cosmetic variants. Two per class beyond the default.
+##
+## Skins exist because the Essence economy runs out of things to sell: once the
+## abilities and passives are unlocked there is nothing left to want. Cosmetics
+## extend that without adding power, which is the usual fix - and they cost
+## almost nothing here, because the art is generated, so a skin is a tint and a
+## mark rather than a drawing.
+const SKIN_DEFAULT := "default"
+
+const SKINS := {
+	WARDEN: {
+		"deeproot": {"name": "Deep Root", "cost": 260,
+			"desc": "What was left after the forest finished with you."},
+		"firstwatch": {"name": "First Watch", "cost": 380,
+			"desc": "From before the wardens had anything to guard against."},
+	},
+	WARRIOR: {
+		"ironclad": {"name": "Ironclad", "cost": 260,
+			"desc": "You did not go quietly, and it shows."},
+		"lastbreath": {"name": "Last Breath", "cost": 380,
+			"desc": "The version of you that was still standing at the end."},
+	},
+	VAMPIRE: {
+		"sated": {"name": "Sated", "cost": 260,
+			"desc": "You have fed. It suits you."},
+		"ashen": {"name": "Ashen", "cost": 380,
+			"desc": "Too long without. Something is going out."},
+	},
+	ENGINEER: {
+		"brassworks": {"name": "Brassworks", "cost": 260,
+			"desc": "The good tools, the ones you kept for yourself."},
+		"scrapheap": {"name": "Scrapheap", "cost": 380,
+			"desc": "Everything since has been made of what was to hand."},
+	},
+	HERBALIST: {
+		"bloomtide": {"name": "Bloomtide", "cost": 260,
+			"desc": "The forest still recognises you, some days."},
+		"nightshade": {"name": "Nightshade", "cost": 380,
+			"desc": "You learned the other half of what grows here."},
+	},
+}
+
+
+static func skins_for(class_id: String) -> Dictionary:
+	return SKINS.get(sanitise(class_id), {})
+
+
+static func skin_name(class_id: String, skin: String) -> String:
+	if skin == SKIN_DEFAULT:
+		return "Default"
+	var d: Dictionary = skins_for(class_id).get(skin, {})
+	return String(d.get("name", "Default"))
+
+
+## An unknown skin falls back to the default rather than erroring, so a save
+## naming a skin that was later renamed still loads.
+static func sanitise_skin(class_id: String, skin: String) -> String:
+	return skin if skins_for(class_id).has(skin) else SKIN_DEFAULT
+
+
+static func sprite_path(id: String, skin: String = SKIN_DEFAULT) -> String:
+	var cls := sanitise(id)
+	var s := sanitise_skin(cls, skin)
+	if s == SKIN_DEFAULT:
+		return "res://assets/sprites/gen/player_%s.png" % cls
+	return "res://assets/sprites/gen/player_%s_%s.png" % [cls, s]

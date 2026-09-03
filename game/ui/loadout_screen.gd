@@ -17,7 +17,8 @@ func _ready() -> void:
 	_picker = preload("res://ui/ability_picker.gd").new()
 	add_child(_picker)
 	_picker.call("setup", "CHOOSE YOUR THREE",
-		"Movement, then two more. You can swap them at any forest rest.", false)
+		"Movement, then two more. These are locked for the run - the shop "
+		+ "upgrades what you bring, it does not replace it.", false)
 	_picker.connect("closed", _start)
 
 	_build_class_picker()
@@ -47,15 +48,28 @@ func _build_class_picker() -> void:
 	_class_button.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	_class_button.position = Vector2(-180, -170)
 	_class_button.size = Vector2(360, 52)
-	_class_button.pressed.connect(func() -> void:
-		var order := ClassesDB.ORDER
-		var i := order.find(ClassesDB.sanitise(String(Save.character)))
-		Save.character = order[(i + 1) % order.size()]
-		Save.save_game()
-		Audio.play_ui("ui_click", -8.0)
-		_refresh_class())
+	# Opens the real screen. Cycling through five characters on one button was
+	# always a placeholder - a class is the biggest decision in a run and
+	# cannot be read off a label that changes when you press it.
+	_class_button.pressed.connect(_open_class_select)
 	add_child(_class_button)
 	_refresh_class()
+
+
+var _class_panel: Control = null
+
+
+func _open_class_select() -> void:
+	if _class_panel != null:
+		return
+	Audio.play_ui("ui_click", -8.0)
+	_class_panel = preload("res://ui/class_select.gd").new()
+	add_child(_class_panel)
+	_class_panel.connect("closed", func() -> void:
+		if _class_panel != null:
+			_class_panel.queue_free()
+		_class_panel = null
+		_refresh_class())
 
 
 func _refresh_class() -> void:
@@ -65,6 +79,7 @@ func _refresh_class() -> void:
 	var def := ClassesDB.get_def(id)
 	_class_button.text = String(def["name"]).to_upper()
 	_class_button.add_theme_color_override("font_color", def["tint"])
+	_class_button.text = "%s  \u25b8" % String(def["name"]).to_upper()
 	_class_button.tooltip_text = "%s\n\n%s\n%s\n\nULTIMATE - %s\n%s" % [
 		String(def["blurb"]),
 		String(def["passive_text"]),
