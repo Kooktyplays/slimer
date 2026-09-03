@@ -16,7 +16,9 @@ Main menu → pick 3 abilities (1 movement, 2 general) → forest generates
    Wave 15           MINI-BOSS  → shop
    Wave 20           MAJOR BOSS → shop
       ↓
-   … forever. Mini-boss every 5, major every 20, no ending.
+   Wave 25          THE SOVEREIGN — the ending. Continue, or stop here.
+      ↓
+   … onward. Mini-boss every 5, major every 20.
       ↓
    Death → run results → Essence → permanent upgrades → new run
 ```
@@ -161,6 +163,17 @@ Colour, behaviour and stats are declared in one entry in
 | ⚪ Grey | Carapace | 58 | 78 | Shells up; **bullets glance off while shelled** | 13–20 | Wave 18 |
 | 🩵 Teal | Thief | 42 | 190 | Steals your coins and runs | 8–13 | Wave 16 |
 | 🟤 Pale | Mimic | 70 | 150 | Sits disguised as a pickup | 16–24 | Wave 20 |
+
+### Characters cost Essence
+
+The **Warrior is free** and is what every save falls back to. The other four are
+`MetaDB` unlocks at 350 / 450 / 550 / 650 — the largest thing Essence buys, and
+what the economy was missing: everything else it sold was small.
+
+`Save.owns_class()` is the single place ownership is decided. The character is
+sanitised against **ownership** on load, not just against existing, or a save
+would start a run as someone the player cannot use. Skins for classes you do
+not own were refunded in save v5 and can no longer be bought.
 
 ### Thief and Mimic
 
@@ -409,6 +422,29 @@ Swap them at any forest rest (the shop). Charges refill on cooldown; the
 purple potion grants one directly.
 
 ---
+
+### The ending
+
+`Balance.FINALE_WAVE` is **25**. Wave 21 enters Heartwood, the last biome, so
+wave 25 means you have descended through all five and then face what the forest
+grew around. It is deliberately *reachable* — the Sovereign's own rotation slot
+is wave 40, which almost nobody gets to, and an ending nobody sees is most of
+why the game did not have one that mattered.
+
+Beating it shows the ending and offers **CONTINUE**. The run does not have to
+stop, because the boss repeat system, the deepest-biome-holds-forever design
+and the whole late curve would become dead content if it did. Ending the run
+there routes through ordinary death handling rather than a second path to "the
+run is over".
+
+The finale has its **own health** (`FINALE_HP`), not the major curve's value at
+wave 25. The major curve is shaped for wave 40 and produces 20,150 there — at
+the ~60 dps a run actually has at that depth that is a five-minute fight, and
+the headless sim simply stalled on it.
+
+⚠️ **A run has roughly 60 dps at wave 25.** Every boss HP number should be
+sanity-checked against that, not only against the wave's health pool. The
+wave-20 major at 14,200 is already close to the sim's stall watchdog.
 
 ### Ability upgrades, not ability swapping
 

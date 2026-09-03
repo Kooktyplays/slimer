@@ -10,7 +10,7 @@ const TMP_PATH := "user://slimer_save.json.tmp"
 ## are additive - a version-2 save loads with the counters at zero and simply has
 ## not earned the achievements depending on them, which is the right answer for a
 ## save from before they were tracked.
-const VERSION := 4
+const VERSION := 5
 
 ## Leech, removed in v4 because it did the Vampire's job. The unlock is dropped
 ## and its cost refunded on the first load of an older save.
@@ -18,6 +18,12 @@ const REFUND_VERSION := 4
 const REMOVED_ABILITY := "lifesteal"
 const REMOVED_ABILITY_UNLOCK := "ab_lifesteal"
 const REMOVED_ABILITY_REFUND := 280
+
+## True once the skins bought for classes the player does not own have been
+## refunded. Recorded rather than inferred from the save version, for the same
+## reason the Leech flag is: a version gate does not stop a second payout if
+## the same old file is loaded twice.
+var refunded_locked_skins := false
 
 ## True once the Leech refund has been paid. Persisted, so it is paid once per
 ## save rather than once per load.
@@ -39,7 +45,7 @@ var unlocks: Array[String] = []
 var loadout: Array[String] = ["dash", "grenade", "nova"]
 ## Last character picked. Sanitised on load, so a save from before classes
 ## existed comes back as the default rather than an empty string.
-var character: String = "warden"
+var character: String = "warrior"
 ## Cosmetic skins bought with Essence: "class:skin" ids.
 var skins_unlocked: Array[String] = []
 ## Which skin each class is wearing. Absent means the default.
@@ -59,6 +65,8 @@ var stats := {
 	"boss_wisp": 0,
 	"boss_oak": 0,
 	"boss_sovereign": 0,
+	## Runs that reached and cleared the finale. The game's completion count.
+	"runs_completed": 0,
 }
 ## Achievement ids the player has earned. Never revoked once given.
 var achievements: Array[String] = []
@@ -106,6 +114,7 @@ func to_dict() -> Dictionary:
 		"loadout": loadout,
 		"character": character,
 		"refunded_removed_ability": refunded_removed_ability,
+		"refunded_locked_skins": refunded_locked_skins,
 		"skins_unlocked": skins_unlocked,
 		"skin_for_class": skin_for_class,
 		"seen_hints": seen_hints,
@@ -147,6 +156,34 @@ func from_dict(d: Dictionary) -> void:
 		unlocks.erase(REMOVED_ABILITY_UNLOCK)
 		essence += REMOVED_ABILITY_REFUND
 		refunded_removed_ability = true
+
+	# v5: characters cost Essence now. Anyone holding skins for a class they do
+	# not own has paid for something they cannot wear, so that Essence comes
+	# back and those unlocks are dropped. In practice this refunds every
+	# non-Warrior skin, because nobody owned a class before this version.
+	#
+	# Flagged rather than version-gated, for the same reason as above.
+	refunded_locked_skins = bool(d.get("refunded_locked_skins", false))
+	if not refunded_locked_skins:
+		var kept: Array[String] = []
+		for key: String in skins_unlocked:
+			var parts := key.split(":")
+			if parts.size() == 2 and owns_class(parts[0]):
+				kept.append(key)
+			else:
+				essence += _skin_cost(parts)
+		skins_unlocked = kept
+		refunded_locked_skins = true
+
+	# Sanitised against OWNERSHIP, not just against existing. A save naming a
+	# class the player does not own would otherwise start a run as a character
+	# they cannot use - and `character` is read long before this on line ~130,
+	# so it has to be re-checked here, after unlocks are known.
+	if not owns_class(character):
+		character = ClassesDB.DEFAULT
+	for cls: String in skin_for_class.keys():
+		if not owns_class(cls):
+			skin_for_class.erase(cls)
 	seen_hints = _to_string_array(d.get("seen_hints", []))
 	achievements = _to_string_array(d.get("achievements", []))
 
@@ -174,6 +211,35 @@ func from_dict(d: Dictionary) -> void:
 			settings[k] = bool(v) if settings[k] is bool else float(v)
 
 
+## Essence a skin unlock key was worth, for the refund. Zero for anything
+## unrecognised, so a renamed or removed skin costs nothing rather than paying
+## out wrongly.
+func _skin_cost(parts: PackedStringArray) -> int:
+	if parts.size() != 2:
+		return 0
+	var def: Dictionary = ClassesDB.skins_for(parts[0]).get(parts[1], {})
+	return int(def.get("cost", 0))
+
+
+## Whether the player has this character.
+##
+## The single place ownership is decided, so where it comes from could change
+## without touching the classes themselves.
+func owns_class(class_id: String) -> bool:
+	if ClassesDB.is_free(class_id):
+		return true
+	return unlocks.has(ClassesDB.unlock_id(class_id))
+
+
+## Every character the player can actually pick.
+func owned_classes() -> Array[String]:
+	var out: Array[String] = []
+	for id: String in ClassesDB.ORDER:
+		if owns_class(id):
+			out.append(id)
+	return out
+
+
 ## The skin a class is wearing, or the default.
 func skin_of(class_id: String) -> String:
 	return ClassesDB.sanitise_skin(class_id,
@@ -192,6 +258,10 @@ func has_skin(class_id: String, skin: String) -> bool:
 ## Buy a skin. Returns false if it is already owned or unaffordable, so the
 ## caller cannot spend twice for the same thing.
 func buy_skin(class_id: String, skin: String) -> bool:
+	# Blocked at the source, so the situation the v5 refund cleans up after
+	# cannot happen again.
+	if not owns_class(class_id):
+		return false
 	if has_skin(class_id, skin):
 		return false
 	var def: Dictionary = ClassesDB.skins_for(class_id).get(skin, {})

@@ -148,11 +148,17 @@ static func depth_for_wave(wave: int) -> int:
 
 static func is_mini_boss_wave(wave: int) -> bool:
 	return wave > 0 and wave % Balance.MINI_BOSS_EVERY == 0 \
-		and wave % Balance.MAJOR_BOSS_EVERY != 0
+		and not is_major_boss_wave(wave)
 
 
 static func is_major_boss_wave(wave: int) -> bool:
-	return wave > 0 and wave % Balance.MAJOR_BOSS_EVERY == 0
+	return wave > 0 and (wave % Balance.MAJOR_BOSS_EVERY == 0
+		or wave == Balance.FINALE_WAVE)
+
+
+## The one wave the run is built towards.
+static func is_finale_wave(wave: int) -> bool:
+	return wave == Balance.FINALE_WAVE
 
 
 static func is_boss_wave(wave: int) -> bool:

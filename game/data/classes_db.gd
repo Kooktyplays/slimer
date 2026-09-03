@@ -40,10 +40,34 @@ const VAMPIRE := "vampire"
 const ENGINEER := "engineer"
 const HERBALIST := "herbalist"
 
-## Warden first: it is the one that ties the roster to the bosses, and the
-## default for a save that predates classes.
-const ORDER: Array[String] = [WARDEN, WARRIOR, VAMPIRE, ENGINEER, HERBALIST]
-const DEFAULT := WARDEN
+## The Warrior leads because it is the one you start with. The rest are bought
+## with Essence - see MetaDB - and the order is the order they are priced in, so
+## the screen reads left to right as the roster opens up.
+##
+## DEFAULT must always be a class every player owns. It is what a save falls
+## back to, and falling back to something locked would start a run as a
+## character the player cannot use.
+const ORDER: Array[String] = [WARRIOR, WARDEN, VAMPIRE, ENGINEER, HERBALIST]
+const DEFAULT := WARRIOR
+
+
+## The MetaDB unlock that grants `id`, or "" if it is free.
+static func unlock_id(id: String) -> String:
+	if id == DEFAULT:
+		return ""
+	return "cls_" + sanitise(id)
+
+
+static func is_free(id: String) -> bool:
+	return sanitise(id) == DEFAULT
+
+
+## Essence price, or 0 for the free one.
+static func cost(id: String) -> int:
+	var key := unlock_id(id)
+	if key.is_empty() or not MetaDB.DEFS.has(key):
+		return 0
+	return int(MetaDB.DEFS[key]["cost"])
 
 const DEFS := {
 	WARDEN: {

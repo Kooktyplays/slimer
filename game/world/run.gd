@@ -150,6 +150,18 @@ func _on_boss_cleared(_boss: Node2D) -> void:
 	# opens the shop itself - see Game.notify_wave_cleared.
 	_bank_loose_coins()
 	Game.notify_wave_cleared()
+
+	# The ending, once per run. Shown before the shop, because the shop is the
+	# game carrying on and this is the moment it stops to acknowledge you.
+	if Game.run != null and not Game.run.finale_cleared \
+			and Game.is_finale_wave(Game.run.wave):
+		Game.run.finale_cleared = true
+		Save.stats["runs_completed"] = int(Save.stats.get("runs_completed", 0)) + 1
+		Save.save_game()
+		Events.finale_cleared.emit(Game.run.nightmare)
+		_show_victory()
+		return
+
 	_open_shop()
 
 
@@ -184,6 +196,41 @@ func _queue_next_wave() -> void:
 		return
 	_intermission = Balance.WAVE_INTERMISSION if not Game.fast_mode else 0.2
 	_pending_wave = true
+
+
+# ---------------------------------------------------------------------------
+# the ending
+# ---------------------------------------------------------------------------
+var victory: Control = null
+
+
+func _show_victory() -> void:
+	if victory != null and is_instance_valid(victory):
+		return
+	victory = preload("res://ui/victory_screen.gd").new()
+	hud_layer.add_child(victory)
+	# Deliberately NOT paused. The shop does not pause either - the arena is
+	# empty by construction at this point, the boss is dead and its adds are
+	# swept - and pausing here stopped the headless sim from ever pressing
+	# continue, which wedged the run on the wave it was meant to celebrate.
+	victory.connect("continued", func() -> void:
+		_close_victory()
+		# straight back into the loop the run was already in
+		_open_shop())
+	victory.connect("ended", func() -> void:
+		_close_victory()
+		# Ends the run the ordinary way, so the results screen, the Essence
+		# award and the death handling all behave exactly as they always do -
+		# a second path to "the run is over" would be a second thing to keep
+		# working.
+		if is_instance_valid(player):
+			player.take_damage(1_000_000.0))
+
+
+func _close_victory() -> void:
+	if victory != null and is_instance_valid(victory):
+		victory.queue_free()
+	victory = null
 
 
 # ---------------------------------------------------------------------------

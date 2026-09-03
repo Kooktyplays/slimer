@@ -26,6 +26,7 @@ var _blurb: Label = null
 var _skin_button: Button = null
 var _skin_label: Label = null
 var _essence_label: Label = null
+var _confirm_button: Button = null
 var _bob := 0.0
 
 
@@ -130,10 +131,10 @@ func _build() -> void:
 	_essence_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	footer.add_child(_essence_label)
 
-	var confirm := UITheme.button("CHOOSE", 26)
-	confirm.custom_minimum_size = Vector2(260, 52)
-	confirm.pressed.connect(_confirm)
-	footer.add_child(confirm)
+	_confirm_button = UITheme.button("CHOOSE", 26)
+	_confirm_button.custom_minimum_size = Vector2(260, 52)
+	_confirm_button.pressed.connect(_confirm)
+	footer.add_child(_confirm_button)
 
 
 func _wrapped(parent: Node, size: int, colour: Color) -> Label:
@@ -178,8 +179,24 @@ func _cycle_skin() -> void:
 	_refresh(true)
 
 
+## Choose this character, or buy it if it is not owned yet.
+##
+## One button rather than two: the label says which it is, and a player who
+## cannot afford it is told the price rather than shown a dead control.
 func _confirm() -> void:
-	Save.character = _current()
+	var cls := _current()
+	if not Save.owns_class(cls):
+		var cost := ClassesDB.cost(cls)
+		if Save.essence < cost:
+			Audio.play_ui("ui_deny", -8.0)
+			return
+		Save.essence -= cost
+		Save.unlocks.append(ClassesDB.unlock_id(cls))
+		Save.save_game()
+		Audio.play_ui("unlock", -4.0)
+		_refresh(true)
+		return
+	Save.character = cls
 	Save.save_game()
 	Audio.play_ui("ui_confirm", -6.0)
 	closed.emit()
@@ -201,13 +218,33 @@ func _refresh(animate: bool) -> void:
 	_ult_label.text = "ULTIMATE — %s" % String(def["ultimate_name"]).to_upper()
 	_ult_desc.text = String(def["ultimate_text"])
 
+	var owned := Save.owns_class(cls)
+
+	# The card dims and the button becomes a price when the class is locked, so
+	# the state is readable without a separate padlock to decode.
+	_card.modulate = Color(1, 1, 1) if owned else Color(0.72, 0.74, 0.78)
+	if owned:
+		_confirm_button.text = "CHOOSE"
+		_confirm_button.add_theme_color_override("font_color", UITheme.TEXT)
+	else:
+		var cost := ClassesDB.cost(cls)
+		_confirm_button.text = "UNLOCK  %d \u2726" % cost
+		_confirm_button.add_theme_color_override("font_color",
+			UITheme.PURPLE if Save.essence >= cost else UITheme.TEXT_DIM)
+
 	# skin row
 	var skin := Save.skin_of(cls)
 	_skin_label.text = "Skin:  %s" % ClassesDB.skin_name(cls, skin)
 	var order: Array[String] = [ClassesDB.SKIN_DEFAULT]
 	order.append_array(ClassesDB.skins_for(cls).keys())
 	var nxt: String = order[posmod(order.find(skin) + 1, order.size())]
-	if Save.has_skin(cls, nxt):
+	# no dressing a character you do not have
+	_skin_button.disabled = not owned
+	_skin_label.visible = owned
+	if not owned:
+		_skin_button.text = "LOCKED"
+		_skin_button.add_theme_color_override("font_color", UITheme.TEXT_DIM)
+	elif Save.has_skin(cls, nxt):
 		_skin_button.text = "NEXT SKIN"
 		_skin_button.add_theme_color_override("font_color", UITheme.TEXT)
 	else:

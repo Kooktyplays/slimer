@@ -20,7 +20,12 @@ extends Node
 ## losing races it should win, and a test that fails on the bot's marksmanship
 ## reports the wrong thing. Raise this when the bot gets better, not to make
 ## the number look nicer.
-const TARGET_WAVE := 22
+## Far enough to reach the ending.
+##
+## Was 22, which stopped three waves short of the finale - so the whole victory
+## path was asserted about and never actually run. The extra waves cost about
+## 15% more sim time, which is the price of the ending being tested at all.
+const TARGET_WAVE := 26
 const MAX_FRAMES := 260_000
 const SIM_DAMAGE_ASSIST := 12.0
 ## 240 simulated seconds with no wave change. Deliberately generous: a wave 25
@@ -36,6 +41,7 @@ var _failures: Array[String] = []
 ## caught headlessly is here, in a run that crosses four of those boundaries.
 var _biomes_seen: Array[String] = []
 var _ultimates_fired := 0
+var _finale_seen := false
 var _best_combo := 0
 var _notes: Array[String] = []
 
@@ -74,6 +80,8 @@ func _ready() -> void:
 		_waves_seen.append(w)
 		_last_wave = w
 		_last_progress_frame = _frames)
+	Events.finale_cleared.connect(func(_nightmare: bool) -> void:
+		_finale_seen = true)
 	Events.combo_changed.connect(func(count: int, _tier: int) -> void:
 		_best_combo = maxi(_best_combo, count))
 	Events.biome_changed.connect(func(id: String, _n: String) -> void:
@@ -154,6 +162,24 @@ func _process(_delta: float) -> void:
 		_finish()
 		return
 	if _frames - _last_progress_frame > STALL_FRAMES:
+		# Say WHAT is stuck, not just that something is. A wedged boss wave and
+		# a wedged shop look identical from the wave counter alone, and the
+		# difference is the whole diagnosis.
+		var boss_note := ""
+		for n: Node in get_tree().get_nodes_in_group("boss"):
+			if is_instance_valid(n) and n.has_method("health_fraction"):
+				var pl := Combat.player()
+				var dist := (pl.global_position.distance_to(n.global_position)
+					if pl != null else -1.0)
+				boss_note = " boss %s at %.0f%% of %.0f hp, active=%s dying=%s %.0fpx away" % [
+					n.get("id"), float(n.call("health_fraction")) * 100.0,
+					float(n.get("max_hp")), str(n.get("active")),
+					str(n.get("dying")), dist]
+		var shop_note := " shop=%s" % ("open" if _run_node() != null
+			and _run_node().get("shop") != null else "none")
+		var vic_note := " victory=%s" % ("up" if _run_node() != null
+			and _run_node().get("victory") != null else "none")
+		_note("stall detail:" + boss_note + shop_note + vic_note)
 		_fail("no wave progress for %d frames (stuck on wave %d, phase %d)"
 			% [STALL_FRAMES, _last_wave, Game.phase])
 		_dump_state()
@@ -194,6 +220,14 @@ func _tick_waves() -> void:
 	# whether an AI can out-play wave 26.
 	if Game.run.hp < Game.run.max_hp * 0.75:
 		Game.run.hp = Game.run.max_hp
+
+	# The ending pauses the game and waits for a choice. Always CONTINUE, so
+	# the sim proves the loop carries on past the finale rather than only that
+	# the finale fires - continuing is the whole design of this ending, and an
+	# untested continue is where it would break.
+	var vic: Variant = run.get("victory")
+	if vic != null and is_instance_valid(vic):
+		vic.emit_signal("continued")
 
 	# close the shop as soon as it opens
 	if Game.phase == Game.Phase.SHOP:
@@ -454,6 +488,17 @@ func _check_sequence() -> void:
 			% [_last_wave, Game.run.class_id if Game.run != null else "?"])
 	if _best_combo < 5:
 		_fail("the best combo across the whole run was %d" % _best_combo)
+
+	# The ending has to actually fire. A run that walked past wave 25 without
+	# it means the finale never triggered, which no amount of asserting about
+	# the schedule would have caught.
+	if _last_wave > Balance.FINALE_WAVE and not _finale_seen:
+		_fail("reached wave %d without the finale at %d ever firing"
+			% [_last_wave, Balance.FINALE_WAVE])
+	# ...and the run must carry on afterwards, because continuing is the whole
+	# design of this ending.
+	if _finale_seen and _last_wave <= Balance.FINALE_WAVE:
+		_fail("the run stopped at the finale instead of continuing past it")
 
 	# The forest must have descended once per depth boundary crossed, and the
 	# run must still be standing afterwards. Reaching wave 22 in Greenwood

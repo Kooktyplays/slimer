@@ -7,11 +7,27 @@ extends RefCounted
 ## The flat passives are small on purpose - repeated runs should make the
 ## player more capable, not make wave 20 trivial.
 
+const KIND_CLASS := "class"
 const KIND_ABILITY := "ability"
 const KIND_UPGRADE := "upgrade"
 const KIND_PASSIVE := "passive"
 
 const DEFS := {
+	# ---- characters --------------------------------------------------------
+	#
+	# The Warrior is free and is not listed here - a game where the first
+	# decision costs something you do not have yet is a game with no first
+	# decision. The other four are the biggest thing Essence buys, which is
+	# what the economy was missing: everything else it sold was small.
+	#
+	# `ref` is the ClassesDB id. Priced above the dearest ability (280) because
+	# a character is a larger thing than an ability, and ascending so the
+	# roster opens up over several runs rather than all at once.
+	"cls_warden":    {"kind": KIND_CLASS, "ref": "warden",    "cost": 350},
+	"cls_vampire":   {"kind": KIND_CLASS, "ref": "vampire",   "cost": 450},
+	"cls_engineer":  {"kind": KIND_CLASS, "ref": "engineer",  "cost": 550},
+	"cls_herbalist": {"kind": KIND_CLASS, "ref": "herbalist", "cost": 650},
+
 	# ---- new abilities (cost mirrors AbilitiesDB.essence) -------------------
 	"ab_surge":     {"kind": KIND_ABILITY, "ref": "surge",     "cost": 170},
 	"ab_vault":     {"kind": KIND_ABILITY, "ref": "vault",     "cost": 210},
@@ -86,6 +102,7 @@ const ORDER: Array[String] = [
 	"ab_surge", "ab_vault",
 	"ab_shield", "ab_heal", "ab_thornwall", "ab_decoy",
 	"ab_timeslow", "ab_lightning", "ab_cinders", "ab_rapidfire",
+	"cls_warden", "cls_vampire", "cls_engineer", "cls_herbalist",
 	"ab_orbital",
 	"upg_heavy_slugs", "upg_runaway_sear", "upg_split_barrel",
 	"upg_thirsting_grip", "upg_deep_reserves",
@@ -98,17 +115,27 @@ static func get_def(id: String) -> Dictionary:
 	return DEFS[id]
 
 
+## Names and descriptions for the ref-based kinds come from the table that owns
+## the thing, so an ability or a character described in two places cannot drift
+## into describing itself differently.
 static func display_name(id: String) -> String:
 	var def: Dictionary = DEFS[id]
-	if def["kind"] == KIND_ABILITY:
-		return AbilitiesDB.get_def(def["ref"])["name"]
+	match def["kind"]:
+		KIND_ABILITY:
+			return AbilitiesDB.get_def(def["ref"])["name"]
+		KIND_CLASS:
+			return ClassesDB.display_name(def["ref"])
 	return def["name"]
 
 
 static func description(id: String) -> String:
 	var def: Dictionary = DEFS[id]
-	if def["kind"] == KIND_ABILITY:
-		return AbilitiesDB.get_def(def["ref"])["desc"]
+	match def["kind"]:
+		KIND_ABILITY:
+			return AbilitiesDB.get_def(def["ref"])["desc"]
+		KIND_CLASS:
+			var cls := ClassesDB.get_def(def["ref"])
+			return "%s  %s" % [cls["passive_text"], cls["charge_text"]]
 	return def["desc"]
 
 
@@ -116,6 +143,9 @@ static func icon_path(id: String) -> String:
 	var def: Dictionary = DEFS[id]
 	if def["kind"] == KIND_ABILITY:
 		return AbilitiesDB.icon_path(def["ref"])
+	if def["kind"] == KIND_CLASS:
+		# the character's own sprite, so the row shows who you are buying
+		return ClassesDB.sprite_path(def["ref"])
 	if def["kind"] == KIND_UPGRADE:
 		return "res://assets/sprites/gen/icon_ammo.png"
 	return "res://assets/sprites/gen/icon_heart.png"

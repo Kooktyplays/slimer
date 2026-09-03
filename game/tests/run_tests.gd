@@ -27,6 +27,7 @@ func _run() -> void:
 	_test_thief_and_mimic()
 	_test_boss_phases()
 	_test_boss_curve()
+	_test_finale()
 	_test_classes()
 	_test_combo()
 	_test_ability_upgrades()
@@ -72,7 +73,7 @@ func _test_boss_cadence() -> void:
 		var is_major := Game.is_major_boss_wave(wave)
 		_check(not (is_mini and is_major),
 			"wave %d is both a mini-boss and a major boss" % wave)
-		if wave % 20 == 0:
+		if wave % 20 == 0 or Game.is_finale_wave(wave):
 			_check(is_major, "wave %d should be a major boss" % wave)
 		elif wave % 5 == 0:
 			_check(is_mini, "wave %d should be a mini-boss" % wave)
@@ -84,8 +85,11 @@ func _test_boss_cadence() -> void:
 		if is_major:
 			majors += 1
 
-	_check(majors == 10, "expected 10 major bosses in 200 waves, got %d" % majors)
-	_check(minis == 30, "expected 30 mini-bosses in 200 waves, got %d" % minis)
+	# 10 on the every-20 cadence plus the finale, which took a wave that used to
+	# be a mini. Updated deliberately: this assertion existing is what made the
+	# schedule change visible instead of silent.
+	_check(majors == 11, "expected 11 major bosses in 200 waves, got %d" % majors)
+	_check(minis == 29, "expected 29 mini-bosses in 200 waves, got %d" % minis)
 
 	# every boss wave must resolve to a real archetype, and repeats must add
 	# phases rather than only health
@@ -247,6 +251,54 @@ func _test_classes() -> void:
 		"a class is declared but not in ORDER, or the other way round")
 	_check(ClassesDB.is_valid(ClassesDB.DEFAULT), "the default class does not exist")
 
+	# --- the paywall --------------------------------------------------------
+	#
+	# The default has to be free. It is what every save falls back to, so a
+	# locked default would start runs as a character the player cannot use.
+	_check(ClassesDB.is_free(ClassesDB.DEFAULT),
+		"the default class is not free - a save falling back to it would start "
+		+ "a run as a character the player does not own")
+	_check(ClassesDB.DEFAULT == ClassesDB.WARRIOR, "the Warrior should be the free one")
+	_check(ClassesDB.cost(ClassesDB.DEFAULT) == 0, "the free class has a price")
+
+	for id: String in ClassesDB.ORDER:
+		if id == ClassesDB.DEFAULT:
+			continue
+		var key := ClassesDB.unlock_id(id)
+		_check(not key.is_empty(), "%s has no unlock id" % id)
+		_check(MetaDB.DEFS.has(key), "%s's unlock '%s' is not in MetaDB" % [id, key])
+		_check(MetaDB.DEFS[key]["kind"] == MetaDB.KIND_CLASS,
+			"%s's unlock is not a class unlock" % id)
+		_check(String(MetaDB.DEFS[key]["ref"]) == id,
+			"%s's unlock points at a different class" % id)
+		_check(ClassesDB.cost(id) > 0, "%s is locked but free" % id)
+		# it must be buyable and describable, or the meta screen shows a blank
+		_check(not MetaDB.display_name(key).is_empty(), "%s has no unlock name" % id)
+		_check(not MetaDB.description(key).is_empty(), "%s has no unlock text" % id)
+		_check(MetaDB.ORDER.has(key), "%s's unlock is never shown on the screen" % id)
+
+	# ownership: only the free one, on a fresh save
+	var owned_before := Save.unlocks.duplicate()
+	var char_before := Save.character
+	Save.unlocks = []
+	_check(Save.owns_class(ClassesDB.DEFAULT), "the free class is not owned")
+	_check(Save.owned_classes().size() == 1,
+		"a fresh save owns %d classes, expected only the free one"
+			% Save.owned_classes().size())
+	for id: String in ClassesDB.ORDER:
+		if id != ClassesDB.DEFAULT:
+			_check(not Save.owns_class(id), "%s is owned without being bought" % id)
+
+	# a save naming a class you do not own comes back as the free one
+	Save.from_dict({"version": 5, "essence": 0, "unlocks": [],
+		"character": ClassesDB.HERBALIST, "loadout": ["dash", "grenade", "nova"],
+		"stats": {}, "settings": {}, "keybinds": {}, "achievements": []})
+	_check(Save.character == ClassesDB.DEFAULT,
+		"a save naming an unowned class came back as '%s'" % Save.character)
+
+	Save.unlocks = owned_before
+	Save.character = char_before
+
 	# An unknown id must fall back, not error - a save written before classes
 	# existed carries no class at all.
 	_check(ClassesDB.sanitise("") == ClassesDB.DEFAULT, "empty class id did not fall back")
@@ -354,7 +406,9 @@ func _test_classes() -> void:
 	# --- buying a skin ------------------------------------------------------
 	var saved_essence := Save.essence
 	var saved_unlocked := Save.skins_unlocked.duplicate()
-	var cls := ClassesDB.WARDEN
+	# The Warrior, because it is the free one - buying a skin for a locked
+	# class is refused at the source now, which is a different assertion.
+	var cls := ClassesDB.WARRIOR
 	var skin: String = ClassesDB.skins_for(cls).keys()[0]
 	var price := int(ClassesDB.skins_for(cls)[skin]["cost"])
 
@@ -371,6 +425,17 @@ func _test_classes() -> void:
 	_check(Save.essence == 10, "re-buying an owned skin charged again")
 	_check(Save.has_skin(cls, ClassesDB.SKIN_DEFAULT),
 		"the default skin has to be owned by everyone")
+
+	# ...and a locked class cannot be dressed at all
+	Save.essence = 99999
+	var locked := ClassesDB.VAMPIRE
+	var had_vampire := Save.unlocks.has(ClassesDB.unlock_id(locked))
+	Save.unlocks.erase(ClassesDB.unlock_id(locked))
+	_check(not Save.owns_class(locked), "the Vampire should be locked by default")
+	_check(not Save.buy_skin(locked, ClassesDB.skins_for(locked).keys()[0]),
+		"a skin was bought for a class the player does not own")
+	if had_vampire:
+		Save.unlocks.append(ClassesDB.unlock_id(locked))
 
 	Save.essence = saved_essence
 	Save.skins_unlocked = saved_unlocked
@@ -563,6 +628,79 @@ func _test_combo() -> void:
 		var tier := rs.combo_tier()
 		_check(tier > last or n == 0, "combo tier did not rise at %d kills" % n)
 		last = tier
+
+
+## The ending, and the things that would quietly make it unreachable.
+func _test_finale() -> void:
+	var w := Balance.FINALE_WAVE
+	_check(Game.is_finale_wave(w), "the finale wave is not the finale wave")
+	_check(Game.is_major_boss_wave(w), "the finale is not a major boss wave")
+	_check(not Game.is_mini_boss_wave(w),
+		"wave %d is both the finale and a mini-boss" % w)
+	_check(Game.is_boss_wave(w), "the finale is not a boss wave at all")
+
+	# It has to be the Sovereign, not whatever the rotation would have put there
+	var pick := BossDB.for_wave(w)
+	_check(String(pick["id"]) == Balance.FINALE_BOSS,
+		"the finale is %s, not the boss the ending is written about" % pick["id"])
+	_check(bool(pick.get("finale", false)), "the finale is not flagged as one")
+
+	# ...and it must be somewhere a player actually gets to. An ending past the
+	# point anyone reaches is the problem this was built to fix.
+	_check(w <= 30, "the finale at wave %d is too deep to be reached" % w)
+	_check(BiomeDB.id_for_depth(Game.depth_for_wave(w)) == BiomeDB.ORDER[-1],
+		"the finale should sit in the last biome, not partway down")
+
+	# No other wave claims to be the finale.
+	var count := 0
+	for wave in range(1, 201):
+		if Game.is_finale_wave(wave):
+			count += 1
+	_check(count == 1, "%d waves claim to be the finale" % count)
+
+	# Taking a wave off the mini rotation must not shift the ones after it.
+	var seen: Array[String] = []
+	for wave in range(5, 60, 5):
+		if Game.is_mini_boss_wave(wave):
+			seen.append(String(BossDB.for_wave(wave)["id"]))
+	for i in seen.size():
+		_check(seen[i] == BossDB.MINI_ROTATION[i % BossDB.MINI_ROTATION.size()],
+			"the mini rotation skipped a boss after the finale took wave %d" % w)
+
+	# --- the finale has to be finishable -----------------------------------
+	#
+	# Sized off the major curve it was 20,150, and a run at wave 25 has roughly
+	# 60 dps - a ten-minute fight. The sim caught it as a wedged wave; this
+	# catches it as a number.
+	var dps := 60.0            # measured from the headless sim at this depth
+	var seconds := Balance.finale_boss_hp() / dps
+	_check(seconds <= 180.0,
+		"the finale is a %.0f second fight at %.0f dps - long enough that the "
+			% [seconds, dps] + "run stalls on the wave it is meant to celebrate")
+	_check(Balance.finale_boss_hp() > Balance.mini_boss_hp(w) * 0.5,
+		"the finale is softer than half the mini-boss it replaced")
+
+	# Devour must not out-heal the player.
+	#
+	# It healed 4.5% of MAX HP per enemy eaten, and the Sovereign summons its
+	# own food - so the bigger the boss, the more each meal was worth. At the
+	# finale that was ~720 a head and the sim spent four minutes taking it from
+	# 100% to 99%. A flat per-enemy value cannot run away with the health pool.
+	var per_meal := Boss.DEVOUR_HEAL_PER_ENEMY * Balance.hp_scale(w)
+	var summons := int(BossDB.get_def(Balance.FINALE_BOSS)["summon_count"])
+	var heal_per_cast := per_meal * summons
+	_check(heal_per_cast < Balance.finale_boss_hp() * 0.12,
+		"one Devour heals %.0f of the finale's %.0f health - it can out-heal "
+			% [heal_per_cast, Balance.finale_boss_hp()]
+			+ "anything the player does")
+	# ...and it must not scale off the boss's own size, which is what made it
+	# unbounded. A flat constant has the same value whatever the boss's health.
+	_check(Boss.DEVOUR_HEAL_PER_ENEMY < 100.0,
+		"Devour's per-enemy heal looks like a percentage again")
+
+	# A run tracks the ending once, not once per Sovereign.
+	var rs := RunState.create(1, [], ["dash", "grenade", "nova"], false)
+	_check(not rs.finale_cleared, "a run started already finished")
 
 
 ## Bosses must not fall behind the waves.
@@ -1536,7 +1674,7 @@ func _test_achievements() -> void:
 	Save.achievements = ["first_blood"]
 	Save.stats["boss_toad"] = 2
 	var round_trip := Save.to_dict()
-	_check(int(round_trip["version"]) == 4, "to_dict did not write version 4")
+	_check(int(round_trip["version"]) == 5, "to_dict did not write version 5")
 	Save.from_dict(round_trip)
 	_check(Save.achievements.has("first_blood"), "achievements did not round-trip")
 	_check(int(Save.stats["boss_toad"]) == 2, "per-boss counters did not round-trip")
@@ -1585,6 +1723,48 @@ func _test_achievements() -> void:
 			% [after_first, Save.essence])
 	_check(not Save.unlocks.has(Save.REMOVED_ABILITY_UNLOCK),
 		"the removed unlock came back after a round-trip")
+
+	# --- v5: skins for classes you do not own are refunded ------------------
+	var locked_cls := ClassesDB.VAMPIRE
+	var locked_skin: String = ClassesDB.skins_for(locked_cls).keys()[0]
+	var locked_price := int(ClassesDB.skins_for(locked_cls)[locked_skin]["cost"])
+	var free_skin: String = ClassesDB.skins_for(ClassesDB.DEFAULT).keys()[0]
+
+	var v4 := {
+		"version": 4,
+		"essence": 50,
+		"unlocks": [],
+		"loadout": ["dash", "grenade", "nova"],
+		"character": locked_cls,
+		"skins_unlocked": [
+			Save.skin_key(locked_cls, locked_skin),
+			Save.skin_key(ClassesDB.DEFAULT, free_skin),
+		],
+		"skin_for_class": {locked_cls: locked_skin},
+		"stats": {}, "settings": {}, "keybinds": {}, "achievements": [],
+	}
+	Save.from_dict(v4)
+	_check(Save.essence == 50 + locked_price,
+		"the locked-class skin was not refunded - essence is %d, expected %d"
+			% [Save.essence, 50 + locked_price])
+	_check(not Save.skins_unlocked.has(Save.skin_key(locked_cls, locked_skin)),
+		"a skin for a class the player does not own survived")
+	_check(Save.skins_unlocked.has(Save.skin_key(ClassesDB.DEFAULT, free_skin)),
+		"a skin for a class the player DOES own was refunded too")
+	_check(Save.character == ClassesDB.DEFAULT,
+		"a save wearing a locked class did not fall back")
+	_check(not Save.skin_for_class.has(locked_cls),
+		"a locked class kept its chosen skin")
+
+	# once only, across a round-trip
+	var after_skins := Save.essence
+	var round2 := Save.to_dict()
+	_check(bool(round2.get("refunded_locked_skins", false)),
+		"the migrated save does not record the skin refund")
+	Save.from_dict(round2)
+	_check(Save.essence == after_skins,
+		"the skin refund compounded - essence went %d to %d"
+			% [after_skins, Save.essence])
 
 	Save.essence = essence_before
 	Save.stats = stats_before

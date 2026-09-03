@@ -49,6 +49,11 @@ var ultimate_power: float = 1.0
 ## good one has to be possible.
 var ability_levels: Dictionary = {}
 
+## True once the finale has been beaten in this run. The ending shows once -
+## a player who chose to continue and then reaches the Sovereign again on its
+## own rotation slot should not be told they have won a second time.
+var finale_cleared: bool = false
+
 # loadout
 var abilities: Array[String] = ["dash", "grenade", "nova"]
 

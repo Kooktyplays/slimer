@@ -63,6 +63,47 @@ const GUN_CAPS := {
 const WAVE_INTERMISSION := 3.0
 const MINI_BOSS_EVERY := 5
 const MAJOR_BOSS_EVERY := 20
+
+## The run's ending.
+##
+## Wave 21 enters Heartwood, the last biome, so wave 25 means you have descended
+## through all five and then face what the forest grew around. It is deliberately
+## *reachable*: the Sovereign's own rotation slot is wave 40, which the headless
+## sim has never come close to and most players never will, and an ending nobody
+## gets is most of why the game did not have one that mattered.
+##
+## Beating it does not end the run - it shows the ending and offers to continue,
+## so the endless tail, the boss repeat system and the deepest-biome-holds-
+## forever design all stay alive.
+const FINALE_WAVE := 25
+const FINALE_BOSS := "sovereign"
+
+## The finale's own health, rather than whatever the major curve says at wave 25.
+##
+## The major curve was shaped for wave 40, where the Sovereign used to live. Run
+## at wave 25 it produces 20,150 - 1.42x the wave-20 major, only five waves
+## later - and the headless sim simply could not kill it: the run reached the
+## ending and ground to a halt on it, which is a worse outcome than having no
+## ending at all.
+##
+## Pinned just above the wave-20 major, which past sims have cleared. It should
+## be the hardest fight in the game, not an unreachable one.
+## Sized against measured damage, not against the major curve.
+##
+## The headless sim clears the wave-20 major (14,200) but only just - that is
+## roughly a four-minute fight at the ~60 dps a run actually has at that depth.
+## The finale carries Devour on top, which heals, so raw parity with the Oak
+## would make it far longer than the Oak rather than merely harder.
+##
+## 8,000 is aimed at a two-minute fight: the hardest in the game, and one that
+## ends. The wave-20 major being close to the sim's stall watchdog is a real
+## tuning risk in its own right, flagged for play-testing rather than re-tuned
+## blind here.
+const FINALE_HP := 8000.0
+
+
+static func finale_boss_hp() -> float:
+	return FINALE_HP
 const WAVES_PER_DEPTH := 5
 const MAX_CONCURRENT_ENEMIES := 68
 const SPAWN_MIN_DISTANCE := 620.0

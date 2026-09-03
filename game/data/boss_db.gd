@@ -171,6 +171,12 @@ static func get_def(id: String) -> Dictionary:
 ## Which boss shows up on `wave`, and how many times it has appeared before.
 ## The repeat count drives the extra phase on later encounters.
 static func for_wave(wave: int) -> Dictionary:
+	# The finale is always the Sovereign, whatever the rotation would have
+	# said. It is the thing the story is built towards, and a run that reached
+	# its ending and found the Ancient Oak there would be a different game.
+	if Game.is_finale_wave(wave):
+		return {"id": Balance.FINALE_BOSS, "repeat": 0, "major": true,
+			"finale": true}
 	if Game.is_major_boss_wave(wave):
 		var index := (wave / Balance.MAJOR_BOSS_EVERY) - 1
 		return {
@@ -178,8 +184,14 @@ static func for_wave(wave: int) -> Dictionary:
 			"repeat": index / MAJOR_ROTATION.size(),
 			"major": true,
 		}
-	# minis skip the wave numbers the majors take
+	# Minis skip the wave numbers the majors take - including the finale, which
+	# used to be a mini wave. Without that last subtraction every mini after
+	# wave 25 shifts one place along the rotation and the sequence the player
+	# has been learning silently skips a boss.
 	var mini_index := (wave / Balance.MINI_BOSS_EVERY) - 1 - (wave / Balance.MAJOR_BOSS_EVERY)
+	if wave > Balance.FINALE_WAVE and Balance.FINALE_WAVE % Balance.MINI_BOSS_EVERY == 0 \
+			and Balance.FINALE_WAVE % Balance.MAJOR_BOSS_EVERY != 0:
+		mini_index -= 1
 	return {
 		"id": MINI_ROTATION[maxi(mini_index, 0) % MINI_ROTATION.size()],
 		"repeat": maxi(mini_index, 0) / MINI_ROTATION.size(),

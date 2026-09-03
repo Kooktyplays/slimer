@@ -27,6 +27,10 @@ extends CharacterBody2D
 ## drops what you learned and brings something else changes how you fight.
 
 const PROJECTILE := preload("res://weapons/projectile.tscn")
+
+## Health the Sovereign gains per enemy consumed by Devour, before wave
+## scaling. Flat on purpose - see _ult... see _atk_devour.
+const DEVOUR_HEAL_PER_ENEMY := 22.0
 ## Bramble's Snare grows real barriers. Same scene the Thornwall ability uses,
 ## so a boss wall and a player wall obey exactly the same rules.
 const THORNWALL := preload("res://abilities/thornwall.tscn")
@@ -54,6 +58,9 @@ var id := "bramble"
 var def: Dictionary = {}
 var display_name := "Boss"
 var is_major := false
+## True for the run's ending. Read by run.gd, which shows the ending the first
+## time one of these is cleared.
+var is_finale := false
 var wave := 5
 var repeat := 0
 
@@ -124,14 +131,21 @@ func configure(boss_id: String, for_wave: int, repeat_index: int) -> void:
 	wave = for_wave
 	repeat = repeat_index
 	is_major = bool(def["major"])
+	is_finale = Game.is_finale_wave(for_wave)
 	display_name = String(def["name"])
 	phase_count = BossDB.phase_count(boss_id, repeat_index)
 	phase = 1
 	dying = false
 	_rng.seed = for_wave * 104729 + repeat_index
 
-	max_hp = Balance.major_boss_hp(for_wave) if is_major else Balance.mini_boss_hp(for_wave)
-	max_hp *= 1.0 + 0.18 * repeat_index
+	if is_finale:
+		# Its own number: the major curve at wave 25 is shaped for wave 40 and
+		# produces a boss the run cannot finish.
+		max_hp = Balance.finale_boss_hp()
+	else:
+		max_hp = (Balance.major_boss_hp(for_wave) if is_major
+			else Balance.mini_boss_hp(for_wave))
+		max_hp *= 1.0 + 0.18 * repeat_index
 	hp = max_hp
 	_damage_scale = Balance.boss_damage_scale(for_wave)
 
@@ -836,7 +850,19 @@ func _atk_devour() -> void:
 				e.call("die", false)
 			eaten += 1
 		if eaten > 0:
-			hp = minf(max_hp, hp + max_hp * 0.045 * eaten)
+			# Heals for what it ATE, not for a share of its own size.
+			#
+			# This was 4.5% of max_hp per add, which is a runaway: the boss
+			# summons its own food, so the bigger the boss the more each meal
+			# is worth. At the finale's 16,000 HP that was 720 a head and about
+			# 4,300 a cast, and the headless sim spent four minutes taking the
+			# Sovereign from 100% to 99%. A boss that out-heals you is not a
+			# hard fight, it is an unwinnable one.
+			#
+			# A flat per-add value scaled the way enemy health is scales
+			# sanely and cannot run away with the boss's own health pool.
+			hp = minf(max_hp, hp + DEVOUR_HEAL_PER_ENEMY
+				* Balance.hp_scale(wave) * eaten)
 			Audio.play("boss_phase", -2.0)
 			FX.floating_text(global_position + Vector2(0, -160),
 				"DEVOURED %d" % eaten, Color(0.8, 0.5, 1.0))
