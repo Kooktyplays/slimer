@@ -156,19 +156,6 @@ const DEFS := {
 		"burst_radius": 200.0,
 		"taunt_range": 620.0,
 	},
-	"lifesteal": {
-		"name": "Leech",
-		"desc": "For 8 seconds, 18% of the damage you deal comes back as health.",
-		"icon": "icon_lifesteal",
-		"sound": "lifesteal",
-		"cooldown": 24.0,
-		"charges": 1,
-		"class": CLASS_GENERAL,
-		"default": false,
-		"essence": 280,
-		"fraction": 0.18,
-		"duration": 8.0,
-	},
 	"surge": {
 		"name": "Surge",
 		"desc": "Sprint at nearly double speed for 3.5 seconds. No invulnerability.",
@@ -233,7 +220,7 @@ const DEFS := {
 const ORDER: Array[String] = [
 	"dash", "surge", "vault",
 	"grenade", "nova", "shield", "heal", "lightning", "timeslow",
-	"thornwall", "rapidfire", "cinders", "orbital", "decoy", "lifesteal",
+	"thornwall", "rapidfire", "cinders", "orbital", "decoy",
 ]
 
 

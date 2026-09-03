@@ -305,7 +305,7 @@ func _test_classes() -> void:
 	_check(not rs2.ultimate_ready(), "a run started with a full ultimate")
 	_check(not rs2.spend_ultimate(), "an empty ultimate could be spent")
 	for i in 400:
-		rs2.add_ultimate_charge(ClassesDB.CHARGE_TAKEN, 50.0)
+		rs2.add_ultimate_charge(ClassesDB.CHARGE_BRAWL, 50.0)
 	_check(rs2.ultimate_charge <= 1.0,
 		"ultimate charge ran past full to %.2f" % rs2.ultimate_charge)
 	_check(rs2.ultimate_ready(), "the ultimate never filled")
@@ -379,7 +379,7 @@ func _match_arms(path: String, prefix: String) -> Dictionary:
 			continue
 		# "ClassesDB.CHARGE_ELITES:" -> the constant's value
 		var name := trimmed.trim_suffix(":").split(".")[-1]
-		for c: String in [ClassesDB.CHARGE_ELITES, ClassesDB.CHARGE_TAKEN,
+		for c: String in [ClassesDB.CHARGE_ELITES, ClassesDB.CHARGE_BRAWL,
 				ClassesDB.CHARGE_DEALT, ClassesDB.CHARGE_COMBO,
 				ClassesDB.CHARGE_PICKUPS]:
 			if name.to_lower().ends_with(c.to_lower()):
@@ -1030,7 +1030,7 @@ func _test_loadout() -> void:
 			"sanitised loadout contains locked ability '%s'" % id)
 
 	# every ability must be reachable, well formed and correctly classed
-	_check(AbilitiesDB.ORDER.size() == 15, "expected fifteen abilities")
+	_check(AbilitiesDB.ORDER.size() == 14, "expected fourteen abilities")
 	var movement := 0
 	for id: String in AbilitiesDB.ORDER:
 		var def := AbilitiesDB.get_def(id)
@@ -1401,10 +1401,55 @@ func _test_achievements() -> void:
 	Save.achievements = ["first_blood"]
 	Save.stats["boss_toad"] = 2
 	var round_trip := Save.to_dict()
-	_check(int(round_trip["version"]) == 3, "to_dict did not write version 3")
+	_check(int(round_trip["version"]) == 4, "to_dict did not write version 4")
 	Save.from_dict(round_trip)
 	_check(Save.achievements.has("first_blood"), "achievements did not round-trip")
 	_check(int(Save.stats["boss_toad"]) == 2, "per-boss counters did not round-trip")
+
+	# --- v4: Leech removed, its Essence refunded --------------------------
+	#
+	# A player who spent 280 Essence on Leech must get it back, exactly once,
+	# and a loadout still holding it must come back playable rather than with
+	# an empty slot.
+	var v3 := {
+		"version": 3,
+		"essence": 100,
+		"unlocks": ["ab_lifesteal", "ab_surge"],
+		"loadout": ["dash", "lifesteal", "nova"],
+		"stats": {}, "settings": {}, "keybinds": {}, "achievements": [],
+	}
+	Save.from_dict(v3)
+	_check(Save.essence == 100 + Save.REMOVED_ABILITY_REFUND,
+		"the Leech refund did not land - essence is %d, expected %d"
+			% [Save.essence, 100 + Save.REMOVED_ABILITY_REFUND])
+	_check(not Save.unlocks.has(Save.REMOVED_ABILITY_UNLOCK),
+		"the removed ability's unlock survived the migration")
+	_check(not Save.loadout.has(Save.REMOVED_ABILITY),
+		"a loadout came back still holding the removed ability")
+	_check(Save.loadout.size() == AbilitiesDB.SLOT_COUNT,
+		"the loadout lost a slot instead of being repaired")
+	for id: String in Save.loadout:
+		_check(AbilitiesDB.DEFS.has(id),
+			"the repaired loadout holds '%s', which is not an ability" % id)
+
+	# The refund does not compound across a save/load round-trip.
+	#
+	# Note what this can and cannot prove. from_dict resets essence from the
+	# dictionary before anything else, so re-loading the SAME old file lands on
+	# the same number whether or not the refund is gated - that case is
+	# idempotent by construction and no assertion can distinguish it. What is
+	# worth guarding is the round-trip: save after migrating, load that, and
+	# the refund must not be granted a second time on top of the new balance.
+	var after_first := Save.essence
+	var migrated := Save.to_dict()
+	_check(bool(migrated.get("refunded_removed_ability", false)),
+		"the migrated save does not record that the refund was paid")
+	Save.from_dict(migrated)
+	_check(Save.essence == after_first,
+		"the refund compounded across a save/load - essence went %d to %d"
+			% [after_first, Save.essence])
+	_check(not Save.unlocks.has(Save.REMOVED_ABILITY_UNLOCK),
+		"the removed unlock came back after a round-trip")
 
 	Save.essence = essence_before
 	Save.stats = stats_before

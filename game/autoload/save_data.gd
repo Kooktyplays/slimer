@@ -10,7 +10,18 @@ const TMP_PATH := "user://slimer_save.json.tmp"
 ## are additive - a version-2 save loads with the counters at zero and simply has
 ## not earned the achievements depending on them, which is the right answer for a
 ## save from before they were tracked.
-const VERSION := 3
+const VERSION := 4
+
+## Leech, removed in v4 because it did the Vampire's job. The unlock is dropped
+## and its cost refunded on the first load of an older save.
+const REFUND_VERSION := 4
+const REMOVED_ABILITY := "lifesteal"
+const REMOVED_ABILITY_UNLOCK := "ab_lifesteal"
+const REMOVED_ABILITY_REFUND := 280
+
+## True once the Leech refund has been paid. Persisted, so it is paid once per
+## save rather than once per load.
+var refunded_removed_ability := false
 
 ## Bumped when the *meaning* of an ability binding changes, not when a binding
 ## is added. Version 2 introduced the movement slot: it moved Space from
@@ -90,6 +101,7 @@ func to_dict() -> Dictionary:
 		"unlocks": unlocks,
 		"loadout": loadout,
 		"character": character,
+		"refunded_removed_ability": refunded_removed_ability,
 		"seen_hints": seen_hints,
 		"stats": stats,
 		"settings": settings,
@@ -101,11 +113,33 @@ func to_dict() -> Dictionary:
 func from_dict(d: Dictionary) -> void:
 	essence = int(d.get("essence", 0))
 	character = ClassesDB.sanitise(String(d.get("character", "")))
+
 	unlocks = _to_string_array(d.get("unlocks", []))
+
+	# v4: Leech is gone - it duplicated the Vampire, so an ability was competing
+	# with a whole class. Anyone who spent Essence unlocking it gets it back,
+	# once, and any loadout still holding it is repaired below. Without the
+	# refund a player has simply paid 280 for something that no longer exists.
+	#
+	# Has to sit AFTER unlocks is populated: run before it, and this reads the
+	# unlocks from whatever was loaded previously and refunds nothing.
+	#
+	# Recorded in the save rather than inferred from the version, because the
+	# version gate alone does not actually protect anything: loading the same
+	# pre-v4 file twice would pass it twice and pay twice. The flag is the only
+	# thing that makes "refunded exactly once" true.
+	refunded_removed_ability = bool(d.get("refunded_removed_ability", false))
+	if not refunded_removed_ability and unlocks.has(REMOVED_ABILITY_UNLOCK):
+		unlocks.erase(REMOVED_ABILITY_UNLOCK)
+		essence += REMOVED_ABILITY_REFUND
+		refunded_removed_ability = true
 	seen_hints = _to_string_array(d.get("seen_hints", []))
 	achievements = _to_string_array(d.get("achievements", []))
 
 	var lo := _to_string_array(d.get("loadout", ["dash", "grenade", "nova"]))
+	# strip the removed ability before sanitising, or the slot it held comes
+	# back empty rather than filled with a default
+	lo = lo.filter(func(id: String) -> bool: return id != REMOVED_ABILITY)
 	loadout = _sanitise_loadout(lo)
 
 	keybinds = _parse_keybinds(d.get("keybinds", {}))

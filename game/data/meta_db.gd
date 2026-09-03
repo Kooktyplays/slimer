@@ -24,7 +24,6 @@ const DEFS := {
 	"ab_orbital":   {"kind": KIND_ABILITY, "ref": "orbital",   "cost": 260},
 	"ab_thornwall": {"kind": KIND_ABILITY, "ref": "thornwall", "cost": 190},
 	"ab_cinders":   {"kind": KIND_ABILITY, "ref": "cinders",   "cost": 230},
-	"ab_lifesteal": {"kind": KIND_ABILITY, "ref": "lifesteal", "cost": 280},
 
 	# ---- new shop entries --------------------------------------------------
 	"upg_heavy_slugs": {
@@ -87,7 +86,7 @@ const ORDER: Array[String] = [
 	"ab_surge", "ab_vault",
 	"ab_shield", "ab_heal", "ab_thornwall", "ab_decoy",
 	"ab_timeslow", "ab_lightning", "ab_cinders", "ab_rapidfire",
-	"ab_orbital", "ab_lifesteal",
+	"ab_orbital",
 	"upg_heavy_slugs", "upg_runaway_sear", "upg_split_barrel",
 	"upg_thirsting_grip", "upg_deep_reserves",
 	"pas_vigor_1", "pas_vigor_2", "pas_purse_1", "pas_edge_1", "pas_edge_2",

@@ -2,6 +2,16 @@ class_name Boss
 extends CharacterBody2D
 ## Boss actor: entrance, phases, telegraphed attack patterns, defeat.
 ##
+## Attack damage is deliberately heavy - roughly 55% above where it started -
+## and that is paired with the forgiveness pass rather than stacked on top of
+## it. Post-hit invulnerability went 0.55s to 0.78s, so boss hits land less
+## often; making each one hurt much more trades frequency for weight, which is
+## the readable version. Raising both would just be unfair.
+##
+## The floor on that trade is that no single attack may kill a full-health
+## player outright, at any wave. A telegraph is a promise that reacting to it
+## is worth something, and a one-shot breaks that promise. There is a test.
+##
 ## Every attack follows the same contract - wind up with a visible telegraph
 ## and a distinct sound, *then* hit. A boss that can damage you without
 ## warning is a boss you can only survive by luck, and the whole point of
@@ -441,7 +451,7 @@ func _atk_slam() -> void:
 		FX.explosion(target, radius, def["tint"])
 		Audio.play("boss_attack", -1.0)
 		Game.shake(Balance.SHAKE_BOSS_SLAM, 0.45)
-		Combat.explode_on_player(target, radius, 24.0 * _damage_scale)
+		Combat.explode_on_player(target, radius, 38.0 * _damage_scale)
 		_visual.scale = Vector2.ONE * float(def["scale"]) * (1.0 + 0.06 * repeat))
 	t.tween_interval(0.25)
 	t.tween_callback(_recover)
@@ -583,7 +593,7 @@ func _atk_rain() -> void:
 			inner.tween_callback(func() -> void:
 				FX.explosion(at, radius, def["tint"])
 				Audio.play("explosion", -12.0)
-				Combat.explode_on_player(at, radius, 16.0 * _damage_scale)))
+				Combat.explode_on_player(at, radius, 25.0 * _damage_scale)))
 		t.tween_interval(0.22)
 	t.tween_interval(lead)
 	t.tween_callback(_recover)
@@ -624,7 +634,7 @@ func _atk_shockwave() -> void:
 					return
 				var d := p.global_position.distance_to(origin)
 				if d <= r and d > r - 130.0:
-					p.call("take_damage", 20.0 * _damage_scale, false, origin, 0.0)))
+					p.call("take_damage", 31.0 * _damage_scale, false, origin, 0.0)))
 	t.tween_interval(0.7)
 	t.tween_callback(_recover)
 
@@ -711,7 +721,7 @@ func _atk_tongue() -> void:
 			var along := to_p.dot(dir)
 			var off := (to_p - dir * along).length()
 			if along > 0.0 and along < reach and off < line.width * 0.5:
-				p.call("take_damage", 14.0 * _damage_scale, false,
+				p.call("take_damage", 22.0 * _damage_scale, false,
 					global_position, 0.0)
 				# Reeled in as a velocity impulse, not a position tween.
 				# The player's _move() overwrites velocity every frame but
@@ -792,7 +802,7 @@ func _atk_rootquake() -> void:
 				for i in spokes:
 					var at := origin + Vector2.RIGHT.rotated(base + TAU * i / spokes) * d
 					FX.explosion(at, radius, def["tint"])
-					Combat.explode_on_player(at, radius, 15.0 * _damage_scale)))
+					Combat.explode_on_player(at, radius, 23.0 * _damage_scale)))
 	t.tween_interval(0.10 * steps + 0.3)
 	t.tween_callback(_recover)
 

@@ -15,6 +15,7 @@ const ORBITAL := preload("res://abilities/orbital_orbs.tscn")
 const DECOY := preload("res://abilities/decoy.tscn")
 const GRENADE := preload("res://abilities/grenade.tscn")
 const THORNWALL := preload("res://abilities/thornwall.tscn")
+const TURRET := preload("res://abilities/turret.gd")
 const CINDERS := preload("res://abilities/cinders.tscn")
 
 signal slot_changed(slot: int)
@@ -90,6 +91,57 @@ func _process(delta: float) -> void:
 			Audio.play("ui_hover", -18.0, 0.0)
 			Events.ability_ready.emit(i, s["id"])
 			slot_changed.emit(i)
+	_tick_turrets(delta)
+
+
+# ---------------------------------------------------------------------------
+# the Engineer's turrets
+# ---------------------------------------------------------------------------
+## Seconds between deployments, and how many may stand at once.
+const TURRET_INTERVAL := 9.0
+const TURRET_CAP := 2
+
+var _turret_timer := 0.0
+
+
+func _tick_turrets(delta: float) -> void:
+	if Game.run == null or player == null or not player.alive:
+		return
+	if not bool(ClassesDB.get_def(Game.run.class_id).get("deploys_turrets", false)):
+		return
+	_turret_timer -= delta
+	if _turret_timer > 0.0:
+		return
+	_turret_timer = TURRET_INTERVAL
+	_deploy_turret()
+
+
+func live_turrets() -> Array[Node]:
+	var out: Array[Node] = []
+	if not is_inside_tree():
+		return out
+	for n: Node in get_tree().get_nodes_in_group("turret"):
+		if is_instance_valid(n):
+			out.append(n)
+	return out
+
+
+func _deploy_turret() -> void:
+	var live := live_turrets()
+	if live.size() >= TURRET_CAP:
+		# Replace the oldest rather than refusing: a turret you cannot place
+		# because two are stranded across the map is a passive that stops
+		# working exactly when you have moved on from where it fired.
+		var oldest: Node = live[0]
+		if oldest.has_method("_expire"):
+			oldest.call("_expire")
+	var at := player.global_position
+	var layout := _layout()
+	if layout != null and not layout.is_open(at):
+		at = layout.nearest_open(at)
+	var t := TURRET.new() as Node2D
+	_container().add_child(t)
+	t.call("setup", player, at)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -198,25 +250,38 @@ func _ult_crimson_hour() -> void:
 			player.lifesteal_bonus = maxf(0.0, player.lifesteal_bonus - 0.85))
 
 
-## ENGINEER. Everything you carry goes off, three times over. Reuses the
-## ability dispatch itself rather than reimplementing five effects.
+## ENGINEER. Overclock the turrets - your own thing, amplified.
+##
+## This used to re-fire everyone else's abilities, which made the Engineer's
+## ultimate a louder version of whatever you happened to be carrying rather
+## than something the class owned. Now it does the one thing only the Engineer
+## has: for its duration the turrets fire three times as fast, reach much
+## further, and cannot expire.
+##
+## It also deploys the full set immediately, so the ultimate is never wasted on
+## an empty field waiting for the passive's timer.
 func _ult_overclock() -> void:
-	for burst in 3:
-		var t := create_tween()
-		t.tween_interval(0.34 * burst)
-		t.tween_callback(func() -> void:
-			if not is_instance_valid(player):
-				return
-			for slot in slots.size():
-				var s := slots[slot]
-				if s.is_empty():
-					continue
-				var id := String(s["id"])
-				# movement abilities would fling the player around three times
-				if AbilitiesDB.get_def(id).get("class", "") == AbilitiesDB.CLASS_MOVEMENT:
-					continue
-				_execute(id, AbilitiesDB.get_def(id))
-			Game.shake(5.0, 0.25))
+	var duration := 9.0
+	if Game.run != null:
+		duration *= Game.run.ultimate_power
+
+	while live_turrets().size() < TURRET_CAP:
+		_deploy_turret()
+	_turret_timer = TURRET_INTERVAL
+
+	var until := Time.get_ticks_msec() / 1000.0 + duration
+	for t: Node in live_turrets():
+		t.set("overclocked_until", until)
+		FX.ring(t.global_position, 120.0, Color(1.0, 0.85, 0.35), 0.4, 0.2)
+
+	# Anything deployed *during* the ultimate joins it, or replacing a turret
+	# mid-Overclock would quietly hand you a slow one.
+	var pulse := create_tween()
+	pulse.set_loops(int(duration / 0.5))
+	pulse.tween_interval(0.5)
+	pulse.tween_callback(func() -> void:
+		for t: Node in live_turrets():
+			t.set("overclocked_until", until))
 
 
 ## HERBALIST. The ground turns on them - a wide, lasting burn centred on you.
@@ -345,7 +410,6 @@ func _execute(id: String, def: Dictionary) -> void:
 		"rapidfire": _do_rapidfire(def)
 		"orbital": _do_orbital(def)
 		"decoy": _do_decoy(def)
-		"lifesteal": _do_lifesteal(def)
 
 
 ## The run's forest layout, for abilities that move the player across it.
@@ -606,13 +670,3 @@ func _do_decoy(def: Dictionary) -> void:
 	var d := DECOY.instantiate()
 	_container().add_child(d)
 	d.call("setup", player.global_position, def)
-
-
-func _do_lifesteal(def: Dictionary) -> void:
-	player.lifesteal_bonus = float(def["fraction"])
-	FX.ring(player.global_position, 120.0, Color(0.85, 0.25, 0.35), 0.5, 0.25)
-	var t := create_tween()
-	t.tween_interval(float(def["duration"]))
-	t.tween_callback(func() -> void:
-		if is_instance_valid(player):
-			player.lifesteal_bonus = 0.0)

@@ -22,7 +22,14 @@ extends RefCounted
 ## that nothing implements, because a class whose ultimate never charges is a
 ## class that quietly does not work.
 const CHARGE_ELITES := "elites"      ## elite and boss kills
-const CHARGE_TAKEN := "taken"        ## damage taken
+## Damage dealt while surrounded.
+##
+## NOT damage taken, which is what this used to be and which rewards playing
+## badly - the more you are hit, the sooner your reward. Overwatch charges
+## ultimates from doing your job (damage dealt, healing done) and specifically
+## refuses to charge tanks for blocking, for exactly this reason. The Warrior's
+## job is to be in the middle of it and keep swinging, so that is what pays.
+const CHARGE_BRAWL := "brawl"
 const CHARGE_DEALT := "dealt"        ## damage dealt
 const CHARGE_COMBO := "combo"        ## kills chained without being hit
 const CHARGE_PICKUPS := "pickups"    ## things collected off the ground
@@ -56,14 +63,13 @@ const DEFS := {
 	WARRIOR: {
 		"name": "The Warrior",
 		"title": "died on their feet",
-		"blurb": "Whatever killed you, it took a while.",
+		"blurb": "Whatever killed you, it took a while. Get in the middle of it.",
 		"tint": Color(0.92, 0.55, 0.42),
 		"passive": {"stat": "damage_reduction", "kind": UpgradesDB.Kind.ADD,
 			"amount": 0.10},
 		"passive_text": "10% less damage taken.",
-		# The one class that wants to be hit, which is the point of it.
-		"charge": CHARGE_TAKEN,
-		"charge_text": "Charges by taking damage.",
+		"charge": CHARGE_BRAWL,
+		"charge_text": "Charges by dealing damage while surrounded.",
 		"ultimate": "last_stand",
 		"ultimate_name": "Last Stand",
 		"ultimate_text": "For a few seconds, what hits you comes back out.",
@@ -86,15 +92,18 @@ const DEFS := {
 		"title": "built something that outlasted them",
 		"blurb": "The campfire at every rest was probably yours.",
 		"tint": Color(0.95, 0.80, 0.35),
-		"passive": {"stat": "ability_cdr", "kind": UpgradesDB.Kind.ADD, "amount": 0.12},
-		"passive_text": "Abilities recharge 12% faster.",
+		# A real identity rather than a stat line. The Engineer is the only
+		# class that puts something on the map and leaves it there.
+		"passive": {"stat": "ability_cdr", "kind": UpgradesDB.Kind.ADD, "amount": 0.06},
+		"passive_text": "Deploys automatic turrets. They inherit your gun upgrades.",
+		"deploys_turrets": true,
 		# The only class that reads the combo counter, which is what makes the
 		# combo system worth having rather than decorative.
 		"charge": CHARGE_COMBO,
 		"charge_text": "Charges by chaining kills without being hit.",
 		"ultimate": "overclock",
 		"ultimate_name": "Overclock",
-		"ultimate_text": "Every ability you carry fires at once, and again, and again.",
+		"ultimate_text": "Your turrets fire far faster, reach further, and cannot be broken.",
 	},
 	HERBALIST: {
 		"name": "The Herbalist",

@@ -377,6 +377,28 @@ def gen_player_classes():
         out.save(OUT / f"player_{name}.png")
 
 
+def gen_turret():
+    """The Engineer's turret: a squat base and a barrel, in its class colour."""
+    gold = (238, 198, 86)
+    dark = (150, 118, 44)
+
+    a = Art(46, 40)
+    ground_shadow(a, 23, 33, 19, 7, alpha=60)
+    a.ellipse(23, 26, 18, 11, (*dark, 255))          # base plate
+    a.ellipse(23, 23, 15, 9, (*gold, 255))
+    a.light(lambda s, c: s.ellipse(19, 17, 12, 8, c), (255, 255, 255, 70))
+    a.circle(23, 20, 7, (*dark, 255))                # housing
+    a.circle(23, 19, 5, (*gold, 255))
+    a.save("turret_base.png")
+
+    b = Art(20, 34)
+    b.rrect(7, 4, 13, 30, 2.5, (*dark, 255))         # barrel, pointing up
+    b.rrect(8, 6, 12, 26, 2.0, (*gold, 255))
+    b.circle(10, 5, 4, (*dark, 255))                 # muzzle
+    b.circle(10, 5, 2.4, (*C.INK, 220))
+    b.save("turret_barrel.png")
+
+
 def gen_player_face():
     a = Art(48, 25)
     a.ellipse(13, 12, 6, 8, (*P.GHOST_EYE, 255))
@@ -1544,6 +1566,7 @@ def main():
         ("app icons", gen_icons),
         ("enemy recolours", gen_enemies),
         ("player classes", gen_player_classes),
+        ("turret", gen_turret),
         ("type badges", gen_type_badges),
         ("faces", gen_faces),
         ("trees", gen_trees),

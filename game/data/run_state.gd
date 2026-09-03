@@ -149,8 +149,8 @@ func add_ultimate_charge(source: String, magnitude: float) -> void:
 	match source:
 		ClassesDB.CHARGE_ELITES:
 			gain = magnitude * 0.16          # magnitude 1 per elite, 4 per boss
-		ClassesDB.CHARGE_TAKEN:
-			gain = magnitude / 420.0
+		ClassesDB.CHARGE_BRAWL:
+			gain = magnitude / 900.0
 		ClassesDB.CHARGE_DEALT:
 			gain = magnitude / 5200.0
 		ClassesDB.CHARGE_COMBO:

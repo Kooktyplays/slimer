@@ -55,6 +55,10 @@ var lifesteal_bonus := 0.0
 ## Warrior's Last Stand: while this is in the future, damage taken is thrown
 ## back out around you. Stored as a timestamp rather than a bool so it expires
 ## on its own and cannot be left stuck on by a tween that outlived the run.
+## What counts as "surrounded" for the Warrior's charge.
+const BRAWL_RADIUS := 290.0
+const BRAWL_ENEMIES := 3
+
 var retaliating_until := 0.0
 ## Vampire's Crimson Hour: while this is in the future, a kill near you spreads
 ## to whatever is beside it.
@@ -357,8 +361,6 @@ func take_damage(amount: float, _crit: bool = false, from: Vector2 = Vector2.ZER
 	invulnerable_until = Time.get_ticks_msec() / 1000.0 + Balance.PLAYER_IFRAMES
 	_hurt_flash = 1.0
 	Game.run.break_combo()
-	# The Warrior's whole identity: the only class that wants to be hit.
-	Game.run.add_ultimate_charge(ClassesDB.CHARGE_TAKEN, incoming)
 
 	# Last Stand. What hits you comes back out - which is why the Warrior is
 	# the one class that wants to be hit, and why its ultimate is the only one
@@ -477,6 +479,12 @@ func on_damage_dealt(amount: float) -> void:
 		return
 	Game.run.damage_dealt += amount
 	Game.run.add_ultimate_charge(ClassesDB.CHARGE_DEALT, amount)
+
+	# The Warrior charges from swinging while surrounded - doing the job, not
+	# surviving a beating. Only counted when the crowd is real, so kiting one
+	# straggler does not fill the meter.
+	if Combat.enemies_in_radius(global_position, BRAWL_RADIUS).size() >= BRAWL_ENEMIES:
+		Game.run.add_ultimate_charge(ClassesDB.CHARGE_BRAWL, amount)
 	var fraction := Game.run.lifesteal + lifesteal_bonus
 	if fraction > 0.0:
 		heal(amount * fraction)
