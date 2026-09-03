@@ -410,6 +410,27 @@ purple potion grants one directly.
 
 ---
 
+### Ability upgrades, not ability swapping
+
+You cannot change your abilities mid-run. The shop sells **upgrades to the
+three you brought** instead — "Sharpened Grenade", "Quickened Nova" — in four
+kinds: `power` (+30% damage), `cooldown` (−20%), `charges` (+1) and `area`
+(+25% radius and duration).
+
+That is one decision, not two. A locked kit only works if you can invest in it,
+which is the arrangement Hades uses: you cannot swap your Attack, every boon
+makes it better. It turns the pre-run pick from a guess you might regret into a
+commitment you build on.
+
+Offered as composite ids (`ability:grenade:sharpened`) so they flow through the
+same pool, pricing and purchase path as everything else, and **only for
+abilities actually equipped** — an upgrade to something you did not bring is a
+dead offer. They are recorded in `upgrades_bought` like any other purchase, so
+repeat pricing escalates; without that the stacking upgrades would be the only
+ones that never got more expensive.
+
+---
+
 ## 9. Economy
 
 **Money** drops from every kill, scaled by colour (a Hoarder pays five times a

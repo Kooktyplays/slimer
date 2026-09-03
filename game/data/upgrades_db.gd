@@ -186,6 +186,82 @@ const CLASS_UPGRADES := {
 	},
 }
 
+# ---------------------------------------------------------------------------
+# ability upgrades
+# ---------------------------------------------------------------------------
+## Upgrades that attach to an ability you are already carrying.
+##
+## These exist because in-run ability *swapping* was removed. A locked kit only
+## works if you can invest in it - that is the Hades arrangement, where you
+## cannot change your Attack but every boon makes it better - and it turns the
+## pre-run pick from a guess you might regret into a commitment you build on.
+##
+## Offered as composite ids ("ability:grenade:sharpened") so they flow through
+## the same pool, pricing and purchase path as every other upgrade rather than
+## needing a second system beside it.
+const ABILITY_PREFIX := "ability:"
+
+const ABILITY_KINDS := {
+	"sharpened": {
+		"label": "Sharpened", "stat": "power", "amount": 1.30,
+		"desc": "+30%% damage", "cost": 190, "weight": 1.0,
+	},
+	"quickened": {
+		"label": "Quickened", "stat": "cooldown", "amount": 0.80,
+		"desc": "-20%% cooldown", "cost": 210, "weight": 1.0,
+	},
+	"doubled": {
+		"label": "Doubled", "stat": "charges", "amount": 1.0,
+		"desc": "+1 charge", "cost": 320, "weight": 0.55,
+	},
+	"widened": {
+		"label": "Widened", "stat": "area", "amount": 1.25,
+		"desc": "+25%% area and duration", "cost": 200, "weight": 0.85,
+	},
+}
+
+
+static func ability_upgrade_id(ability: String, kind: String) -> String:
+	return "%s%s:%s" % [ABILITY_PREFIX, ability, kind]
+
+
+static func is_ability_upgrade(id: String) -> bool:
+	return id.begins_with(ABILITY_PREFIX)
+
+
+## -> {"ability": id, "kind": kind}, or empty for anything else.
+static func parse_ability_upgrade(id: String) -> Dictionary:
+	if not is_ability_upgrade(id):
+		return {}
+	var parts := id.substr(ABILITY_PREFIX.length()).split(":")
+	if parts.size() != 2 or not ABILITY_KINDS.has(parts[1]):
+		return {}
+	return {"ability": parts[0], "kind": parts[1]}
+
+
+## A def synthesised on demand, named after the ability it upgrades - so the
+## shop shows "Quickened Grenade" rather than a generic row.
+static func ability_upgrade_def(id: String) -> Dictionary:
+	var parsed := parse_ability_upgrade(id)
+	if parsed.is_empty() or not AbilitiesDB.DEFS.has(parsed["ability"]):
+		return {}
+	var kind: Dictionary = ABILITY_KINDS[parsed["kind"]]
+	var ability: Dictionary = AbilitiesDB.DEFS[parsed["ability"]]
+	return {
+		"name": "%s %s" % [kind["label"], ability["name"]],
+		"cat": CATEGORY_UTILITY,
+		"stat": "ability_upgrade",
+		"kind": Kind.SET,
+		"amount": 0.0,
+		"desc": "%s to %s" % [String(kind["desc"]).replace("%%", "%"),
+			ability["name"]],
+		"cost": int(kind["cost"]),
+		"weight": float(kind["weight"]),
+		"ability": parsed["ability"],
+		"ability_kind": parsed["kind"],
+	}
+
+
 const META_LOCKED := {
 	"proj_count": "upg_split_barrel",
 	"lifesteal_run": "upg_thirsting_grip",
@@ -205,6 +281,8 @@ const REPEAT_PRICE_STEP := 0.55
 static func any_def(id: String) -> Dictionary:
 	if DEFS.has(id):
 		return DEFS[id]
+	if is_ability_upgrade(id):
+		return ability_upgrade_def(id)
 	return CLASS_UPGRADES.get(id, {})
 
 
@@ -221,7 +299,8 @@ static func price(id: String, times_bought: int) -> int:
 
 
 ## Ids that may appear in the shop given the player's permanent unlocks.
-static func available_ids(unlocked: Array, class_id: String = "") -> Array[String]:
+static func available_ids(unlocked: Array, class_id: String = "",
+		equipped: Array = []) -> Array[String]:
 	var out: Array[String] = []
 	var ids: Array = DEFS.keys()
 	ids.append_array(CLASS_UPGRADES.keys())
@@ -235,4 +314,13 @@ static func available_ids(unlocked: Array, class_id: String = "") -> Array[Strin
 		if for_class != null and not class_id.is_empty() and for_class != class_id:
 			continue
 		out.append(id)
+
+	# ...and one of each kind for every ability actually being carried. Only
+	# the carried ones: an upgrade to something you did not bring would be a
+	# dead offer, and the whole point is investing in what you committed to.
+	for ability: String in equipped:
+		if not AbilitiesDB.DEFS.has(ability):
+			continue
+		for kind: String in ABILITY_KINDS:
+			out.append(ability_upgrade_id(ability, kind))
 	return out

@@ -42,6 +42,13 @@ var free_rerolls: int = 0
 var ultimate_rate: float = 1.0
 var ultimate_power: float = 1.0
 
+## Per-ability upgrade counts: ability id -> {kind -> times bought}.
+##
+## This is what makes the locked loadout a commitment rather than a
+## restriction. You can no longer fix a bad pick at the shop, so investing in a
+## good one has to be possible.
+var ability_levels: Dictionary = {}
+
 # loadout
 var abilities: Array[String] = ["dash", "grenade", "nova"]
 
@@ -242,7 +249,52 @@ func spend_money(amount: int) -> bool:
 
 
 ## Apply a shop upgrade. Returns false if the id is unknown.
+## How much an ability upgrade of `kind` has been stacked, as a multiplier for
+## the scaling kinds and a count for charges.
+## Keyed by the STAT an upgrade affects ("power", "cooldown", "charges",
+## "area"), not by the upgrade's display name. Those are different strings -
+## "sharpened" raises "power" - and storing under one while reading the other
+## is a silent no-op that looks like it worked.
+func ability_bonus(ability: String, stat: String) -> float:
+	var levels: Dictionary = ability_levels.get(ability, {})
+	var count := int(levels.get(stat, 0))
+	if count <= 0:
+		return 0.0 if stat == "charges" else 1.0
+	var amount := 1.0
+	for kind: String in UpgradesDB.ABILITY_KINDS:
+		var info: Dictionary = UpgradesDB.ABILITY_KINDS[kind]
+		if String(info["stat"]) == stat:
+			amount = float(info["amount"])
+			break
+	if stat == "charges":
+		return amount * count
+	return pow(amount, count)
+
+
+func _buy_ability_upgrade(id: String) -> bool:
+	var parsed := UpgradesDB.parse_ability_upgrade(id)
+	if parsed.is_empty():
+		return false
+	var ability: String = parsed["ability"]
+	# Only ever for something actually carried, so a stale offer cannot
+	# quietly upgrade an ability that is not in the loadout.
+	if not abilities.has(ability):
+		return false
+	var stat := String(UpgradesDB.ABILITY_KINDS[parsed["kind"]]["stat"])
+	var levels: Dictionary = ability_levels.get(ability, {})
+	levels[stat] = int(levels.get(stat, 0)) + 1
+	ability_levels[ability] = levels
+	# Recorded like any other purchase, so repeat pricing escalates. Without
+	# this the same ability upgrade stays at its base price forever and the
+	# opportunity cost that the whole shop is built on disappears for exactly
+	# the upgrades that stack best.
+	upgrades_bought[id] = int(upgrades_bought.get(id, 0)) + 1
+	return true
+
+
 func apply_upgrade(id: String) -> bool:
+	if UpgradesDB.is_ability_upgrade(id):
+		return _buy_ability_upgrade(id)
 	if not UpgradesDB.DEFS.has(id):
 		return false
 	var def: Dictionary = UpgradesDB.get_def(id)

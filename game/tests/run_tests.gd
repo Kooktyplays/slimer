@@ -28,6 +28,7 @@ func _run() -> void:
 	_test_boss_curve()
 	_test_classes()
 	_test_combo()
+	_test_ability_upgrades()
 	_test_leap()
 	_test_gun_upgrades()
 	_test_upgrade_pricing()
@@ -385,6 +386,79 @@ func _match_arms(path: String, prefix: String) -> Dictionary:
 			if name.to_lower().ends_with(c.to_lower()):
 				out[c] = true
 	return out
+
+
+## Ability upgrades, which are what replaced in-run swapping.
+func _test_ability_upgrades() -> void:
+	var loadout: Array[String] = ["dash", "grenade", "nova"]
+	var rs := RunState.create(1, [], loadout, false, ClassesDB.WARDEN)
+
+	# offered only for what is actually carried
+	var pool := UpgradesDB.available_ids([], ClassesDB.WARDEN, loadout)
+	for kind: String in UpgradesDB.ABILITY_KINDS:
+		_check(pool.has(UpgradesDB.ability_upgrade_id("grenade", kind)),
+			"no '%s' upgrade offered for a carried ability" % kind)
+		_check(not pool.has(UpgradesDB.ability_upgrade_id("cinders", kind)),
+			"an upgrade was offered for an ability that is not equipped")
+
+	# every synthesised def carries what the shop reads
+	for id: String in pool:
+		if not UpgradesDB.is_ability_upgrade(id):
+			continue
+		var def := UpgradesDB.any_def(id)
+		for key: String in ["name", "cat", "desc", "cost", "weight"]:
+			_check(def.has(key), "ability upgrade '%s' has no '%s'" % [id, key])
+		_check(UpgradesDB.price(id, 0) > 0, "ability upgrade '%s' is free" % id)
+		# named after the ability, or the shop shows a generic row
+		_check(String(def["name"]).contains(" "),
+			"ability upgrade '%s' is not named after its ability" % id)
+
+	# --- they apply, and to the right ability -----------------------------
+	_check(is_equal_approx(rs.ability_bonus("grenade", "power"), 1.0),
+		"an unbought upgrade already had an effect")
+	_check(rs.apply_upgrade(UpgradesDB.ability_upgrade_id("grenade", "sharpened")),
+		"buying a sharpened upgrade failed")
+	_check(rs.ability_bonus("grenade", "power") > 1.0,
+		"sharpening the grenade did nothing")
+	_check(is_equal_approx(rs.ability_bonus("nova", "power"), 1.0),
+		"sharpening the grenade also sharpened Nova")
+
+	# ...and they stack
+	var once := rs.ability_bonus("grenade", "power")
+	rs.apply_upgrade(UpgradesDB.ability_upgrade_id("grenade", "sharpened"))
+	_check(rs.ability_bonus("grenade", "power") > once,
+		"a second sharpened upgrade did not stack")
+
+	# charges are a count, not a multiplier
+	_check(is_equal_approx(rs.ability_bonus("dash", "charges"), 0.0),
+		"an unbought charge upgrade already granted a charge")
+	rs.apply_upgrade(UpgradesDB.ability_upgrade_id("dash", "doubled"))
+	_check(rs.ability_bonus("dash", "charges") >= 1.0,
+		"a doubled upgrade granted no extra charge")
+
+	# cooldown goes DOWN
+	rs.apply_upgrade(UpgradesDB.ability_upgrade_id("nova", "quickened"))
+	_check(rs.ability_bonus("nova", "cooldown") < 1.0,
+		"a quickened upgrade did not shorten the cooldown")
+
+	# repeat pricing must escalate, like every other upgrade. Without the
+	# purchase being recorded, the same one stays at base price forever - and
+	# it is exactly the stacking upgrades where that matters most.
+	var rep := UpgradesDB.ability_upgrade_id("grenade", "sharpened")
+	_check(rs.times_bought(rep) >= 2,
+		"ability upgrade purchases are not recorded, so pricing never escalates")
+	_check(UpgradesDB.price(rep, rs.times_bought(rep)) > UpgradesDB.price(rep, 0),
+		"buying an ability upgrade twice did not make the third cost more")
+
+	# an upgrade for something not carried must be refused outright, so a
+	# stale offer cannot buff an ability that is not in the loadout
+	_check(not rs.apply_upgrade(UpgradesDB.ability_upgrade_id("cinders", "sharpened")),
+		"an upgrade applied to an ability the run is not carrying")
+
+	# and swapping really is gone
+	var shop_src := _read_source("res://ui/shop.gd")
+	_check(not shop_src.contains("ability_picker"),
+		"the shop still opens the ability picker - swapping was meant to go")
 
 
 ## The leap has to put everything back.

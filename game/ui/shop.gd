@@ -6,8 +6,11 @@ extends Control
 ## reward. Repeat purchases of the same upgrade get more expensive, so leaning
 ## hard into one stat costs real breadth.
 ##
-## Ability swapping lives here too, which is the only in-run moment the
-## loadout can change.
+## Ability UPGRADES are offered here - swapping is not. A locked kit only works
+## if you can invest in it, so the shop sells improvements to what you brought
+## rather than a chance to replace it. That is what turns the pre-run pick from
+## a guess you might regret into a commitment you build on.
+
 
 const REROLL_LABEL := "REROLL"
 
@@ -16,7 +19,6 @@ var _rows: VBoxContainer
 var _money_label: Label
 var _reroll_button: Button
 var _rng := RandomNumberGenerator.new()
-var _swap_panel: Control = null
 
 
 func open() -> void:
@@ -42,8 +44,11 @@ func open() -> void:
 # offers
 # ---------------------------------------------------------------------------
 func _roll_offers() -> void:
+	# Ability upgrades are offered for whatever is carried, which is what makes
+	# the locked loadout worth committing to.
 	var pool := UpgradesDB.available_ids(Save.unlocks,
-		Game.run.class_id if Game.run != null else "")
+		Game.run.class_id if Game.run != null else "",
+		Game.run.abilities if Game.run != null else [])
 	var weighted: Array[String] = []
 	for id: String in pool:
 		var def := UpgradesDB.get_def(id)
@@ -129,11 +134,6 @@ func _build() -> void:
 	_reroll_button.custom_minimum_size = Vector2(240, 52)
 	_reroll_button.pressed.connect(_on_reroll)
 	footer.add_child(_reroll_button)
-
-	var swap := UITheme.button("SWAP ABILITIES")
-	swap.custom_minimum_size = Vector2(280, 52)
-	swap.pressed.connect(_open_swap)
-	footer.add_child(swap)
 
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -279,24 +279,6 @@ func _on_continue() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _swap_panel != null:
-		return
 	if event.is_action_pressed("interact"):
 		_on_continue()
 		get_viewport().set_input_as_handled()
-
-
-# ---------------------------------------------------------------------------
-# ability swapping
-# ---------------------------------------------------------------------------
-func _open_swap() -> void:
-	if _swap_panel != null:
-		return
-	_swap_panel = preload("res://ui/ability_picker.gd").new()
-	add_child(_swap_panel)
-	_swap_panel.call("setup", "Swap Abilities",
-		"One movement ability and two others. Choose all three.", true)
-	_swap_panel.connect("closed", func() -> void:
-		if _swap_panel != null:
-			_swap_panel.queue_free()
-		_swap_panel = null)

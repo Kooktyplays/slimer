@@ -58,12 +58,15 @@ func equip(slot: int, id: String) -> void:
 		return
 	var def := AbilitiesDB.get_def(id)
 	var extra := Game.run.ability_extra_charges if Game.run != null else 0
-	var max_charges := int(def["charges"]) + extra
+	var bonus := 0
+	if Game.run != null:
+		bonus = int(Game.run.ability_bonus(id, "charges"))
+	var max_charges := int(def["charges"]) + extra + bonus
 	slots[slot] = {
 		"id": id,
 		"charges": max_charges,
 		"max_charges": max_charges,
-		"cooldown": _cooldown_for(def),
+		"cooldown": _cooldown_for(id, def),
 		"cooldown_left": 0.0,
 	}
 	if Game.run != null and slot < Game.run.abilities.size():
@@ -72,9 +75,35 @@ func equip(slot: int, id: String) -> void:
 	Events.ability_equipped.emit(slot, id)
 
 
-func _cooldown_for(def: Dictionary) -> float:
+func _cooldown_for(id: String, def: Dictionary) -> float:
 	var cdr := Game.run.ability_cdr if Game.run != null else 0.0
-	return float(def["cooldown"]) * (1.0 - cdr)
+	var per_ability := 1.0
+	if Game.run != null:
+		per_ability = Game.run.ability_bonus(id, "cooldown")
+	return float(def["cooldown"]) * (1.0 - cdr) * per_ability
+
+
+## An ability's numbers with its shop upgrades folded in.
+##
+## Every _do_* handler reads its values out of a def dictionary, so upgrades are
+## applied by handing them an adjusted copy rather than by touching fifteen
+## call sites. `power` scales damage, `area` scales anything spatial or timed.
+func _upgraded(id: String, def: Dictionary) -> Dictionary:
+	if Game.run == null:
+		return def
+	var power := Game.run.ability_bonus(id, "power")
+	var area := Game.run.ability_bonus(id, "area")
+	if is_equal_approx(power, 1.0) and is_equal_approx(area, 1.0):
+		return def
+	var out := def.duplicate(true)
+	for key: String in ["damage", "burst_damage", "blast_damage"]:
+		if out.has(key):
+			out[key] = float(out[key]) * power
+	for key: String in ["radius", "length", "duration", "jump_range",
+			"orbit_radius", "burst_radius"]:
+		if out.has(key):
+			out[key] = float(out[key]) * area
+	return out
 
 
 func _process(delta: float) -> void:
@@ -394,7 +423,8 @@ func charge_fraction(slot: int) -> float:
 # ---------------------------------------------------------------------------
 # effects
 # ---------------------------------------------------------------------------
-func _execute(id: String, def: Dictionary) -> void:
+func _execute(id: String, raw: Dictionary) -> void:
+	var def := _upgraded(id, raw)
 	match id:
 		"dash": _do_dash(def)
 		"surge": _do_surge(def)
