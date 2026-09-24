@@ -59,7 +59,7 @@ $G --editor --path .                                 # edit
 ./tools/check.sh                                     # boots clean, 0 errors
 $G --headless --path . -- tests                      # 1452 logic assertions
 $G --headless --path . --script res://tests/test_forest.gd   # 200-seed sweep
-$G --headless --fixed-fps 60 --path . -- sim         # plays 22 waves headless
+$G --headless --fixed-fps 60 --path . -- sim         # plays 26 waves headless
 $G --path . --resolution 1600x900 -- perf            # frame timing
 $G --path . --resolution 1600x900 -- visual          # screenshots + assertions
 

@@ -585,7 +585,7 @@ G="$HOME/Downloads/Godot.app/Contents/MacOS/Godot"
 ./tools/check.sh                                           # boots with no script errors
 $G --headless --path . -- tests                            # ~1450 logic assertions
 $G --headless --path . --script res://tests/test_forest.gd # 200-seed generation sweep
-$G --headless --fixed-fps 60 --path . -- sim               # plays 22 waves, asserts the loop
+$G --headless --fixed-fps 60 --path . -- sim               # plays 26 waves, asserts the loop
 $G --path . --resolution 1600x900 -- perf                  # frame timing under a full wave
 $G --path . --resolution 1600x900 -- visual                # screenshots + behaviour checks
 ```
