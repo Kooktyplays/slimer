@@ -139,7 +139,9 @@ export const BOSSES = [
 	},
 ];
 
-// game/data/abilities_db.gd - fifteen exist. You carry exactly three: one
+// game/data/abilities_db.gd - fourteen exist. You carry exactly three: one
+// (Leech was removed: it did the Vampire class's job, and its essence was
+// refunded. The lifesteal STAT is still in the game - see Thirsting Grip.)
 // movement ability in its own slot, and two general ones.
 export const ABILITIES = [
 	{ id: 'dash', name: 'Dash', icon: 'icon_dash', role: 'movement', charges: 2, cd: 3.2, essence: 0,
@@ -162,8 +164,6 @@ export const ABILITIES = [
 		desc: 'Triple fire rate and free reloads for 5 seconds.', detail: 'x3 fire rate, 5 s, no reloads' },
 	{ id: 'orbital', name: 'Satellites', icon: 'icon_orbital', role: 'control', charges: 1, cd: 22, essence: 260,
 		desc: 'Three orbs circle you for 12 seconds, damaging what they touch.', detail: '3 orbs, 26 damage, 150 px orbit' },
-	{ id: 'lifesteal', name: 'Leech', icon: 'icon_lifesteal', role: 'sustain', charges: 1, cd: 24, essence: 280,
-		desc: 'For 8 seconds, 18% of the damage you deal comes back as health.', detail: '18% of damage dealt, 8 s' },
 	{ id: 'surge', name: 'Surge', icon: 'icon_surge', role: 'movement', charges: 1, cd: 9, essence: 170,
 		desc: 'Sprint at nearly double speed for 3.5 seconds. No invulnerability.', detail: '3.5 s, no i-frames - proof the bosses are beatable without blinking' },
 	{ id: 'vault', name: 'Vault', icon: 'icon_vault', role: 'movement', charges: 1, cd: 7, essence: 210,
@@ -176,18 +176,23 @@ export const ABILITIES = [
 
 // game/data/balance.gd
 export const BALANCE = {
-	budget: (w) => 4 + 2.1 * w + 0.075 * w * w,
-	spawnRate: (w) => Math.min(1.1 + 0.18 * w, 7.5),
+	budget: (w) => 5 + 2.7 * w + 0.098 * w * w,
+	spawnRate: (w) => Math.min(1.4 + 0.23 * w, 9.5),
 	hpScale: (w) => Math.min(1 + 0.055 * (w - 1), 3.2),
 	damageScale: (w) => Math.min(1 + 0.035 * (w - 1), 2.4),
 	speedScale: (w) => Math.min(1 + 0.012 * (w - 1), 1.45),
 	eliteChance: (w) => (w < 13 ? 0 : Math.min(0.06 + 0.012 * (w - 13), 0.30)),
-	miniHp: (w) => 520 + 95 * w,
-	majorHp: (w) => 1600 + 240 * w,
-	maxConcurrent: 55,
+	// Quadratic since the boss rebalance - additive curves fell further behind
+	// the player's damage every wave, which is what made late bosses trivial.
+	miniHp: (w) => 460 + 80 * w + 12 * w * w,
+	majorHp: (w) => 1400 + 200 * w + 22 * w * w,
+	maxConcurrent: 68,
 	miniEvery: 5,
 	majorEvery: 20,
-	player: { hp: 100, speed: 265, radius: 22, iframes: 0.55 },
+	// Wave 25 is the Sovereign and the end of the run. Beating it shows the
+	// ending and offers CONTINUE, so the endless tail is still there.
+	finaleWave: 25,
+	player: { hp: 100, speed: 265, radius: 22, iframes: 0.78 },
 	gun: { damage: 12, rate: 5, mag: 12, reload: 1.1, speed: 1000, crit: 0.05, range: 900 },
 	// Telegraph window, actors/bosses/boss.gd - tighter each phase, never below 0.42 s.
 	telegraph: (phase) => Math.max(0.42, 0.85 - 0.11 * (phase - 1)),
