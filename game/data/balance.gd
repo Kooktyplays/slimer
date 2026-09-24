@@ -294,6 +294,17 @@ const SHAKE_KILL_PER_TIER := 1.9
 ## load. The same seed and class produced best combos of 34, 86 and 217 across
 ## three runs. A tier-up fires at most three times in a chain, which puts that
 ## back where it was.
+## How long a finishing wave may fail to make progress before its stragglers
+## are escalated. See Combat.hunt_mode.
+##
+## Long enough that an ordinary slow clear never trips it - a Spitter kiting at
+## its preferred 420px while you close is normal play and takes a few seconds -
+## and short enough that a genuine wedge is over before the player concludes the
+## game is broken.
+const STRAGGLER_HUNT_AFTER := 6.0
+## Speed multiplier on an escalated straggler.
+const STRAGGLER_HUNT_SPEED := 1.6
+
 const HIT_STOP_COMBO_TIER := 3
 ## Extra shake on the frame a new tier is reached, on top of the kill shake.
 ## The chain levelling up is an event; a kill inside it is not.
@@ -307,9 +318,17 @@ const SHAKE_COMBO_TIER_UP := 3.2
 ## to the corpse's own payout before the coins are split, so a live chain
 ## visibly showers more coins rather than quietly crediting a bonus.
 ##
-## Unvalidated by human play, and it compounds with money_mul and with the
-## Vampire's kill-spread - read the sim's end-of-run balance before trusting it.
-const COMBO_MONEY_MUL: Array[float] = [1.0, 1.2, 1.45, 1.75, 2.05, 2.4]
+## The top of this curve was 2.4 and is now 1.9, because the tail was the
+## problem rather than the median. Ten sim runs earned 33,000-45,000 nine times
+## and 95,641 once: the multiplier is applied to the largest payouts exactly
+## when a long chain is easiest to hold, so the good runs compound and the
+## ordinary ones do not. Flattening the whole curve to 1.0 still earns ~30,000,
+## so the chain was only ever worth about +30% on a normal run - trimming the
+## top costs that run almost nothing and takes roughly a fifth off the outlier.
+##
+## Still unvalidated by human play, and it still compounds with money_mul and
+## with the Vampire's kill-spread. SimHarness.MAX_EARNED is the guard now.
+const COMBO_MONEY_MUL: Array[float] = [1.0, 1.15, 1.3, 1.5, 1.7, 1.9]
 
 
 ## Payout multiplier for `tier`, clamped so a new tier can never index off the

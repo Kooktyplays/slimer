@@ -33,6 +33,24 @@ static var _slow_left: float = 0.0
 ## whose whole appeal is continuous pressure.
 static var finisher_mode: bool = false
 
+## Seconds finisher_mode has been on without the enemy count moving.
+static var finisher_stall: float = 0.0
+## True once a finishing wave has failed to end for long enough that something
+## is wrong rather than slow.
+##
+## finisher_mode is only advice: it points a straggler at the player. It cannot
+## help one that is obeying it and still cannot arrive - a Spitter pressed
+## against a trunk, or anything knocked somewhere it cannot path back from. The
+## sim wedged on exactly that, a full-health Spitter holding 389px for 14,400
+## frames, and from the wave counter it was indistinguishable from a wave that
+## never spawned.
+##
+## An escalated straggler ignores the forest and moves faster. That is a real
+## cost - a slime briefly walking through a trunk - and it is the smaller one,
+## because a wave that cannot end cannot be recovered from at all.
+static var hunt_mode: bool = false
+static var _finisher_count: int = -1
+
 static var _enemies: Array[Node2D] = []
 static var _player: Node2D = null
 
@@ -41,8 +59,29 @@ static func reset() -> void:
 	enemy_time_scale = 1.0
 	_slow_left = 0.0
 	finisher_mode = false
+	finisher_stall = 0.0
+	hunt_mode = false
+	_finisher_count = -1
 	_enemies.clear()
 	_player = null
+
+
+## Advance the end-of-wave escalation clock. Called once per frame by the wave
+## controller, which owns `finishing`; the arithmetic lives here so it can be
+## asserted without standing up a whole wave.
+##
+## Any change in the count is progress and restarts the clock, so a wave that is
+## being cleared slowly never escalates - only one that is not being cleared at
+## all.
+static func tick_finisher(delta: float, finishing: bool, count: int) -> void:
+	finisher_mode = finishing
+	if not finishing or count != _finisher_count:
+		_finisher_count = count
+		finisher_stall = 0.0
+		hunt_mode = false
+		return
+	finisher_stall += delta
+	hunt_mode = finisher_stall >= Balance.STRAGGLER_HUNT_AFTER
 
 
 # ---------------------------------------------------------------------------

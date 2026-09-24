@@ -26,6 +26,7 @@ func _run() -> void:
 	_test_animation()
 	_test_thief_and_mimic()
 	_test_corpses()
+	_test_straggler_escalation()
 	_test_boss_phases()
 	_test_boss_phase_bar()
 	_test_kill_feedback()
@@ -1151,6 +1152,98 @@ func _test_boss_curve() -> void:
 ## Both of these were broken until the adaptation pass: every phase list was
 ## the previous phase plus more entries, and every attack came from one shared
 ## pool, so no boss had a move of its own and no phase changed how you fought.
+## A wave must always be able to end.
+##
+## finisher_mode already tells stragglers to stop kiting and commit, and that is
+## enough whenever they can actually reach you. It is not enough when they
+## cannot: a Spitter pressed against a trunk obeys it and still never arrives,
+## and so does one knocked somewhere it cannot path back from. The headless sim
+## wedged on exactly that - a full-health Spitter sitting at 389px for 14,400
+## frames while the bot emptied magazine after magazine into the tree in front
+## of it. The wave counter called that "stuck on wave 12" and nothing more.
+##
+## So the escalation is not a nicety. A wave that cannot end is unrecoverable
+## for the player, and a slime that walks through a trunk for the last few
+## seconds of a wave is a far smaller price than that.
+func _test_straggler_escalation() -> void:
+	Combat.reset()
+	_check(not Combat.hunt_mode, "hunt mode is on before anything has stalled")
+
+	# Not finishing: the clock must not run at all.
+	Combat.tick_finisher(Balance.STRAGGLER_HUNT_AFTER * 2.0, false, 6)
+	_check(not Combat.hunt_mode,
+		"hunt mode engaged while the wave was still spawning")
+
+	# Finishing, and the count is not moving. This is the wedge.
+	#
+	# The first finishing frame at a new count only starts the clock - it does
+	# not credit its own delta, because the count having just changed is itself
+	# progress. So reaching the grace period takes the frames after it.
+	Combat.tick_finisher(Balance.STRAGGLER_HUNT_AFTER, true, 1)
+	_check(not Combat.hunt_mode,
+		"the frame a count first settles at already counted towards the "
+		+ "grace period")
+	Combat.tick_finisher(Balance.STRAGGLER_HUNT_AFTER * 0.5, true, 1)
+	_check(not Combat.hunt_mode,
+		"hunt mode engaged before the grace period was up")
+	Combat.tick_finisher(Balance.STRAGGLER_HUNT_AFTER * 0.6, true, 1)
+	_check(Combat.hunt_mode,
+		"a wave stalled past the grace period never escalated - it can wedge "
+		+ "forever")
+
+	# A kill is progress, so the clock restarts rather than staying escalated.
+	Combat.tick_finisher(0.1, true, 0)
+	_check(not Combat.hunt_mode,
+		"hunt mode stayed on after the count dropped - progress must reset it")
+
+	var scene: PackedScene = load("res://actors/enemy.tscn")
+	var e: Enemy = scene.instantiate()
+	add_child(e)
+	e.configure(EnemyTypes.PURPLE, 12)
+	_check(e.collision_mask == Layers.WORLD,
+		"a fresh enemy does not collide with the forest")
+	var walking := float(e.call("_current_speed"))
+
+	Combat.hunt_mode = true
+	e.call("_sync_hunt_mask")
+	_check(e.collision_mask == 0,
+		"an escalated straggler still collides with the forest, so being stuck "
+		+ "behind a trunk still wedges the wave")
+	_check(float(e.call("_current_speed")) > walking,
+		"an escalated straggler is no faster, so it closes no sooner")
+
+	# ...and it goes back. Enemies are pooled, and one handed out still
+	# ignoring the forest would walk through trunks for the rest of the run -
+	# the same shape as the Phasing elite coming back unhittable.
+	Combat.hunt_mode = false
+	e.call("_sync_hunt_mask")
+	_check(e.collision_mask == Layers.WORLD,
+		"an enemy kept its forest-ignoring mask after the wave un-stalled")
+
+	Combat.hunt_mode = true
+	e.call("_sync_hunt_mask")
+	e.call("_pool_reset")
+	_check(e.collision_mask == Layers.WORLD,
+		"a parked enemy has no forest collision - it comes back walking "
+		+ "through trunks")
+
+	# The recycle must also put it back in the enemy group. add_to_group runs
+	# in _ready, once per node, and die() removes it - so before this every
+	# enemy that had been through the pool was missing from the group while
+	# still being counted by Combat.
+	e.die(true)
+	_check(not e.is_in_group("enemies"), "a corpse is still in the enemy group")
+	e.call("_pool_reset")
+	e.configure(EnemyTypes.GREEN, 3)
+	_check(e.is_in_group("enemies"),
+		"a recycled enemy is missing from the enemy group - Combat counts it "
+		+ "but anything reading the group cannot see it")
+
+	e.die(false, false)
+	e.queue_free()
+	Combat.reset()
+
+
 func _test_boss_phases() -> void:
 	# every attack a boss can name has to actually dispatch, or a typo makes a
 	# boss silently do nothing for a whole phase

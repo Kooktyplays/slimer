@@ -32,6 +32,15 @@ const SIM_DAMAGE_ASSIST := 12.0
 ## crowd or a repeat boss legitimately runs minutes, and a tight window here
 ## turns "the bot is not very good" into a reported softlock.
 const STALL_FRAMES := 14400
+## Earnings ceiling for a full 26-wave run.
+##
+## Measured, not guessed. With COMBO_MONEY_MUL flattened to 1.0 the same run
+## earns ~30,000; with the shipped curve it earns 36,000-41,000, so the chain is
+## worth about +30% rather than the runaway it looked like from the headline
+## figure alone. This ceiling sits at roughly twice the observed maximum: high
+## enough that ordinary variance never trips it, low enough to catch the shape
+## of bug that made the Vampire pay 17,201 when nothing else did.
+const MAX_EARNED := 80_000
 
 var _frames := 0
 var _failures: Array[String] = []
@@ -422,6 +431,10 @@ func _begin_death_test(player: Player) -> void:
 		% [_last_wave, Game.run.money, Game.run.money_earned,
 			_pre_death["damage"]]
 		+ "%d upgrades bought" % _pre_death["upgrades"].size())
+	if Game.run.money_earned > MAX_EARNED:
+		_fail("the run earned %d, over the %d ceiling - a payout multiplier has "
+			% [Game.run.money_earned, MAX_EARNED]
+			+ "run away and the shop will not be a choice any more")
 	for action: String in ["move_up", "move_down", "move_left", "move_right"]:
 		Input.action_release(action)
 	player.take_damage(1_000_000.0)

@@ -318,6 +318,11 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	visible = true
 	set_physics_process(true)
 	set_process(false)
+	# Re-join the group. add_to_group in _ready only ever ran once per node and
+	# die() removes it, so every enemy that had been through the pool was
+	# counted by Combat while being invisible to anything reading the group.
+	# add_to_group is idempotent, so this is safe on a first spawn too.
+	add_to_group("enemies")
 	Combat.register_enemy(self)
 	Events.enemy_spawned.emit(self)
 
@@ -357,6 +362,7 @@ func _physics_process(delta: float) -> void:
 	if is_elite:
 		_tick_elite(scaled)
 
+	_sync_hunt_mask()
 	_think_timer -= delta
 	var target := _target_position()
 	var near := global_position.distance_squared_to(Combat.player_position()) < LOD_NEAR * LOD_NEAR
@@ -381,6 +387,21 @@ func _physics_process(delta: float) -> void:
 	_update_stuck(scaled)
 	_tick_contact(scaled, target)
 	_animate(delta)
+
+
+## Drop forest collision while the wave is escalating, and put it straight back
+## when it is not.
+##
+## Synced from the live flag every frame rather than toggled on the transition,
+## because enemies are pooled: one that is parked or recycled across the moment
+## hunt_mode changes would otherwise keep whichever mask it happened to hold,
+## and an enemy handed out with mask 0 walks through trunks for the rest of the
+## run. That is the Phasing-elite bug, which cleared a layer to go untargetable
+## and came back permanently unhittable.
+func _sync_hunt_mask() -> void:
+	var want := 0 if Combat.hunt_mode else Layers.WORLD
+	if collision_mask != want:
+		collision_mask = want
 
 
 func _update_stuck(delta: float) -> void:
@@ -430,13 +451,16 @@ const CATCHUP_MULTIPLIER := 2.1
 
 
 func _current_speed() -> float:
+	# An escalated straggler closes faster, because the point of escalating is
+	# that the wave ends soon rather than eventually.
+	var hunt := Balance.STRAGGLER_HUNT_SPEED if Combat.hunt_mode else 1.0
 	if String(def["behavior"]) == "skittish":
-		return speed
+		return speed * hunt
 	var d := global_position.distance_to(Combat.player_position())
 	if d <= CATCHUP_DISTANCE:
-		return speed
+		return speed * hunt
 	var over := clampf((d - CATCHUP_DISTANCE) / 900.0, 0.0, 1.0)
-	return speed * lerpf(1.0, CATCHUP_MULTIPLIER, over)
+	return speed * lerpf(1.0, CATCHUP_MULTIPLIER, over) * hunt
 
 
 ## Enemies chase a decoy in preference to the player - that's the whole point
@@ -1107,3 +1131,6 @@ func _pool_reset() -> void:
 	_death_timer = 0.0
 	_body.frame = 0
 	_hurtbox.collision_layer = Layers.ENEMY
+	# And the forest mask, for the same reason: parked is the one state
+	# _sync_hunt_mask never runs in.
+	collision_mask = Layers.WORLD
