@@ -175,11 +175,26 @@ func _process(_delta: float) -> void:
 					n.get("id"), float(n.call("health_fraction")) * 100.0,
 					float(n.get("max_hp")), str(n.get("active")),
 					str(n.get("dying")), dist]
+		# And say what the surviving ENEMIES are. A wave that will not end
+		# because one slime is unkillable looked exactly like a wave that will
+		# not end because nothing spawned, and the difference is again the
+		# whole diagnosis. Read off Combat's registry rather than the "enemies"
+		# group: a pooled enemy is only added to that group once, in _ready,
+		# and die() removes it, so every recycled enemy is missing from it.
+		var enemy_note := ""
+		for e: Node2D in Combat.enemies():
+			var hb := e.get_node_or_null("Hurtbox") as Area2D
+			enemy_note += " | %s hp=%.0f/%.0f elite=%s layer=%d mon=%s %.0fpx" % [
+				str(e.get("type_id")), float(e.get("hp")),
+				float(e.get("max_hp")), str(e.get("elite_mod")),
+				(hb.collision_layer if hb != null else -1),
+				str(hb.monitorable) if hb != null else "n/a",
+				e.global_position.distance_to(Combat.player_position())]
 		var shop_note := " shop=%s" % ("open" if _run_node() != null
 			and _run_node().get("shop") != null else "none")
 		var vic_note := " victory=%s" % ("up" if _run_node() != null
 			and _run_node().get("victory") != null else "none")
-		_note("stall detail:" + boss_note + shop_note + vic_note)
+		_note("stall detail:" + boss_note + enemy_note + shop_note + vic_note)
 		_fail("no wave progress for %d frames (stuck on wave %d, phase %d)"
 			% [STALL_FRAMES, _last_wave, Game.phase])
 		_dump_state()
