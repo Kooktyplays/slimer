@@ -51,6 +51,48 @@ func setup(p: Player, container: Node) -> void:
 		if not AbilitiesDB.fits_slot(id, i):
 			id = AbilitiesDB.fallback_for_slot(i)
 		equip(i, id)
+	if not Events.upgrade_purchased.is_connected(_on_upgrade_purchased):
+		Events.upgrade_purchased.connect(_on_upgrade_purchased)
+
+
+func _on_upgrade_purchased(_id: String) -> void:
+	refresh_upgrades()
+
+
+## Re-read every slot's cooldown and charge cap from the run's current upgrades.
+##
+## equip() was the only place these were ever worked out, and after setup() the
+## only thing that called it again was the ability picker - which went away when
+## in-run swapping did. From that point Quickened and Doubled changed a stored
+## number that nothing read again, and so did Focused Mind and Deep Reserves:
+## four upgrades, 210 to 330 coins each, that could only be bought mid-run and
+## could only take effect before one started.
+func refresh_upgrades() -> void:
+	if Game.run == null:
+		return
+	for i in slots.size():
+		var s: Dictionary = slots[i]
+		if s.is_empty():
+			continue
+		var id := String(s["id"])
+		var def := AbilitiesDB.get_def(id)
+
+		var was_max := int(s["max_charges"])
+		var now_max := int(def["charges"]) + Game.run.ability_extra_charges \
+			+ int(Game.run.ability_bonus(id, "charges"))
+		s["max_charges"] = now_max
+		# A charge you have just paid for should be in your hand, not queued up
+		# behind the cooldown that happens to be running.
+		if now_max > was_max:
+			s["charges"] = int(s["charges"]) + (now_max - was_max)
+		s["charges"] = clampi(int(s["charges"]), 0, now_max)
+
+		var cd := _cooldown_for(id, def)
+		s["cooldown"] = cd
+		# ...and a shortened cooldown shortens the one already in flight, so
+		# the upgrade is felt on the next cast rather than the one after.
+		s["cooldown_left"] = minf(float(s["cooldown_left"]), cd)
+		slot_changed.emit(i)
 
 
 func equip(slot: int, id: String) -> void:
@@ -86,8 +128,12 @@ func _cooldown_for(id: String, def: Dictionary) -> float:
 ## An ability's numbers with its shop upgrades folded in.
 ##
 ## Every _do_* handler reads its values out of a def dictionary, so upgrades are
-## applied by handing them an adjusted copy rather than by touching fifteen
+## applied by handing them an adjusted copy rather than by touching fourteen
 ## call sites. `power` scales damage, `area` scales anything spatial or timed.
+##
+## The key lists come from AbilitiesDB so the shop can ask the same question
+## before it offers an upgrade. Keeping a second copy here is what let
+## "+30% damage" go on sale for an ability that has no damage.
 func _upgraded(id: String, def: Dictionary) -> Dictionary:
 	if Game.run == null:
 		return def
@@ -96,11 +142,10 @@ func _upgraded(id: String, def: Dictionary) -> Dictionary:
 	if is_equal_approx(power, 1.0) and is_equal_approx(area, 1.0):
 		return def
 	var out := def.duplicate(true)
-	for key: String in ["damage", "burst_damage", "blast_damage"]:
+	for key: String in AbilitiesDB.POWER_KEYS:
 		if out.has(key):
 			out[key] = float(out[key]) * power
-	for key: String in ["radius", "length", "duration", "jump_range",
-			"orbit_radius", "burst_radius"]:
+	for key: String in AbilitiesDB.area_keys(id):
 		if out.has(key):
 			out[key] = float(out[key]) * area
 	return out
@@ -258,14 +303,19 @@ func _ult_recall_the_wood() -> void:
 
 ## WARRIOR. What hits you comes back out. The one ultimate you want to be hit
 ## during, which is the class in one mechanic.
+const LAST_STAND_DURATION := 6.0
+const LAST_STAND_REDUCTION := 0.45
+
+
 func _ult_last_stand() -> void:
-	player.retaliating_until = Time.get_ticks_msec() / 1000.0 + 6.0
-	player.bonus_damage_reduction = maxf(player.bonus_damage_reduction, 0.45)
-	var t := create_tween()
-	t.tween_interval(6.0)
-	t.tween_callback(func() -> void:
-		if is_instance_valid(player):
-			player.bonus_damage_reduction = 0.0)
+	# Scaled by ultimate_power, which is what "Stubborn" sells. That upgrade is
+	# locked to the Warrior and is its only class-specific shop item, and it
+	# bought nothing: ultimate_power was read by exactly one ultimate in the
+	# game, and it belonged to the Engineer.
+	var duration := LAST_STAND_DURATION
+	if Game.run != null:
+		duration *= Game.run.ultimate_power
+	player.begin_retaliation(duration, LAST_STAND_REDUCTION)
 
 
 ## VAMPIRE. Full lifesteal, and a kill spreads to whatever is beside it.
@@ -317,7 +367,12 @@ func _ult_overclock() -> void:
 func _ult_bloom() -> void:
 	var at := player.global_position
 	FX.ring(at, 620.0, Color(0.5, 0.9, 0.6), 0.8, 0.1)
-	for tick in 12:
+	# The Herbalist is sold "Deep Roots" - ultimate lasts 35% longer - and this
+	# hardcoded its tick count, so that upgrade was as dead as the Warrior's.
+	var ticks := 12
+	if Game.run != null:
+		ticks = int(round(ticks * Game.run.ultimate_power))
+	for tick in ticks:
 		var t := create_tween()
 		t.tween_interval(0.28 * tick)
 		t.tween_callback(func() -> void:
@@ -511,12 +566,7 @@ func _do_surge(def: Dictionary) -> void:
 	# becomes the strictly worse pick and the bug the movement slot exists to
 	# prevent comes straight back. Reduction keeps "Surge has no i-frames"
 	# literally true, so the sim's Dash-free guard still means something.
-	player.bonus_damage_reduction = Balance.SURGE_DAMAGE_REDUCTION
-	var guard := create_tween()
-	guard.tween_interval(duration)
-	guard.tween_callback(func() -> void:
-		if is_instance_valid(player):
-			player.bonus_damage_reduction = 0.0)
+	player.apply_damage_reduction(Balance.SURGE_DAMAGE_REDUCTION, duration)
 
 	# A trail for as long as the boost lasts, so the state is readable.
 	var left := float(def["duration"])
@@ -596,13 +646,8 @@ func _do_grenade(def: Dictionary) -> void:
 
 
 func _do_shield(def: Dictionary) -> void:
-	player.shield_absorb = float(def["absorb"])
+	player.apply_shield(float(def["absorb"]), float(def["duration"]))
 	FX.ring(player.global_position, 120.0, Color(0.45, 0.8, 1.0), 0.5, 0.2)
-	var t := create_tween()
-	t.tween_interval(float(def["duration"]))
-	t.tween_callback(func() -> void:
-		if is_instance_valid(player):
-			player.shield_absorb = 0.0)
 
 
 func _do_timeslow(def: Dictionary) -> void:
@@ -678,16 +723,9 @@ func _draw_bolt(a: Vector2, b: Vector2) -> void:
 
 
 func _do_rapidfire(def: Dictionary) -> void:
-	player.gun.fire_rate_multiplier = float(def["multiplier"])
-	player.gun.free_reloads = true
+	player.gun.begin_frenzy(float(def["multiplier"]), float(def["duration"]))
 	player.gun.refill()
 	FX.ring(player.global_position, 110.0, Color(1.0, 0.7, 0.3), 0.4, 0.3)
-	var t := create_tween()
-	t.tween_interval(float(def["duration"]))
-	t.tween_callback(func() -> void:
-		if is_instance_valid(player):
-			player.gun.fire_rate_multiplier = 1.0
-			player.gun.free_reloads = false)
 
 
 func _do_orbital(def: Dictionary) -> void:

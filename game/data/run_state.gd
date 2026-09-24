@@ -218,15 +218,25 @@ func tick_combo(delta: float) -> void:
 		break_combo()
 
 
-## 0-3. Drives shake strength, audio pitch and the HUD - one number so those
-## three can never disagree about how well you are doing.
+## 0-5. Drives shake strength, hit stop, audio pitch, the coin multiplier and
+## the HUD - one number so all of those can never disagree about how well you
+## are doing.
+##
+## The top two tiers exist because the escalation used to go flat exactly when
+## the player was doing best: the ceiling was 30 and the headless sim's best
+## chain is 51, so a good run spent most of its time already maxed out with
+## nothing further to earn. The thresholds below 30 are deliberately unchanged,
+## so early and mid-wave pacing is exactly what it was.
+const COMBO_TIER_THRESHOLDS: Array[int] = [0, 6, 15, 30, 50, 80]
+const COMBO_TIER_MAX := 5
+
+
 func combo_tier() -> int:
-	if combo >= 30:
-		return 3
-	if combo >= 15:
-		return 2
-	if combo >= 6:
-		return 1
+	# Walked from the top so the table is the single source of truth - a tier
+	# added to COMBO_TIER_THRESHOLDS needs no second edit here.
+	for tier: int in range(COMBO_TIER_MAX, 0, -1):
+		if combo >= COMBO_TIER_THRESHOLDS[tier]:
+			return tier
 	return 0
 
 
@@ -299,7 +309,12 @@ func _buy_ability_upgrade(id: String) -> bool:
 
 func apply_upgrade(id: String) -> bool:
 	if UpgradesDB.is_ability_upgrade(id):
-		return _buy_ability_upgrade(id)
+		# The ability branch emitted nothing at all, so nothing downstream ever
+		# learned a purchase had happened.
+		if not _buy_ability_upgrade(id):
+			return false
+		Events.upgrade_purchased.emit(id)
+		return true
 	if not UpgradesDB.DEFS.has(id):
 		return false
 	var def: Dictionary = UpgradesDB.get_def(id)
@@ -309,6 +324,9 @@ func apply_upgrade(id: String) -> bool:
 		_apply_effect(side["stat"], side["kind"], float(side["amount"]))
 	upgrades_bought[id] = int(upgrades_bought.get(id, 0)) + 1
 	Events.gun_upgraded.emit(def["stat"], stat_value(def["stat"]))
+	# Focused Mind and Deep Reserves are ordinary upgrades that happen to feed
+	# the ability slots, so this path has to announce itself too.
+	Events.upgrade_purchased.emit(id)
 	return true
 
 
@@ -413,6 +431,7 @@ func summary() -> Dictionary:
 	return {
 		"wave": wave,
 		"kills": kills,
+		"combo_best": combo_best,
 		"minis": minis_killed,
 		"majors": majors_killed,
 		"money_earned": money_earned,

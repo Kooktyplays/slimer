@@ -486,6 +486,27 @@ func _run() -> void:
 	await _settle(2.4)
 	await _shot("major_boss")
 
+	# --- 9b. the boss bar, mid-fight ---------------------------------------
+	#
+	# A boss at full health shows every segment full, which proves nothing
+	# about a segmented bar - it looks exactly like the single fill it
+	# replaced. Damaged into a later phase, one screenshot carries all three
+	# states the bar has to draw: spent, draining, and not yet reached.
+	var boss: Node2D = run.bosses.current
+	if boss != null and is_instance_valid(boss):
+		var n: int = boss.get("phase_count")
+		# Just inside the second phase, so segment 0 is always untouched and
+		# at least one segment is always spent, whatever phase count this
+		# boss rolled.
+		var target := (float(n) - 1.5) / float(n)
+		boss.set("hp", float(boss.get("max_hp")) * target)
+		boss.call("_check_phase")
+		await _settle(1.4)
+		_expect(int(boss.get("phase")) >= 2,
+			"damaging the boss to %.0f%% health did not advance it past "
+				% (target * 100.0) + "phase 1 - the bar has nothing to show")
+		await _shot("boss_phase_bar")
+
 	# --- 10. shop -----------------------------------------------------------
 	Game.run.money = 1400
 	if run.bosses.current != null:

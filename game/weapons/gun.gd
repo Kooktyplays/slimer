@@ -23,6 +23,25 @@ var reload_remaining: float = 0.0
 ## Set by the Frenzy ability.
 var fire_rate_multiplier: float = 1.0
 var free_reloads: bool = false
+## Frenzy's own clock. It used to live in a tween owned by the ability
+## controller, which restored the defaults unconditionally - so a second Frenzy
+## cast inside the first had its buff switched off by the first one's callback.
+var _frenzy_left := 0.0
+
+
+func begin_frenzy(multiplier: float, duration: float) -> void:
+	fire_rate_multiplier = maxf(fire_rate_multiplier, multiplier)
+	free_reloads = true
+	_frenzy_left = maxf(_frenzy_left, duration)
+
+
+func _tick_frenzy(delta: float) -> void:
+	if _frenzy_left <= 0.0:
+		return
+	_frenzy_left = maxf(0.0, _frenzy_left - delta)
+	if _frenzy_left <= 0.0:
+		fire_rate_multiplier = 1.0
+		free_reloads = false
 
 var _cooldown: float = 0.0
 var _recoil: float = 0.0
@@ -69,6 +88,7 @@ func muzzle_position() -> Vector2:
 # firing
 # ---------------------------------------------------------------------------
 func _process(delta: float) -> void:
+	_tick_frenzy(delta)
 	if _cooldown > 0.0:
 		_cooldown -= delta
 	if _recoil > 0.0:

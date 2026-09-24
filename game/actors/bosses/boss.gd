@@ -78,6 +78,10 @@ var layout: ForestGenerator = null
 var _damage_scale := 1.0
 var _attack_timer := 2.0
 var _flash := 0.0
+## Seconds of flinch left. Counted down in _physics_process rather than run off
+## a tween, because a hit can land during a phase transition and a tween would
+## drop the boss back to idle in the middle of one.
+var _flinch_until := 0.0
 var _hop := 0.0
 var _material: ShaderMaterial
 var _busy := false
@@ -87,21 +91,30 @@ var _charging := false
 var _projectile_texture: Texture2D
 var _rng := RandomNumberGenerator.new()
 
-## Pose frames on the body strip: idle, the wind-up crouch, the strike.
+## Pose frames on the body strip: idle, the wind-up crouch, the strike, and a
+## flinch for taking a hit.
 ##
-## These are the two moments the fight already stops for. Every attack calls
-## _wind_up() and then lands on a tween callback, and until now both of those
-## were carried by a scale tween on a single static sprite - which is most of
-## why Notion's read on the bosses was "rigid".
+## The first three are the moments the fight already stops for. Every attack
+## calls _wind_up() and then lands on a tween callback, and until now both of
+## those were carried by a scale tween on a single static sprite - which is
+## most of why Notion's read on the bosses was "rigid".
 const POSE_IDLE := 0
 const POSE_WINDUP := 1
 const POSE_STRIKE := 2
-const POSE_COUNT := 3
+const POSE_FLINCH := 3
+const POSE_COUNT := 4
 ## Must mirror BOSS_POSES in tools/gen_art.py. The eyes are a child of the body
 ## sprite, so hframes does not move them - they have to be transformed to match
 ## the pose or the Ancient Oak ends up looking at its own shoulder.
-const POSE_SQUASH: Array[float] = [1.00, 0.88, 1.00]
-const POSE_STRETCH: Array[float] = [1.00, 1.08, 0.90]
+##
+## The flinch pulls IN where the wind-up spreads out, and that is the whole
+## point of it: a flinch that sank and widened would be a shallow wind-up, and
+## the boss would read as telegraphing an attack every time it took a bullet.
+## Teaching the player to dodge nothing is worse than no hit reaction.
+const POSE_SQUASH: Array[float] = [1.00, 0.88, 1.00, 0.96]
+const POSE_STRETCH: Array[float] = [1.00, 1.08, 0.90, 0.92]
+## How long the flinch is held before it drops back to idle.
+const FLINCH_TIME := 0.12
 
 var _eye_home := Vector2.ZERO
 ## Final collision radius in world pixels, matched to the drawn sprite.
@@ -136,6 +149,7 @@ func configure(boss_id: String, for_wave: int, repeat_index: int) -> void:
 	phase_count = BossDB.phase_count(boss_id, repeat_index)
 	phase = 1
 	dying = false
+	_flinch_until = 0.0
 	_rng.seed = for_wave * 104729 + repeat_index
 
 	if is_finale:
@@ -353,6 +367,14 @@ func _animate(delta: float) -> void:
 	if _flash > 0.0:
 		_flash = maxf(0.0, _flash - delta * 7.0)
 		_material.set_shader_parameter("flash", _flash)
+
+	if _flinch_until > 0.0:
+		_flinch_until = maxf(0.0, _flinch_until - delta)
+		# Only drop back to idle if nothing has claimed the pose since. A hit
+		# landing just before a wind-up would otherwise cancel the tell a
+		# fraction of a second after it appeared.
+		if _flinch_until <= 0.0 and _body.frame == POSE_FLINCH:
+			set_pose(POSE_IDLE)
 
 
 # ---------------------------------------------------------------------------
@@ -909,9 +931,23 @@ func take_damage(amount: float, is_crit: bool = false, _from: Vector2 = Vector2.
 	if p != null and p.has_method("on_damage_dealt"):
 		p.call("on_damage_dealt", amount)
 
+	_flinch()
 	_check_phase()
 	if hp <= 0.0:
 		_die()
+
+
+## Hold the flinch pose briefly, but only when the boss is not mid-attack.
+##
+## Boss hits arrive constantly - the hit sound is throttled at 0.05s - and a
+## flinch that overwrote POSE_WINDUP or POSE_STRIKE would break the tell the
+## whole fight is read from. Telegraphs landing where the animation says they
+## do was a real bug once; this must not walk it back.
+func _flinch() -> void:
+	if dying or _busy or _charging or _flinch_until > 0.0:
+		return
+	set_pose(POSE_FLINCH)
+	_flinch_until = FLINCH_TIME
 
 
 ## Where the boss is actually drawn, relative to its physics origin.
@@ -923,12 +959,36 @@ func health_fraction() -> float:
 	return clampf(hp / maxf(max_hp, 1.0), 0.0, 1.0)
 
 
+## How full segment `index` of a phase-segmented health bar is, 0..1.
+##
+## Static, and here rather than in the HUD, because it has to agree with
+## _check_phase() below exactly. A bar whose segment boundaries sit anywhere
+## other than the phase thresholds tells the player the fight is about to
+## change and then it does not, which is worse than one continuous fill. The
+## logic suite asserts the two agree at every boundary for every phase count.
+##
+## Segments run left to right as phase `phase_count` .. phase 1, because
+## _check_phase puts phase 1 at the *top* of the health pool and a bar drains
+## from the right. So index 0 is the last phase the player will fight.
+static func phase_segment_fill(frac: float, phase_count: int, index: int) -> float:
+	var n := maxi(phase_count, 1)
+	if index < 0 or index >= n:
+		return 0.0
+	return clampf((clampf(frac, 0.0, 1.0) - float(index) / n) * n, 0.0, 1.0)
+
+
+## Which phase a health fraction belongs to. The same arithmetic _check_phase
+## runs, exposed so the HUD and the tests can ask without a live boss.
+static func phase_for_fraction(frac: float, phase_count: int) -> int:
+	var n := maxi(phase_count, 1)
+	return clampi(n - int(floor(clampf(frac, 0.0, 1.0) * n)), 1, n)
+
+
 ## Phases are evenly spaced health thresholds. Crossing one interrupts the
 ## current attack, so a phase change is a visible reset rather than something
 ## the player has to infer from the health bar.
 func _check_phase() -> void:
-	var target := phase_count - int(floor(health_fraction() * phase_count))
-	target = clampi(target, 1, phase_count)
+	var target := phase_for_fraction(health_fraction(), phase_count)
 	if target <= phase:
 		return
 	phase = target

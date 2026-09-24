@@ -221,6 +221,27 @@ const ABILITY_KINDS := {
 }
 
 
+## Would buying `kind` for `ability` actually change anything?
+##
+## The shop used to offer all four kinds for every equipped ability without
+## asking. "Sharpened Dash" - +30% damage, 190 coins - was on sale for an
+## ability with no damage at all, and it was dead on seven of the fourteen.
+## The player has no way to tell a dead row from a live one, so the shop has
+## to not print it.
+static func kind_applies(ability: String, kind: String) -> bool:
+	if not AbilitiesDB.DEFS.has(ability) or not ABILITY_KINDS.has(kind):
+		return false
+	match String(ABILITY_KINDS[kind]["stat"]):
+		"power":
+			return AbilitiesDB.scales_any(ability, AbilitiesDB.POWER_KEYS)
+		"area":
+			return AbilitiesDB.scales_any(ability, AbilitiesDB.area_keys(ability))
+	# cooldown and charges live on the slot rather than in the def, so every
+	# ability has both - provided the controller actually re-reads them, which
+	# is a separate bug and a separate fix.
+	return true
+
+
 static func ability_upgrade_id(ability: String, kind: String) -> String:
 	return "%s%s:%s" % [ABILITY_PREFIX, ability, kind]
 
@@ -322,5 +343,7 @@ static func available_ids(unlocked: Array, class_id: String = "",
 		if not AbilitiesDB.DEFS.has(ability):
 			continue
 		for kind: String in ABILITY_KINDS:
-			out.append(ability_upgrade_id(ability, kind))
+			# ...and only the kinds that would do something to it.
+			if kind_applies(ability, kind):
+				out.append(ability_upgrade_id(ability, kind))
 	return out

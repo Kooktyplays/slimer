@@ -199,6 +199,16 @@ static func for_wave(wave: int) -> Dictionary:
 	}
 
 
+## The most phases any archetype can reach. The HUD builds that many bar
+## segments up front so a boss never allocates mid-fight, and derives it from
+## here so adding a fifth phase to a boss cannot leave the bar a segment short.
+static func max_phases() -> int:
+	var most := 1
+	for id: String in DEFS:
+		most = maxi(most, (DEFS[id]["phases"] as Array).size())
+	return most
+
+
 ## Phase count grows with repeats, capped by the archetype's phase list.
 static func phase_count(id: String, repeat: int) -> int:
 	var def: Dictionary = DEFS[id]

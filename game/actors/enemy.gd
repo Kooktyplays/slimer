@@ -46,6 +46,24 @@ var _last_deflect_text := -1.0
 @onready var _hurtbox: Area2D = $Hurtbox
 @onready var _hurtbox_shape: CollisionShape2D = $Hurtbox/Shape
 
+## The body sheet, as laid out by gen_art.py: four walk frames, one flinch,
+## three of dying. Named rather than counted at each use, because the walk has
+## to index off WALK_FRAMES and not off hframes - page the hop phase across the
+## whole strip and a slime plays its own death animation every time it lands.
+##
+## The strip is HORIZONTAL and must stay that way: _apply_hit_shapes sizes the
+## hurtbox from texture.get_height(), so a vertical strip silently resizes
+## every hit shape in the game. There is an assertion for it.
+const WALK_FRAMES := 4
+const FRAME_FLINCH := 4
+const DEATH_FRAMES: Array[int] = [5, 6, 7]
+const BODY_FRAMES := 8
+## How long the flinch frame is held. Short enough that it never fights the
+## walk cycle for a slime that is still moving.
+const FLINCH_TIME := 0.10
+## Time per death frame. Three of them, so a corpse is on screen ~0.21s.
+const DEATH_FRAME_TIME := 0.07
+
 ## Where Visual/Body sits inside Visual, before Visual's own scale is applied.
 ## Mirrors enemy.tscn. The drawn offset is this times the slime's visual scale,
 ## which is why hit_offset is computed per enemy rather than being a constant.
@@ -118,8 +136,23 @@ var _ward_until := 0.0
 
 ## Thief. How much of the player's money it is carrying; killing it gives that
 ## back on top of its own payout, so the chase is worth committing to.
-var _stolen := 0
+##
+## Public because run.gd has to subtract it before applying the combo payout
+## multiplier. Stolen coins ride on money_value so that killing a Thief hands
+## the money straight back - multiply the whole payout and the player gets back
+## *more than was taken*, which turns "let it steal, then kill it on a chain"
+## into a money printer.
+var stolen_value := 0
 const THIEF_ESCAPE_DISTANCE := 1500.0
+
+## Counts down while the flinch frame is showing; the walk cycle leaves the
+## body frame alone until it hits zero.
+var _flinch_timer := 0.0
+## Which death frame a corpse is on, or -1 while it is alive. Death runs on a
+## timer in _animate rather than a tween, because a tween on a pooled node can
+## outlive the recycle and repaint a live enemy's frame.
+var _death_frame := -1
+var _death_timer := 0.0
 
 ## Mimic. Wearing a pickup's sprite and standing still. It reveals on
 ## proximity, on being shot, or when finisher_mode turns on - that last one is
@@ -212,7 +245,7 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	# never end.
 	_hurtbox.collision_layer = Layers.ENEMY
 	_visual.modulate.a = 1.0
-	_stolen = 0
+	stolen_value = 0
 	# Undisguise first, unconditionally. Enemies are pooled, and a Mimic handed
 	# back out as an ordinary slime still wearing a coin sprite would be the
 	# same class of bug the Phasing elite had.
@@ -250,7 +283,7 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 
 	hp = max_hp
 	_body.texture = load(EnemyTypes.texture_path(id))
-	_body.hframes = 4
+	_body.hframes = BODY_FRAMES
 	_face.texture = FACE_ANGRY if is_elite else FACE_NORMAL
 	_crown.visible = is_elite
 	if is_elite:
@@ -279,8 +312,12 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	_last_position = global_position
 	if String(def["behavior"]) == "mimic":
 		_disguise()
+	_flinch_timer = 0.0
+	_death_frame = -1
+	_death_timer = 0.0
 	visible = true
 	set_physics_process(true)
+	set_process(false)
 	Combat.register_enemy(self)
 	Events.enemy_spawned.emit(self)
 
@@ -288,6 +325,25 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 # ---------------------------------------------------------------------------
 # per-frame
 # ---------------------------------------------------------------------------
+## Corpses only. Runs on a timer rather than a tween because a tween owned by
+## a pooled node can outlive the recycle and repaint a live enemy's frame - the
+## same trap the time-scale leak fell into.
+func _process(delta: float) -> void:
+	if _death_frame < 0:
+		return
+	_death_timer -= delta
+	if _death_timer > 0.0:
+		return
+	_death_frame += 1
+	if _death_frame >= DEATH_FRAMES.size():
+		_death_frame = -1
+		set_process(false)
+		Pools.release(self)
+		return
+	_death_timer = DEATH_FRAME_TIME
+	_body.frame = DEATH_FRAMES[_death_frame]
+
+
 func _physics_process(delta: float) -> void:
 	if dying:
 		return
@@ -459,7 +515,7 @@ func _think(target: Vector2) -> void:
 			# Straight at you until it has your money, then straight away with
 			# it. The flee leg is the Hoarder's, so there is one implementation
 			# of running away rather than two.
-			if _stolen <= 0:
+			if stolen_value <= 0:
 				_desired = dir
 			else:
 				_desired = (-dir + dir.orthogonal() * 0.4 * _flank_sign).normalized()
@@ -615,7 +671,7 @@ func _tick_contact(delta: float, _target: Vector2) -> void:
 			p.call("apply_poison",
 				contact_damage * Balance.CONTACT_POISON_FRACTION,
 				Balance.CONTACT_POISON_DURATION)
-		if String(def["behavior"]) == "thief" and _stolen <= 0:
+		if String(def["behavior"]) == "thief" and stolen_value <= 0:
 			_steal()
 		if elite_mod == "vampiric":
 			# Off damage *dealt*, so it is answered by not being touched rather
@@ -658,9 +714,12 @@ func _animate(delta: float) -> void:
 	# The walk cycle. Frame 0 is the neutral silhouette at the top of the arc
 	# and frame 3 is fully compressed on the ground, so the strip is indexed
 	# straight off the hop phase and the two can never drift apart.
-	if not _disguised:
-		_body.frame = clampi(int((1.0 - bounce) * float(_body.hframes)),
-			0, _body.hframes - 1)
+	if not _disguised and _flinch_timer <= 0.0 and _death_frame < 0:
+		_body.frame = clampi(int((1.0 - bounce) * float(WALK_FRAMES)),
+			0, WALK_FRAMES - 1)
+	elif _flinch_timer > 0.0:
+		_flinch_timer -= delta
+		_body.frame = FRAME_FLINCH
 
 	# A trace of the old procedural squash is kept, but only a trace: it used to
 	# be +/-5% and it is now the frames' job. Running both at full strength
@@ -724,6 +783,13 @@ func take_damage(amount: float, is_crit: bool = false, from: Vector2 = Vector2.Z
 	hp -= applied
 	_flash = 1.0
 	_material.set_shader_parameter("flash", 1.0)
+	# The flinch frame, on top of the flash. Not on a deflect - _deflect is
+	# deliberately loud in a different way, because "that does not work on this
+	# one" and "that hurt" have to read as different events or the player keeps
+	# firing at a Carapace thinking they are missing.
+	if not _disguised:
+		_flinch_timer = FLINCH_TIME
+		_body.frame = FRAME_FLINCH
 
 	if knockback > 0.0 and from != Vector2.ZERO and not bool(def.get("unflinching", false)):
 		var away := (global_position - from).normalized()
@@ -762,7 +828,7 @@ func _steal() -> void:
 	var take := mini(randi_range(want.x, want.y), Game.run.money)
 	if take <= 0:
 		return
-	_stolen = take
+	stolen_value = take
 	Game.run.money -= take
 	Events.money_changed.emit(Game.run.money, -take)
 	money_value += take
@@ -783,7 +849,7 @@ func _escape() -> void:
 	FX.floating_text(hit_center() + Vector2(0, -60), "got away",
 		Color(0.8, 0.75, 0.7))
 	money_value = 0
-	die(false)
+	die(false, false)
 
 
 ## Drop the costume.
@@ -798,7 +864,7 @@ func _reveal() -> void:
 		return
 	_disguised = false
 	_body.texture = load(EnemyTypes.texture_path(type_id))
-	_body.hframes = 4
+	_body.hframes = BODY_FRAMES
 	_body.frame = 0
 	_face.visible = true
 	_crown.visible = is_elite
@@ -928,13 +994,21 @@ func _deflect(from: Vector2) -> void:
 	_material.set_shader_parameter("flash", 0.6)
 
 
-func die(award: bool = true) -> void:
+## `leave_corpse` plays the three death frames before the recycle. Only
+## _escape() turns it off: a Thief that got away did not die, and a splat where
+## it left would say it did.
+func die(award: bool = true, leave_corpse: bool = true) -> void:
 	if dying:
 		return
 	dying = true
 	set_physics_process(false)
 	Combat.unregister_enemy(self)
 	remove_from_group("enemies")
+	# A corpse must not be shootable, and the hurtbox is the only thing that
+	# ever was - the body's own collision_layer is 0 by design, so nothing can
+	# bump into one either. _pool_reset puts this back; leaving it cleared
+	# across a recycle is exactly how the Phasing elite came back unhittable.
+	_hurtbox.collision_layer = 0
 
 	var at := global_position
 	if award:
@@ -948,8 +1022,31 @@ func die(award: bool = true) -> void:
 			# deferred for the same reason as _spawn_bullet: death usually
 			# arrives from a bullet's body_entered, mid physics flush
 			_split.call_deferred(at, type_id, spawn_wave)
+	# Emitted here, at the same instant it always was, and *after* Combat has
+	# already forgotten this enemy. Nothing downstream waits on the death
+	# animation: the combo, the coins and the wave's live count all land now,
+	# so a corpse can never hold a wave open.
 	Events.enemy_died.emit(self, at)
-	Pools.release(self)
+
+	# A disguised Mimic is wearing a coin's texture, which has no death frames
+	# in it at all.
+	if leave_corpse and not _disguised and _body.texture != null:
+		_death_frame = 0
+		_death_timer = DEATH_FRAME_TIME
+		_body.frame = DEATH_FRAMES[0]
+		# Settle it on the ground at rest. _physics_process has stopped, so the
+		# hop offset and squash would otherwise freeze wherever they were and
+		# leave a corpse hanging in mid-air.
+		_visual.position.y = 0.0
+		_visual.scale = Vector2.ONE * (float(def["scale"])
+			* (Balance.ELITE_SCALE if is_elite else 1.0))
+		# _process is off for live enemies - 68 of them calling an empty
+		# _process every frame is 68 calls to do nothing - so it is switched on
+		# only for the fifth of a second a corpse needs it. Pools.release turns
+		# it back off.
+		set_process(true)
+	else:
+		Pools.release(self)
 
 
 ## Volatile elites leave a blast behind them, which turns every kill into a
@@ -1002,3 +1099,11 @@ func _pool_reset() -> void:
 	_knockback = Vector2.ZERO
 	_visual.rotation = 0.0
 	_visual.modulate.a = 1.0
+	# Animation state, and the hurtbox a corpse cleared. configure() sets all
+	# of these again, but a parked enemy that is mid-death-frame with no
+	# hurtbox is one acquire away from being a live enemy nothing can shoot.
+	_flinch_timer = 0.0
+	_death_frame = -1
+	_death_timer = 0.0
+	_body.frame = 0
+	_hurtbox.collision_layer = Layers.ENEMY

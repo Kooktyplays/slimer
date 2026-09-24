@@ -399,9 +399,14 @@ func _begin_death_test(player: Player) -> void:
 		"money": Game.run.money,
 		"damage": float(Game.run.gun["damage"]),
 	}
-	_note("reached wave %d with %d money, %.0f gun damage, %d upgrades bought"
-		% [_last_wave, Game.run.money, _pre_death["damage"],
-			_pre_death["upgrades"].size()])
+	# Money EARNED, not the balance left over. The balance says how much the
+	# bot failed to spend; earnings are what says whether the economy has run
+	# away - which is the number that matters now that the combo multiplies
+	# payouts, and the number that would have shown the Vampire's 17,201.
+	_note("reached wave %d with %d money (%d earned), %.0f gun damage, "
+		% [_last_wave, Game.run.money, Game.run.money_earned,
+			_pre_death["damage"]]
+		+ "%d upgrades bought" % _pre_death["upgrades"].size())
 	for action: String in ["move_up", "move_down", "move_left", "move_right"]:
 		Input.action_release(action)
 	player.take_damage(1_000_000.0)

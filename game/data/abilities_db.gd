@@ -1,6 +1,6 @@
 class_name AbilitiesDB
 extends RefCounted
-## The fifteen special abilities, in two classes.
+## The fourteen special abilities, in two classes.
 ##
 ## A **movement** ability lives in its own slot and is always available. That
 ## separation exists because it had to: when Dash competed for a general slot it
@@ -222,6 +222,45 @@ const ORDER: Array[String] = [
 	"grenade", "nova", "shield", "heal", "lightning", "timeslow",
 	"thornwall", "rapidfire", "cinders", "orbital", "decoy",
 ]
+
+
+## Which def keys each ability upgrade kind scales.
+##
+## These live here, not in AbilityController, because two things need them and
+## they must not disagree: the controller folds them into the numbers an
+## ability uses, and the shop asks whether an upgrade would do anything at all
+## before offering it. A "+30% damage" upgrade was on sale for Dash, which has
+## no damage, because the producer and the consumer of that list were different
+## code that never compared notes. One list, read by both.
+const POWER_KEYS: Array[String] = ["damage", "burst_damage", "blast_damage"]
+const AREA_KEYS: Array[String] = ["radius", "length", "jump_range",
+	"orbit_radius", "burst_radius", "taunt_range"]
+
+
+## AREA_KEYS plus the one that depends on what the ability does.
+##
+## `duration` means two different things in this table. On an ability that also
+## has a `distance`, it is the TRAVEL TIME - Dash and Vault both fly at
+## distance/duration - so stretching it covers the same ground more slowly
+## while quietly handing out 25% more invulnerability, which is not what
+## "+25% area" sells. Those scale their distance instead, so Widened actually
+## makes the leap longer. Everywhere else, including Surge, `duration` is how
+## long the effect lasts and is exactly the right thing to scale.
+static func area_keys(id: String) -> Array[String]:
+	var out := AREA_KEYS.duplicate()
+	out.append("distance" if get_def(id).has("distance") else "duration")
+	return out
+
+
+## True if `id` has at least one of `keys` to scale. An upgrade that would
+## multiply nothing is a dead purchase, and the shop uses this to stop
+## selling one.
+static func scales_any(id: String, keys: Array[String]) -> bool:
+	var def := get_def(id)
+	for key: String in keys:
+		if def.has(key):
+			return true
+	return false
 
 
 static func get_def(id: String) -> Dictionary:

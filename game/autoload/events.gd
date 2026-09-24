@@ -50,6 +50,10 @@ signal run_ended(stats: Dictionary)
 
 # --- upgrades / abilities ---------------------------------------------------
 signal gun_upgraded(stat: String, new_value: float)
+## Any shop purchase that applied, ability upgrades included. The ability
+## controller listens so a bought cooldown or charge is re-read into the live
+## slot - without this the purchase changes a number nothing looks at again.
+signal upgrade_purchased(id: String)
 signal ability_used(slot: int, id: String)
 signal ability_ready(slot: int, id: String)
 signal ability_equipped(slot: int, id: String)

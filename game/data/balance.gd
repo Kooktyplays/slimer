@@ -268,3 +268,65 @@ const SHAKE_BOSS_SLAM := 11.0
 const SHAKE_MAX := 16.0            ## clamp so combat stays readable
 const HIT_STOP_KILL := 0.035
 const HIT_STOP_BOSS_PHASE := 0.18
+
+## Kill shake, by combo tier: `SHAKE_KILL_BASE + SHAKE_KILL_PER_TIER * tier`.
+##
+## Every kill shakes now. It used to be gated above tier 0, so an ordinary kill
+## produced no camera response at all and the feedback only existed once a
+## chain was already running - which is backwards, because the single kill is
+## the thing the player does thousands of times. The base is small on purpose;
+## the tiers are what escalate. Tier 5 lands at 10.9, under SHAKE_MAX, and
+## Game.shake() scales all of it by the accessibility slider.
+const SHAKE_KILL_BASE := 1.4
+const SHAKE_KILL_PER_TIER := 1.9
+## The tier from which *reaching a new tier* buys a few frames of hit stop.
+##
+## Reaching one, not being on one. Firing on every kill at this tier or above
+## was the first version and it was wrong twice over. _apply_hit_stop's own
+## comment says it: re-triggering on everything "keeps the game in slow motion
+## - which reads as the game lagging, not as impact", and its 0.45s cooldown
+## only bounds that, it does not fix it. A dense wave past 30 kills would have
+## stuttered every 0.45s from end to end.
+##
+## It also broke the headless sim. Hit stop restores on an ignore_time_scale
+## timer - real seconds - while the sim is frame-deterministic at --fixed-fps
+## 60, so how many frames the world spent at quarter speed depended on machine
+## load. The same seed and class produced best combos of 34, 86 and 217 across
+## three runs. A tier-up fires at most three times in a chain, which puts that
+## back where it was.
+const HIT_STOP_COMBO_TIER := 3
+## Extra shake on the frame a new tier is reached, on top of the kill shake.
+## The chain levelling up is an event; a kill inside it is not.
+const SHAKE_COMBO_TIER_UP := 3.2
+
+## Payout multiplier by combo tier. Indexed directly by RunState.combo_tier(),
+## so it must cover 0..COMBO_TIER_MAX.
+##
+## This is the reason to fight aggressively rather than kite: the chain was
+## previously worth shake and a HUD number and nothing you could spend. Applied
+## to the corpse's own payout before the coins are split, so a live chain
+## visibly showers more coins rather than quietly crediting a bonus.
+##
+## Unvalidated by human play, and it compounds with money_mul and with the
+## Vampire's kill-spread - read the sim's end-of-run balance before trusting it.
+const COMBO_MONEY_MUL: Array[float] = [1.0, 1.2, 1.45, 1.75, 2.05, 2.4]
+
+
+## Payout multiplier for `tier`, clamped so a new tier can never index off the
+## end of the table.
+static func combo_money_mul(tier: int) -> float:
+	return COMBO_MONEY_MUL[clampi(tier, 0, COMBO_MONEY_MUL.size() - 1)]
+
+
+## What a corpse worth `money` pays on a tier-`tier` chain, given that `stolen`
+## of that money was taken from the player in the first place.
+##
+## The split is not a rounding detail. A Thief's haul rides on its payout
+## precisely so that killing it hands your own money back; multiply that and
+## the player gets back *more than was taken*, which makes "let it rob me, then
+## kill it on a tier-5 chain" a money printer. Only what the enemy was worth on
+## its own is multiplied.
+static func combo_payout(money: int, stolen: int, tier: int) -> int:
+	var taken := clampi(stolen, 0, maxi(money, 0))
+	var earned := maxi(money, 0) - taken
+	return taken + int(round(earned * combo_money_mul(tier)))

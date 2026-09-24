@@ -107,6 +107,8 @@ func _physics_process(delta: float) -> void:
 	if not alive:
 		return
 	_tick_speed_boost(delta)
+	_tick_damage_reduction(delta)
+	_tick_shield(delta)
 	_tick_poison(delta)
 	_tick_terrain_damage(delta)
 	_move(delta)
@@ -329,9 +331,51 @@ func grant_landing_grace() -> void:
 		Time.get_ticks_msec() / 1000.0 + Balance.LANDING_GRACE)
 
 
-## Extra damage reduction from a temporary source - currently Surge, which
-## trades invulnerability for a smaller, constant cushion.
+## Extra damage reduction from a temporary source - Surge, which trades
+## invulnerability for a smaller constant cushion, and the Warrior's Last Stand.
+##
+## Both used to set this and restore it to 0.0 on a naked tween of their own.
+## Whichever finished first cancelled the other, so Surging during Last Stand
+## silently dropped 45% mitigation with seconds still on the clock. That is the
+## Swift Potion bug again - a tween that assumes it is still the owner - so
+## this uses the shape that fixed the potion: refresh, tick down, and restore
+## the default only when it has actually run out.
 var bonus_damage_reduction := 0.0
+var damage_reduction_left := 0.0
+
+
+func apply_damage_reduction(amount: float, duration: float) -> void:
+	if damage_reduction_left <= 0.0:
+		bonus_damage_reduction = amount
+	else:
+		bonus_damage_reduction = maxf(bonus_damage_reduction, amount)
+	damage_reduction_left = maxf(damage_reduction_left, duration)
+
+
+func _tick_damage_reduction(delta: float) -> void:
+	if damage_reduction_left <= 0.0:
+		return
+	damage_reduction_left = maxf(0.0, damage_reduction_left - delta)
+	if damage_reduction_left <= 0.0:
+		bonus_damage_reduction = 0.0
+
+
+## Bulwark. Same treatment as the reduction above: a second cast used to leave
+## the first cast's tween running, and it would zero the new shield early.
+var shield_left := 0.0
+
+
+func apply_shield(absorb: float, duration: float) -> void:
+	shield_absorb = maxf(shield_absorb, absorb)
+	shield_left = maxf(shield_left, duration)
+
+
+func _tick_shield(delta: float) -> void:
+	if shield_left <= 0.0:
+		return
+	shield_left = maxf(0.0, shield_left - delta)
+	if shield_left <= 0.0:
+		shield_absorb = 0.0
 
 
 func is_invulnerable() -> bool:
@@ -363,15 +407,8 @@ func take_damage(amount: float, _crit: bool = false, from: Vector2 = Vector2.ZER
 	_hurt_flash = 1.0
 	Game.run.break_combo()
 
-	# Last Stand. What hits you comes back out - which is why the Warrior is
-	# the one class that wants to be hit, and why its ultimate is the only one
-	# that gets better the worse things are going.
-	if is_retaliating():
-		var out := incoming * 3.0
-		FX.ring(global_position, 300.0, Color(0.95, 0.55, 0.4), 0.35, 0.2)
-		Combat.explode(global_position, 300.0, out, 280.0, false,
-			Combat.SOURCE_ABILITY)
-		on_damage_dealt(out)
+	# Last Stand, off the RAW hit rather than what got through.
+	_retaliate(amount)
 
 	Audio.play("player_hurt", -3.0)
 	Game.shake(Balance.SHAKE_HIT, 0.22)
@@ -382,6 +419,44 @@ func take_damage(amount: float, _crit: bool = false, from: Vector2 = Vector2.ZER
 
 	if Game.run.hp <= 0.0:
 		_die()
+
+
+## Last Stand throws what hit you back out.
+##
+## Off the **raw** incoming amount, and that is the fix rather than a detail.
+## It used to be computed from the post-mitigation number - after both
+## damage_reduction and the 45% cushion the ultimate itself had just granted -
+## so the defensive half of Last Stand cut its own offensive half by nearly
+## half, and the tankier the build the less the ultimate did.
+const RETALIATE_MULTIPLIER := 3.0
+const RETALIATE_RADIUS := 300.0
+## Poison ticks four times a second and would otherwise fire a 300px explosion
+## on every one of them. Hits from take_damage are already spaced further apart
+## than this by the i-frames, so it only ever throttles the poison path.
+const RETALIATE_INTERVAL := 0.4
+var _retaliate_ready_at := 0.0
+
+
+func _retaliate(raw: float) -> void:
+	if raw <= 0.0 or not is_retaliating():
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now < _retaliate_ready_at:
+		return
+	_retaliate_ready_at = now + RETALIATE_INTERVAL
+	var out := raw * RETALIATE_MULTIPLIER
+	FX.ring(global_position, RETALIATE_RADIUS, Color(0.95, 0.55, 0.4), 0.35, 0.2)
+	Combat.explode(global_position, RETALIATE_RADIUS, out, 280.0, false,
+		Combat.SOURCE_ABILITY)
+	on_damage_dealt(out)
+
+
+## Start the Warrior's Last Stand. Refreshes rather than stacking, like every
+## other timed effect on this actor.
+func begin_retaliation(duration: float, reduction: float) -> void:
+	retaliating_until = maxf(retaliating_until,
+		Time.get_ticks_msec() / 1000.0 + duration)
+	apply_damage_reduction(reduction, duration)
 
 
 ## Add a stack of slime poison, or refresh the ones already running.
@@ -443,6 +518,12 @@ func _tick_terrain_damage(delta: float) -> void:
 ## but it grants no i-frames, does not shake the camera and does not hit-stop -
 ## four of these a second doing any of that would read as the game stuttering.
 func _take_poison_damage(amount: float) -> void:
+	# Last Stand has to answer this too. Poison deliberately bypasses
+	# take_damage - routing it through there would grant i-frames and either do
+	# nothing or leave the player permanently invulnerable - and the side
+	# effect was that the damage which actually kills you in a crowd was the
+	# one thing the Warrior's ultimate could not throw back.
+	_retaliate(amount)
 	if not alive or Game.run == null or amount <= 0.0:
 		return
 	var incoming := amount * (1.0 - Game.run.damage_reduction)

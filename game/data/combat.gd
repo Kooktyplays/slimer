@@ -22,6 +22,7 @@ const SOURCE_BULLET := "bullet"
 const SOURCE_ABILITY := "ability"
 
 static var enemy_time_scale: float = 1.0
+static var _slow_left: float = 0.0
 
 ## True once a wave has spawned everything it is going to and only a handful
 ## of enemies are left. In that state every survivor commits to the player -
@@ -38,6 +39,7 @@ static var _player: Node2D = null
 
 static func reset() -> void:
 	enemy_time_scale = 1.0
+	_slow_left = 0.0
 	finisher_mode = false
 	_enemies.clear()
 	_player = null
@@ -160,8 +162,21 @@ static func explode_on_player(center: Vector2, radius: float, damage: float) -> 
 # ---------------------------------------------------------------------------
 ## Slow every enemy and enemy bullet for `duration` seconds. Uses a tween on
 ## the caller so it survives the ability node going away.
-static func apply_slow(host: Node, factor: float, duration: float) -> void:
-	enemy_time_scale = factor
-	var t := host.create_tween()
-	t.tween_interval(duration)
-	t.tween_callback(func() -> void: enemy_time_scale = 1.0)
+static func apply_slow(_host: Node, factor: float, duration: float) -> void:
+	# Deepest slow wins, longest duration wins, and it expires on its own clock.
+	# This used to be a tween that set enemy_time_scale back to 1.0 no matter
+	# what: a second Torpor cast inside the first had the whole world snap back
+	# to full speed the moment the first one's tween finished, with seconds
+	# still showing on the second. The same shape as the Swift Potion bug.
+	enemy_time_scale = minf(enemy_time_scale, factor)
+	_slow_left = maxf(_slow_left, duration)
+
+
+## Ticked from run.gd, beside the combo window, because this is a static and
+## has no _process of its own.
+static func tick_slow(delta: float) -> void:
+	if _slow_left <= 0.0:
+		return
+	_slow_left = maxf(0.0, _slow_left - delta)
+	if _slow_left <= 0.0:
+		enemy_time_scale = 1.0

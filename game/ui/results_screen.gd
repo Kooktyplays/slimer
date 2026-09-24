@@ -41,6 +41,9 @@ func _build() -> void:
 
 	_stat(col, "Wave reached", str(int(r.get("wave", 0))))
 	_stat(col, "Enemies killed", str(int(r.get("kills", 0))))
+	# The chain paid coins all run and was recorded nowhere, so there was no
+	# reason to care what your best one was after the fact.
+	_stat(col, "Best combo", "%d\u00d7" % int(r.get("combo_best", 0)))
 	_stat(col, "Mini-bosses felled", str(int(r.get("minis", 0))))
 	_stat(col, "Major bosses felled", str(int(r.get("majors", 0))))
 	_stat(col, "Coins earned", str(int(r.get("money_earned", 0))))

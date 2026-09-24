@@ -25,12 +25,17 @@ func _run() -> void:
 	_test_harness_scripts()
 	_test_animation()
 	_test_thief_and_mimic()
+	_test_corpses()
 	_test_boss_phases()
+	_test_boss_phase_bar()
+	_test_kill_feedback()
 	_test_boss_curve()
 	_test_finale()
 	_test_classes()
 	_test_combo()
 	_test_ability_upgrades()
+	_test_ultimates()
+	_test_timed_effects()
 	_test_leap()
 	_test_gun_upgrades()
 	_test_upgrade_pricing()
@@ -494,76 +499,303 @@ func _match_arms(path: String, prefix: String) -> Dictionary:
 
 
 ## Ability upgrades, which are what replaced in-run swapping.
+##
+## This test used to assert only that ability_bonus() returned a bigger number
+## after a purchase - the bookkeeping, never the effect. Every assertion in it
+## would still have passed with _upgraded() deleted, and it sat green while
+## eight purchasable upgrades did nothing at all. It now drives the real code
+## paths the game uses.
 func _test_ability_upgrades() -> void:
 	var loadout: Array[String] = ["dash", "grenade", "nova"]
 	var rs := RunState.create(1, [], loadout, false, ClassesDB.WARDEN)
-
-	# offered only for what is actually carried
 	var pool := UpgradesDB.available_ids([], ClassesDB.WARDEN, loadout)
-	for kind: String in UpgradesDB.ABILITY_KINDS:
-		_check(pool.has(UpgradesDB.ability_upgrade_id("grenade", kind)),
-			"no '%s' upgrade offered for a carried ability" % kind)
-		_check(not pool.has(UpgradesDB.ability_upgrade_id("cinders", kind)),
-			"an upgrade was offered for an ability that is not equipped")
 
-	# every synthesised def carries what the shop reads
-	for id: String in pool:
-		if not UpgradesDB.is_ability_upgrade(id):
-			continue
-		var def := UpgradesDB.any_def(id)
-		for key: String in ["name", "cat", "desc", "cost", "weight"]:
-			_check(def.has(key), "ability upgrade '%s' has no '%s'" % [id, key])
-		_check(UpgradesDB.price(id, 0) > 0, "ability upgrade '%s' is free" % id)
-		# named after the ability, or the shop shows a generic row
-		_check(String(def["name"]).contains(" "),
-			"ability upgrade '%s' is not named after its ability" % id)
+	# --- nothing is offered that could not do anything ---------------------
+	#
+	# "+30% damage" was on sale for Dash, which has no damage. The player
+	# cannot tell a dead row from a live one, so the shop must not print it.
+	for ability: String in AbilitiesDB.ORDER:
+		for kind: String in UpgradesDB.ABILITY_KINDS:
+			var id := UpgradesDB.ability_upgrade_id(ability, kind)
+			var offered := pool.has(id)
+			var possible := (loadout.has(ability)
+				and UpgradesDB.kind_applies(ability, kind))
+			_check(offered == possible,
+				"%s is %s but kind_applies says %s"
+					% [id, "offered" if offered else "not offered", possible])
 
-	# --- they apply, and to the right ability -----------------------------
-	_check(is_equal_approx(rs.ability_bonus("grenade", "power"), 1.0),
-		"an unbought upgrade already had an effect")
+	_check(not UpgradesDB.kind_applies("dash", "sharpened"),
+		"Dash has no damage, so a damage upgrade for it must not be sellable")
+	_check(not UpgradesDB.kind_applies("heal", "widened"),
+		"Bloom has no area or duration to widen")
+	for ability: String in AbilitiesDB.ORDER:
+		for kind: String in ["quickened", "doubled"]:
+			_check(UpgradesDB.kind_applies(ability, kind),
+				"%s should be sellable for every ability - cooldown and "
+					% kind + "charges are on the slot, not the def")
+
+	# --- the key lists have exactly one owner ------------------------------
+	#
+	# The bug was a producer and a consumer disagreeing about which keys scale.
+	# A second copy in the controller is how that comes back.
+	var ctl_src := _read_source("res://abilities/ability_controller.gd")
+	for key: String in AbilitiesDB.POWER_KEYS:
+		_check(not ctl_src.contains('"%s", "' % key),
+			"the controller has its own copy of the power key list")
+
+	# --- power and area reach the numbers the ability actually uses --------
+	var ac := AbilityController.new()
+	var run_before := Game.run
+	Game.run = rs
+
+	var raw := AbilitiesDB.get_def("grenade")
+	var base: Dictionary = ac.call("_upgraded", "grenade", raw)
+	_check(is_equal_approx(float(base["damage"]), float(raw["damage"])),
+		"an unbought upgrade already changed the grenade")
 	_check(rs.apply_upgrade(UpgradesDB.ability_upgrade_id("grenade", "sharpened")),
 		"buying a sharpened upgrade failed")
-	_check(rs.ability_bonus("grenade", "power") > 1.0,
-		"sharpening the grenade did nothing")
-	_check(is_equal_approx(rs.ability_bonus("nova", "power"), 1.0),
+	var up: Dictionary = ac.call("_upgraded", "grenade", raw)
+	_check(float(up["damage"]) > float(raw["damage"]),
+		"Sharpened Grenade did not raise the damage the grenade is thrown with")
+	_check(is_equal_approx(float(
+		(ac.call("_upgraded", "nova", AbilitiesDB.get_def("nova")))["damage"]),
+		float(AbilitiesDB.get_def("nova")["damage"])),
 		"sharpening the grenade also sharpened Nova")
 
-	# ...and they stack
+	# Widened means a longer reach on a movement ability, not a longer one.
+	# Scaling `duration` there stretches the TRAVEL TIME - the dash flies at
+	# distance/duration - so it covered the same ground more slowly while
+	# quietly granting 25% more invulnerability.
+	rs.apply_upgrade(UpgradesDB.ability_upgrade_id("dash", "widened"))
+	var dash_raw := AbilitiesDB.get_def("dash")
+	var dash_up: Dictionary = ac.call("_upgraded", "dash", dash_raw)
+	_check(float(dash_up["distance"]) > float(dash_raw["distance"]),
+		"Widened Dash did not make the dash go further")
+	_check(is_equal_approx(float(dash_up["duration"]), float(dash_raw["duration"])),
+		"Widened Dash stretched the travel time - that slows the dash down "
+		+ "and hands out invulnerability nothing advertised")
+	# ...but on an ability where duration IS the effect, it still scales.
+	rs.apply_upgrade(UpgradesDB.ability_upgrade_id("nova", "widened"))
+	var nova_up: Dictionary = ac.call("_upgraded", "nova", AbilitiesDB.get_def("nova"))
+	_check(float(nova_up["radius"]) > float(AbilitiesDB.get_def("nova")["radius"]),
+		"Widened Nova did not widen anything")
+
+	# --- and they reach a LIVE slot, mid-run -------------------------------
+	#
+	# The one that mattered most. cooldown and max_charges were worked out in
+	# equip(), which runs once at run start; nothing recomputed them after a
+	# purchase, so Quickened and Doubled - and Focused Mind and Deep Reserves -
+	# changed a stored number that was never read again.
+	ac.equip(0, "dash")
+	var cd_before := float(ac.slots[0]["cooldown"])
+	var max_before := int(ac.slots[0]["max_charges"])
+
+	rs.apply_upgrade(UpgradesDB.ability_upgrade_id("dash", "quickened"))
+	ac.refresh_upgrades()
+	_check(float(ac.slots[0]["cooldown"]) < cd_before,
+		"Quickened Dash did not shorten the live slot's cooldown")
+
+	rs.apply_upgrade(UpgradesDB.ability_upgrade_id("dash", "doubled"))
+	ac.refresh_upgrades()
+	_check(int(ac.slots[0]["max_charges"]) > max_before,
+		"Doubled Dash did not raise the live slot's charge cap")
+	_check(int(ac.slots[0]["charges"]) == int(ac.slots[0]["max_charges"]),
+		"a charge that was just paid for was not handed over")
+
+	# the two general shop upgrades that feed the same numbers
+	var cd_now := float(ac.slots[0]["cooldown"])
+	rs.apply_upgrade("ability_cdr")
+	ac.refresh_upgrades()
+	_check(float(ac.slots[0]["cooldown"]) < cd_now,
+		"Focused Mind did not shorten a live cooldown")
+	var max_now := int(ac.slots[0]["max_charges"])
+	rs.apply_upgrade("ability_charge")
+	ac.refresh_upgrades()
+	_check(int(ac.slots[0]["max_charges"]) > max_now,
+		"Deep Reserves did not raise a live charge cap")
+
+	# a cooldown already in flight must not outlast the shortened one
+	ac.slots[0]["cooldown_left"] = 999.0
+	ac.refresh_upgrades()
+	_check(float(ac.slots[0]["cooldown_left"]) <= float(ac.slots[0]["cooldown"]),
+		"a cooldown in flight survived the upgrade that shortened it")
+
+	ac.free()
+	Game.run = run_before
+
+	# --- bookkeeping, which was all this test used to check ----------------
+	_check(rs.ability_bonus("grenade", "power") > 1.0, "the bonus is not stored")
 	var once := rs.ability_bonus("grenade", "power")
 	rs.apply_upgrade(UpgradesDB.ability_upgrade_id("grenade", "sharpened"))
 	_check(rs.ability_bonus("grenade", "power") > once,
 		"a second sharpened upgrade did not stack")
 
-	# charges are a count, not a multiplier
-	_check(is_equal_approx(rs.ability_bonus("dash", "charges"), 0.0),
-		"an unbought charge upgrade already granted a charge")
-	rs.apply_upgrade(UpgradesDB.ability_upgrade_id("dash", "doubled"))
-	_check(rs.ability_bonus("dash", "charges") >= 1.0,
-		"a doubled upgrade granted no extra charge")
-
-	# cooldown goes DOWN
-	rs.apply_upgrade(UpgradesDB.ability_upgrade_id("nova", "quickened"))
-	_check(rs.ability_bonus("nova", "cooldown") < 1.0,
-		"a quickened upgrade did not shorten the cooldown")
-
-	# repeat pricing must escalate, like every other upgrade. Without the
-	# purchase being recorded, the same one stays at base price forever - and
-	# it is exactly the stacking upgrades where that matters most.
 	var rep := UpgradesDB.ability_upgrade_id("grenade", "sharpened")
 	_check(rs.times_bought(rep) >= 2,
 		"ability upgrade purchases are not recorded, so pricing never escalates")
 	_check(UpgradesDB.price(rep, rs.times_bought(rep)) > UpgradesDB.price(rep, 0),
 		"buying an ability upgrade twice did not make the third cost more")
-
-	# an upgrade for something not carried must be refused outright, so a
-	# stale offer cannot buff an ability that is not in the loadout
 	_check(not rs.apply_upgrade(UpgradesDB.ability_upgrade_id("cinders", "sharpened")),
 		"an upgrade applied to an ability the run is not carrying")
 
-	# and swapping really is gone
+	for id: String in pool:
+		if not UpgradesDB.is_ability_upgrade(id):
+			continue
+		var d := UpgradesDB.any_def(id)
+		for key: String in ["name", "cat", "desc", "cost", "weight"]:
+			_check(d.has(key), "ability upgrade '%s' has no '%s'" % [id, key])
+		_check(UpgradesDB.price(id, 0) > 0, "ability upgrade '%s' is free" % id)
+
 	var shop_src := _read_source("res://ui/shop.gd")
 	_check(not shop_src.contains("ability_picker"),
 		"the shop still opens the ability picker - swapping was meant to go")
+
+
+## The five ultimates, and the upgrades sold against them.
+func _test_ultimates() -> void:
+	# Every class is sold exactly one upgrade, and that upgrade has to feed
+	# something its own ultimate reads.
+	#
+	# It did not. "Stubborn" is the Warrior's only class-specific purchase, it
+	# sells ultimate_power, and the single ultimate in the game that read
+	# ultimate_power belonged to the Engineer - who is sold ultimate_rate
+	# instead. The stat was reachable by two classes and worked for neither.
+	var ctl_src := _read_source("res://abilities/ability_controller.gd")
+	for id: String in UpgradesDB.CLASS_UPGRADES:
+		var owner_class: Variant = UpgradesDB.CLASS_LOCKED.get(id)
+		_check(owner_class != null, "class upgrade '%s' is locked to nobody" % id)
+		if owner_class == null:
+			continue
+		var stat := String(UpgradesDB.CLASS_UPGRADES[id]["stat"])
+		if stat != "ultimate_power":
+			continue        # ultimate_rate is applied centrally, in add_ultimate_charge
+		var ult := String(ClassesDB.get_def(String(owner_class))["ultimate"])
+		var fn := "func _ult_%s()" % ult
+		var at := ctl_src.find(fn)
+		_check(at > 0, "no handler named %s for the %s" % [fn, owner_class])
+		if at <= 0:
+			continue
+		var body_end := ctl_src.find("\nfunc ", at)
+		var body := ctl_src.substr(at, (body_end - at) if body_end > at else 400)
+		_check(body.contains("ultimate_power"),
+			"%s is sold '%s' (%s) and its ultimate never reads that stat - "
+				% [owner_class, id, stat]
+				+ "the upgrade is a dead purchase")
+
+	# Last Stand's output must not shrink as the player gets tankier. It was
+	# computed from the damage that got THROUGH, after the 45% cushion the
+	# ultimate itself grants, so its defensive half cut its offensive half by
+	# nearly half and the tankier the build the less it did.
+	# Asserted by hitting the player and measuring what an enemy standing next
+	# to them loses - not by reading the source. The first version of this
+	# check searched for "_retaliate(amount)" and could not fail: the poison
+	# path takes a parameter of the same name, so it matched there no matter
+	# what take_damage did.
+	var scene: PackedScene = load("res://actors/enemy.tscn")
+	var had_run := Game.run != null
+	if not had_run:
+		Game.start_run(9182)
+	var p_scene: PackedScene = load("res://actors/player.tscn")
+	var pl: Player = p_scene.instantiate()
+	add_child(pl)
+	Game.run.max_hp = 100000.0
+	Game.run.hp = Game.run.max_hp
+
+	var lost := []
+	for reduction: float in [0.0, 0.45]:
+		var foe: Enemy = scene.instantiate()
+		add_child(foe)
+		foe.configure(EnemyTypes.GREEN, 1)
+		foe.max_hp = 100000.0
+		foe.hp = foe.max_hp
+		foe.global_position = pl.global_position + Vector2(60, 0)
+
+		pl.begin_retaliation(6.0, reduction)
+		pl.invulnerable_until = 0.0
+		pl.set("_retaliate_ready_at", 0.0)
+		var before := foe.hp
+		pl.take_damage(100.0)
+		lost.append(before - foe.hp)
+
+		foe.die(false, false)
+		foe.queue_free()
+
+	_check(lost[0] > 0.0, "Last Stand threw nothing back at all")
+	_check(is_equal_approx(float(lost[0]), float(lost[1])),
+		"Last Stand hit for %.0f with no mitigation and %.0f with 45%% off - "
+			% [lost[0], lost[1]]
+			+ "its own damage reduction is shrinking its own damage")
+	pl.queue_free()
+	if not had_run:
+		Game.abandon_run()
+
+	var player_src := _read_source("res://actors/player.gd")
+	# ...and poison has to count. It bypasses take_damage on purpose - routing
+	# a DoT through there grants i-frames - and that made the damage which
+	# actually kills you in a crowd the one thing Last Stand could not answer.
+	var poison_at := player_src.find("func _take_poison_damage")
+	_check(poison_at > 0, "the poison damage path is gone")
+	if poison_at > 0:
+		var body := player_src.substr(poison_at, 600)
+		_check(body.contains("_retaliate("),
+			"poison does not retaliate, so Last Stand ignores the damage that "
+			+ "actually kills a Warrior in a crowd")
+
+
+## Timed effects must refresh rather than cancel each other.
+##
+## Five of them set a variable and restored it to a hardcoded default on a
+## tween of their own, with no check that they were still the owner. Casting
+## one inside another switched the first one off. The Notion doc records this
+## exact shape being found and fixed for the Swift Potion and never generalised.
+func _test_timed_effects() -> void:
+	var scene: PackedScene = load("res://actors/player.tscn")
+	var had_run := Game.run != null
+	if not had_run:
+		Game.start_run(31337)
+	var p: Player = scene.instantiate()
+	add_child(p)
+
+	# --- damage reduction: Surge and Last Stand share one owner ------------
+	p.apply_damage_reduction(0.45, 6.0)
+	_check(is_equal_approx(p.bonus_damage_reduction, 0.45),
+		"Last Stand did not apply its damage reduction")
+	p.apply_damage_reduction(0.35, 3.5)          # Surge, inside Last Stand
+	_check(is_equal_approx(p.bonus_damage_reduction, 0.45),
+		"Surging during Last Stand lowered the mitigation to Surge's")
+	_check(p.damage_reduction_left > 3.5,
+		"Surging during Last Stand cut Last Stand's timer down to Surge's")
+	p.call("_tick_damage_reduction", 4.0)
+	_check(is_equal_approx(p.bonus_damage_reduction, 0.45),
+		"the shorter effect's expiry cancelled the longer one")
+	p.call("_tick_damage_reduction", 3.0)
+	_check(is_equal_approx(p.bonus_damage_reduction, 0.0),
+		"the damage reduction never expired")
+
+	# --- Bulwark ----------------------------------------------------------
+	p.apply_shield(120.0, 6.0)
+	p.call("_tick_shield", 5.0)
+	p.apply_shield(120.0, 6.0)                   # recast just before it lapses
+	p.call("_tick_shield", 2.0)
+	_check(p.shield_absorb > 0.0,
+		"recasting Bulwark left the first cast's expiry to end the second one")
+
+	p.queue_free()
+	if not had_run:
+		Game.abandon_run()
+
+	# --- Torpor -----------------------------------------------------------
+	Combat.reset()
+	Combat.apply_slow(self, 0.35, 4.0)
+	Combat.tick_slow(3.5)
+	Combat.apply_slow(self, 0.35, 4.0)           # a second Torpor
+	Combat.tick_slow(1.0)
+	_check(Combat.enemy_time_scale < 1.0,
+		"a second Torpor was cancelled by the first one's expiry")
+	Combat.tick_slow(4.0)
+	_check(is_equal_approx(Combat.enemy_time_scale, 1.0),
+		"the slow never wore off")
+	Combat.reset()
 
 
 ## The leap has to put everything back.
@@ -621,13 +853,75 @@ func _test_combo() -> void:
 
 	# tiers have to actually rise, or the shake and the HUD read one number
 	var last := -1
-	for n in [0, 6, 15, 30]:
+	for n: int in RunState.COMBO_TIER_THRESHOLDS:
 		rs.break_combo()
 		for i in n:
 			rs.add_combo()
 		var tier := rs.combo_tier()
 		_check(tier > last or n == 0, "combo tier did not rise at %d kills" % n)
 		last = tier
+	_check(last == RunState.COMBO_TIER_MAX,
+		"the threshold table does not reach COMBO_TIER_MAX")
+
+	# The escalation used to run out at 30 while the sim's best chain was 51,
+	# so a good run spent most of its time already maxed with nothing left to
+	# earn. Assert the top of the table is above where play actually reaches.
+	rs.break_combo()
+	for i in 60:
+		rs.add_combo()
+	_check(rs.combo_tier() >= 4,
+		"a 60-kill chain did not reach tier 4 - the top of the curve is flat "
+		+ "again over exactly the range a good run plays in")
+
+	# One number drives shake, hit stop, audio, the HUD and the coins, so every
+	# table keyed off it has to cover every tier it can be handed.
+	_check(Balance.COMBO_MONEY_MUL.size() == RunState.COMBO_TIER_MAX + 1,
+		"the combo payout table does not cover every tier")
+	_check(is_equal_approx(Balance.combo_money_mul(0), 1.0),
+		"a broken chain pays a bonus")
+	var prev := 0.0
+	for tier in range(0, RunState.COMBO_TIER_MAX + 1):
+		var mul := Balance.combo_money_mul(tier)
+		_check(mul > prev, "the combo payout did not rise at tier %d" % tier)
+		prev = mul
+	# Read through a clampi on purpose, so a tier added without a row here
+	# pays the top rate rather than crashing a run.
+	_check(is_equal_approx(Balance.combo_money_mul(99), prev),
+		"an out-of-range tier did not clamp to the top payout")
+
+	# Hit stop has to fire on reaching a tier, never on every kill at one.
+	#
+	# This is a guard on a mistake that was made and measured, not a style
+	# note. On every kill it stuttered a dense wave from end to end, and
+	# because hit stop restores on a real-time timer while the headless sim is
+	# frame-deterministic, the same seed produced best combos of 34, 86 and 217
+	# depending on how busy the machine was. A frame-deterministic test whose
+	# result depends on wall-clock cannot fail honestly.
+	var run_src := _read_source("res://world/run.gd")
+	var stop_at := run_src.find("Events.hit_stop.emit(Balance.HIT_STOP_KILL)")
+	_check(stop_at > 0, "nothing in run.gd fires the kill hit stop any more")
+	if stop_at > 0:
+		var guard := run_src.substr(maxi(0, stop_at - 200), 200)
+		_check(guard.contains("tier_up"),
+			"the kill hit stop is not guarded on reaching a new tier - it "
+			+ "will fire on every kill at tier %d and above"
+				% Balance.HIT_STOP_COMBO_TIER)
+
+	# The HUD colours are indexed by the same tier, through the same clamp - a
+	# short table does not crash, it just stops escalating at the top, which is
+	# exactly where the escalation is supposed to be loudest.
+	var hud_src := _read_source("res://ui/hud.gd")
+	# Start the scan after the opening bracket, not at the declaration: the
+	# type annotation Array[Color] carries a "]" of its own, and searching from
+	# the start of the line finds that one and reads an empty table.
+	var needle := "COMBO_TIER_COLOURS: Array[Color] = ["
+	var from := hud_src.find(needle) + needle.length()
+	var to := hud_src.find("]", from)
+	var colours := (0 if from < needle.length() or to < 0
+		else hud_src.substr(from, to - from).count("Color("))
+	_check(colours == RunState.COMBO_TIER_MAX + 1,
+		"the HUD has %d combo tier colours for %d tiers"
+			% [colours, RunState.COMBO_TIER_MAX + 1])
 
 
 ## The ending, and the things that would quietly make it unreachable.
@@ -716,6 +1010,101 @@ func _test_finale() -> void:
 ## with stacking poison, a boss is one target with walkable telegraphs. But it
 ## must not fall to a fifth of one.
 const BOSS_HP_FLOOR := 0.70
+
+
+## The boss health bar draws one segment per phase, so its boundaries have to
+## be the phase thresholds and nothing else.
+##
+## A bar that promises the fight is about to change slightly before or after it
+## actually does is worse than one continuous fill: it teaches a tell that is
+## not true. phase_segment_fill and _check_phase therefore run off the same
+## arithmetic, and this is what holds them together.
+func _test_boss_phase_bar() -> void:
+	for n in range(1, BossDB.max_phases() + 1):
+		_check(is_equal_approx(Boss.phase_segment_fill(1.0, n, 0), 1.0),
+			"a full boss did not fill the first segment of a %d-phase bar" % n)
+		_check(is_equal_approx(Boss.phase_segment_fill(0.0, n, n - 1), 0.0),
+			"a dead boss left the last segment of a %d-phase bar filled" % n)
+
+		# Segments run left to right as phase n .. phase 1, because phase 1
+		# sits at the top of the health pool and the bar drains from the right.
+		for phase in range(1, n + 1):
+			var index := n - phase
+			# Just inside this phase's band: its own segment is partly full,
+			# everything the player has already fought through is empty, and
+			# everything still to come is untouched.
+			var frac := (float(n - phase) + 0.5) / float(n)
+			_check(Boss.phase_for_fraction(frac, n) == phase,
+				"health %.3f is phase %d on a %d-phase boss, not %d"
+					% [frac, Boss.phase_for_fraction(frac, n), n, phase])
+			var here := Boss.phase_segment_fill(frac, n, index)
+			_check(here > 0.0 and here < 1.0,
+				"the segment for phase %d of %d is not the one draining at "
+					% [phase, n] + "%.3f health" % frac)
+			for spent in range(index + 1, n):
+				_check(is_equal_approx(
+					Boss.phase_segment_fill(frac, n, spent), 0.0),
+					"segment %d still has health left after its phase ended"
+						% spent)
+			for ahead in range(0, index):
+				_check(is_equal_approx(
+					Boss.phase_segment_fill(frac, n, ahead), 1.0),
+					"segment %d is already draining before its phase begins"
+						% ahead)
+
+		# Every segment boundary has to be a phase boundary. Sampling either
+		# side of one proves the two agree rather than merely both existing.
+		for b in range(1, n):
+			var at := float(b) / float(n)
+			_check(Boss.phase_for_fraction(at + 0.001, n)
+				!= Boss.phase_for_fraction(at - 0.001, n),
+				"the bar splits at %.3f health but the fight does not" % at)
+
+		# Off the end of the bar rather than wrapping round to segment 0.
+		_check(is_equal_approx(Boss.phase_segment_fill(1.0, n, n), 0.0),
+			"a segment past the end of a %d-phase bar drew as full" % n)
+		_check(is_equal_approx(Boss.phase_segment_fill(1.0, n, -1), 0.0),
+			"a negative segment index drew as full")
+
+
+## What a kill is worth, and the one way the combo multiplier could be farmed.
+func _test_kill_feedback() -> void:
+	# An ordinary corpse: the whole payout scales with the chain.
+	_check(Balance.combo_payout(100, 0, 0) == 100,
+		"a broken chain changed an ordinary payout")
+	var top := Balance.combo_payout(100, 0, RunState.COMBO_TIER_MAX)
+	_check(top > 100, "the top tier paid no more than a broken chain")
+
+	# A Thief's haul is your own money coming back, so it must come back at
+	# exactly face value. Otherwise "let it rob me, then kill it on a tier-5
+	# chain" prints money, and the deeper the chain the better the exchange.
+	for tier in range(0, RunState.COMBO_TIER_MAX + 1):
+		_check(Balance.combo_payout(80, 80, tier) == 80,
+			"a Thief carrying nothing but stolen coins paid %d for 80 taken, "
+				% Balance.combo_payout(80, 80, tier)
+				+ "at tier %d" % tier)
+		# ...and the enemy's own worth still scales, so killing one is not a
+		# worse deal than killing anything else.
+		var mixed := Balance.combo_payout(120, 80, tier)
+		_check(mixed == 80 + Balance.combo_payout(40, 0, tier),
+			"a Thief's own payout did not scale like every other corpse")
+		_check(mixed >= 80, "killing a Thief returned less than it stole")
+
+	# The whole loop, in money: rob the player, kill it on the best chain the
+	# game can produce, and they must not end up richer than they started.
+	var purse := 500
+	var stolen := 80
+	var after := purse - stolen + Balance.combo_payout(
+		stolen, stolen, RunState.COMBO_TIER_MAX)
+	_check(after == purse,
+		"robbing the player and killing the Thief on a full chain turned %d "
+			% purse + "into %d" % after)
+
+	# Clamps, so a malformed payout cannot pay out at all.
+	_check(Balance.combo_payout(0, 40, 3) == 0,
+		"an enemy worth nothing still paid a stolen haul it cannot have")
+	_check(Balance.combo_payout(50, -10, 3) == Balance.combo_payout(50, 0, 3),
+		"a negative haul was treated as a debt against the payout")
 
 
 func _test_boss_curve() -> void:
@@ -871,7 +1260,7 @@ func _test_animation() -> void:
 	var sheets := {}
 	# one slime, hue-rotated into the whole roster - so all of them must agree
 	for id: String in EnemyTypes.ORDER:
-		sheets[EnemyTypes.texture_path(id)] = 4
+		sheets[EnemyTypes.texture_path(id)] = Enemy.BODY_FRAMES
 	for id: String in BossDB.DEFS:
 		sheets[String(BossDB.get_def(id)["body"])] = Boss.POSE_COUNT
 
@@ -903,9 +1292,12 @@ func _test_animation() -> void:
 		if not String(spr.texture.resource_path).contains("enemy_"):
 			continue
 		checked += 1
-		_check(spr.hframes == 4,
+		_check(spr.hframes == Enemy.BODY_FRAMES,
 			"a menu backdrop slime has hframes=%d - it will draw the whole "
-				% spr.hframes + "walk strip instead of one frame")
+				% spr.hframes + "strip instead of one frame")
+		_check(spr.frame < Enemy.WALK_FRAMES,
+			"a menu backdrop slime is paged to frame %d, which is a flinch or "
+				% spr.frame + "a corpse - the menu should not be a morgue")
 	_check(checked > 0, "found no enemy sprites in the menu backdrop to check")
 	deco.queue_free()
 
@@ -918,6 +1310,103 @@ func _test_animation() -> void:
 		_check(v <= 1.0,
 			"a boss pose stretches past full height - the strip is anchored at "
 			+ "the feet, so anything over 1.0 crops the top of the sprite")
+
+	# The flinch must not look like a wind-up. The wind-up sinks AND spreads;
+	# a flinch that did the same would read as a telegraph, and the boss would
+	# appear to announce an attack every time it took a bullet.
+	_check(Boss.POSE_STRETCH[Boss.POSE_FLINCH] < 1.0,
+		"the boss flinch spreads outward like the wind-up does - it will read "
+		+ "as a telegraph and teach the player to dodge nothing")
+	_check(Boss.POSE_SQUASH[Boss.POSE_FLINCH]
+		> Boss.POSE_SQUASH[Boss.POSE_WINDUP],
+		"the boss flinch crouches as deep as the wind-up, so the two poses "
+		+ "cannot be told apart at a glance")
+
+	# The walk indexes off WALK_FRAMES, never off hframes. Page the hop phase
+	# across the whole strip and every slime plays its own death animation
+	# each time it touches the ground.
+	var enemy_src := _read_source("res://actors/enemy.gd")
+	_check(not enemy_src.contains("(1.0 - bounce) * float(_body.hframes)"),
+		"the walk cycle indexes off hframes - it will page into the flinch "
+		+ "and death frames every hop")
+	_check(Enemy.BODY_FRAMES
+		== Enemy.WALK_FRAMES + 1 + Enemy.DEATH_FRAMES.size(),
+		"the enemy frame constants do not add up to the strip")
+	for f: int in Enemy.DEATH_FRAMES:
+		_check(f >= Enemy.WALK_FRAMES and f < Enemy.BODY_FRAMES,
+			"death frame %d is not on the strip, or overlaps the walk" % f)
+
+
+## A corpse is a pooled enemy that has not been recycled yet, which is the
+## most dangerous thing in this file.
+##
+## The death animation holds an enemy in the tree for a fifth of a second after
+## it dies. Everything downstream has to be finished with it by then - and when
+## it comes back it has to come back clean. The Phasing elite bug was exactly
+## this shape: an enemy that died with its hurtbox layer cleared returned from
+## the pool as an ordinary slime nothing could shoot, and its wave could never
+## end. Reverting either reset below reproduces that.
+func _test_corpses() -> void:
+	var scene: PackedScene = load("res://actors/enemy.tscn")
+	var e: Enemy = scene.instantiate()
+	add_child(e)
+	e.configure(EnemyTypes.GREEN, 6)
+
+	var live := Combat.enemy_count()
+	e.die(true)
+
+	# The wave's live count drops NOW, not when the animation ends. A corpse
+	# that still counted would hold its wave open for the length of its own
+	# death throes, and a screenful of them would hold it open much longer.
+	_check(Combat.enemy_count() == live - 1,
+		"a corpse is still counted among the living - it will hold the wave "
+		+ "open until its animation finishes")
+	_check(not e.is_in_group("enemies"), "a corpse is still in the enemy group")
+
+	_check(int(e.get("_death_frame")) == 0, "a corpse is not playing its death")
+	_check(e.get_node("Visual/Body").frame == Enemy.DEATH_FRAMES[0],
+		"a corpse is showing frame %d instead of the first death frame"
+			% e.get_node("Visual/Body").frame)
+	_check(e.get_node("Hurtbox").collision_layer == 0,
+		"a corpse is still shootable")
+
+	# Dying twice must not fire enemy_died twice: the combo, the coins and the
+	# wave count all hang off that one signal.
+	var deaths := 0
+	var counter := func(_n: Node2D, _at: Vector2) -> void: deaths += 1
+	Events.enemy_died.connect(counter)
+	e.die(true)
+	Events.enemy_died.disconnect(counter)
+	_check(deaths == 0, "a corpse died a second time and paid out twice")
+
+	# ...and the recycle. _pool_reset runs on release, before configure() ever
+	# sees the node again, so a parked enemy must already be safe.
+	e.call("_pool_reset")
+	_check(int(e.get("_death_frame")) == -1, "a parked enemy is mid-death")
+	_check(e.get_node("Visual/Body").frame == 0,
+		"a parked enemy kept a death frame and will spawn as a corpse")
+	_check(e.get_node("Hurtbox").collision_layer == Layers.ENEMY,
+		"a parked enemy has no hurtbox - it comes back permanently unhittable")
+
+	e.configure(EnemyTypes.BLUE, 6)
+	_check(int(e.get("_death_frame")) == -1, "a recycled enemy is mid-death")
+	_check(e.get_node("Hurtbox").collision_layer == Layers.ENEMY,
+		"a recycled enemy came back unhittable")
+	_check(e.get_node("Visual/Body").hframes == Enemy.BODY_FRAMES,
+		"a recycled enemy has the wrong frame count")
+
+	# A hit flinches; a deflect deliberately does not. "That hurt" and "that
+	# does not work on this one" have to read as different events, or the
+	# player keeps firing at a Carapace thinking they are missing.
+	e.take_damage(1.0, false, Vector2.ZERO, 0.0, Combat.SOURCE_BULLET)
+	_check(e.get_node("Visual/Body").frame == Enemy.FRAME_FLINCH,
+		"a hit that landed did not flinch")
+
+	e.die(false, false)
+	_check(int(e.get("_death_frame")) == -1,
+		"an enemy told to leave no corpse left one anyway - a Thief that got "
+		+ "away would splat where it escaped")
+	e.queue_free()
 
 
 ## Thief and Mimic: the two that go after something other than your health.
@@ -959,7 +1448,7 @@ func _test_thief_and_mimic() -> void:
 	t2.configure(EnemyTypes.TEAL, 20)
 	t2.call("_steal")
 	_check(Game.run.money == 0, "a Thief pushed the balance to %d" % Game.run.money)
-	_check(int(t2.get("_stolen")) == 0, "a Thief claimed a haul it never took")
+	_check(int(t2.get("stolen_value")) == 0, "a Thief claimed a haul it never took")
 	t2.die(false)
 	t2.queue_free()
 
@@ -986,7 +1475,7 @@ func _test_thief_and_mimic() -> void:
 	m.configure(EnemyTypes.GREEN, 20)
 	_check(not bool(m.get("_disguised")),
 		"a recycled Mimic came back still disguised")
-	_check(m.get_node("Visual/Body").hframes == 4,
+	_check(m.get_node("Visual/Body").hframes == Enemy.BODY_FRAMES,
 		"a recycled Mimic kept a pickup's frame count instead of the walk cycle")
 	_check(m.get_node("Visual/Body/Face").visible,
 		"a recycled Mimic came back faceless")

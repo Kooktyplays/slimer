@@ -211,15 +211,43 @@ class P:
 # frame 0 at the top of the arc, frame 3 on the ground.
 SLIME_WALK = (1.00, 0.96, 0.91, 0.86)
 
+# The flinch: one frame, held ~0.1s when something lands a hit.
+#
+# (squash, spread) rather than the walk's volume-conserving spread, and the
+# spread is deliberately BELOW 1.0 - a wince pulls in, where every walk frame
+# pushes out. That is the whole reason it reads as a reaction and not as the
+# bottom of a hop, which is what a compressed-and-spread frame would look like.
+SLIME_FLINCH = (0.90, 0.88)
 
-def _draw_slime(a: "Art", sq: float) -> None:
+# The death: three frames of a slime giving up its shape, plus an alpha fade.
+#
+# Flattening carries the read and the spread stays modest, because X() scales
+# about x=54 in a 108-wide frame - the base ellipse is already 53 wide, so much
+# past 1.1 and the splat clips against the canvas edge instead of spreading.
+SLIME_DEATH = (
+    (0.62, 1.06, 1.00),
+    (0.38, 1.10, 0.68),
+    (0.20, 1.12, 0.30),
+)
+
+# What Enemy._animate and the menu backdrop have to agree with. Walk frames
+# come first so the hop phase can index straight off the front of the strip.
+SLIME_FRAMES = len(SLIME_WALK) + 1 + len(SLIME_DEATH)
+
+
+def _draw_slime(a: "Art", sq: float, xs: float = 0.0) -> None:
     """One slime into `a`, squashed by `sq` about the ground line.
 
     Deforms around y=90 - the feet - so the base stays planted while the body
     compresses, and around x=54 with partial volume conservation so a squashed
     slime spreads rather than just getting shorter.
+
+    `xs` overrides that horizontal scale. The walk wants the volume-conserving
+    default; the flinch and death frames want to pull in or splay out
+    independently of how far they have compressed.
     """
-    xs = 1.0 / (sq ** 0.5)
+    if xs <= 0.0:
+        xs = 1.0 / (sq ** 0.5)
 
     def Y(y: float) -> float:
         return 90 - (90 - y) * sq
@@ -253,7 +281,12 @@ def _draw_slime(a: "Art", sq: float) -> None:
 
 
 def gen_slime_body():
-    """The slime every enemy colour is derived from, as a 4-frame walk strip.
+    """The slime every enemy colour is derived from, as an 8-frame strip.
+
+    Four walk frames, then one flinch, then three of dying. Laid out in that
+    order because Enemy._animate indexes the hop phase off the front of the
+    strip; anything before the walk frames would page the wrong pose every
+    time a slime touched the ground.
 
     Hue-rotated into eight colours by gen_enemies(), so the shading has to read
     as shading rather than as hue - hence four tones with real value contrast
@@ -269,6 +302,29 @@ def gen_slime_body():
         f = Art(108, 90)
         _draw_slime(f, sq)
         frames.append(f.finish())
+
+    # Appended, never inserted. Both generators in this project are seeded
+    # positionally and gen_icons() crops frame 0 by fixed pixels, so the walk
+    # cycle has to stay exactly where it was at the front of the strip.
+    f = Art(108, 90)
+    _draw_slime(f, SLIME_FLINCH[0], SLIME_FLINCH[1])
+    frames.append(f.finish())
+
+    for sq, xs, alpha in SLIME_DEATH:
+        f = Art(108, 90)
+        _draw_slime(f, sq, xs)
+        img = f.finish()
+        if alpha < 1.0:
+            # Fade the whole frame rather than the fill colours, so it survives
+            # recolor() - which rebuilds RGB per pixel and passes alpha through
+            # untouched, and would otherwise throw the fade away.
+            a_ch = img.getchannel("A").point(lambda v: round(v * alpha))
+            img.putalpha(a_ch)
+        frames.append(img)
+
+    assert len(frames) == SLIME_FRAMES, (
+        "SLIME_FRAMES says %d, built %d - Enemy and the menu backdrop index "
+        "off that constant" % (SLIME_FRAMES, len(frames)))
     sheet = Image.new("RGBA", (108 * len(frames), 90), (0, 0, 0, 0))
     for i, f in enumerate(frames):
         sheet.paste(f, (i * 108, 0))
@@ -969,11 +1025,16 @@ BOSS_POSES = (
     (1.00, 1.00),   # idle
     (0.88, 1.08),   # wind-up: sinks and spreads
     (1.00, 0.90),   # strike: snaps upright and narrow
+    # Flinch, held ~0.12s on a hit. Pulls IN, which matters more than it looks:
+    # a flinch that sank and spread would be a shallow wind-up, and the boss
+    # would appear to telegraph an attack every time it took damage. Teaching
+    # the player to dodge nothing is worse than no hit reaction at all.
+    (0.96, 0.92),
 )
 
 
 def save_posed(a: "Art", name: str) -> None:
-    """Save `a` as a horizontal 3-frame pose strip.
+    """Save `a` as a horizontal pose strip, one frame per BOSS_POSES entry.
 
     HORIZONTAL, like the slime walk cycle and for the same reason: the actors
     size their hit shapes from texture height, and a vertical strip would

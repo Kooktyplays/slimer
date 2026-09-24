@@ -105,6 +105,7 @@ func _process(delta: float) -> void:
 			Game.run.health_potion_guard = maxf(
 				0.0, Game.run.health_potion_guard - delta)
 			Game.run.tick_combo(delta)
+	Combat.tick_slow(delta)
 
 	_tick_terrain(delta)
 
@@ -373,11 +374,13 @@ func _on_enemy_died(enemy: Node2D, at: Vector2) -> void:
 		return
 	Game.run.kills += 1
 
-	# The chain, and its payoff. Shake scales with the tier rather than firing
-	# at full strength on every kill - a constant rumble is not feedback, it is
-	# noise, and Game.shake is already scaled by the accessibility slider.
+	# The chain, and its payoff. The tier is the one number that drives all of
+	# it - shake, hit stop, audio pitch, the coin multiplier and the HUD - so
+	# none of them can disagree about how well the player is doing.
+	var was_tier := Game.run.combo_tier()
 	Game.run.add_combo()
 	var tier := Game.run.combo_tier()
+	var tier_up := tier > was_tier
 	# Two classes read this moment: the Engineer off the chain itself, the
 	# Warden off what died. add_ultimate_charge ignores anything that is not
 	# this class's own condition, so both can be fed unconditionally.
@@ -389,14 +392,29 @@ func _on_enemy_died(enemy: Node2D, at: Vector2) -> void:
 		Combat.explode(at, 210.0, 55.0, 120.0, true, Combat.SOURCE_ABILITY)
 	if bool(enemy.get("is_elite")):
 		Game.run.add_ultimate_charge(ClassesDB.CHARGE_ELITES, 1.0)
-	if tier > 0:
-		Game.shake(1.0 + 1.4 * tier, 0.10 + 0.03 * tier)
-		if Game.run.combo % 5 == 0:
-			Audio.play_throttled("crit", 0.06, -14.0 + 2.0 * tier, 0.10 * tier)
+	# Every kill shakes. This used to be gated above tier 0, which meant the
+	# single most common thing the player does had no camera response at all
+	# and the feedback only started once a chain was already running.
+	Game.shake(Balance.SHAKE_KILL_BASE + Balance.SHAKE_KILL_PER_TIER * tier
+		+ (Balance.SHAKE_COMBO_TIER_UP if tier_up else 0.0),
+		0.10 + 0.03 * tier)
+	# Hit stop marks the chain LEVELLING UP, not every kill at a high tier.
+	# On every kill this stutters a dense wave from end to end and makes the
+	# frame-deterministic sim depend on wall-clock; see HIT_STOP_COMBO_TIER.
+	if tier_up and tier >= Balance.HIT_STOP_COMBO_TIER:
+		Events.hit_stop.emit(Balance.HIT_STOP_KILL)
+	if tier > 0 and Game.run.combo % 5 == 0:
+		Audio.play_throttled("crit", 0.06, -14.0 + 2.0 * tier, 0.10 * tier)
 
 	var money := int(enemy.get("money_value"))
 	if money > 0:
-		_drop_coins(at, money, bool(enemy.get("hoards")))
+		# The chain's payoff, applied before the coins are split so a live
+		# chain visibly showers more of them - a bonus credited silently to
+		# the counter would be the same money and none of the feedback. A
+		# Thief's haul is held out of it; see Balance.combo_payout.
+		_drop_coins(at,
+			Balance.combo_payout(money, int(enemy.get("stolen_value")), tier),
+			bool(enemy.get("hoards")))
 	_maybe_drop_potion(at, enemy)
 
 
