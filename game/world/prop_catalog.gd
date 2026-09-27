@@ -78,6 +78,28 @@ const DEFS := {
 	"mushroom": {"texture": "gen/mushroom", "blocks": false, "anchor": 4, "sway": 0.3, "layer": "detail"},
 
 	# ---- flat ground detail (drawn below everything, never sorted) ---------
+	# ---- stops bullets, not bodies -----------------------------------------
+	#
+	# The one object that breaks the pack's readability rule. Brown and grey
+	# things stop you and green things do not, and this is brown and does not -
+	# so it is drawn as a sparse crossed lattice with daylight through it rather
+	# than as solid timber. You can see through it, so you can walk through it,
+	# and a shot cannot.
+	#
+	# `blocks` stays FALSE. That is load-bearing: it is what keeps this out of
+	# layout.blockers, which feeds the navigation raster, the reachability
+	# flood, the corridor repair and the sealed-arena test. A bullet blocker in
+	# there would mark ground unwalkable that bodies can cross.
+	"deadfall": {
+		"texture": "gen/deadfall", "blocks": false, "anchor": 8,
+		"stops_bullets": true,
+		"bullet_blockers": [
+			{"offset": Vector2(-24, -8), "radius": 15.0},
+			{"offset": Vector2(0, -10), "radius": 16.0},
+			{"offset": Vector2(24, -8), "radius": 15.0},
+		],
+		"sway": 0.0, "layer": "ground_prop",
+	},
 	"grass_a": {"texture": "gen/grass_a", "blocks": false, "anchor": 3, "sway": 1.6, "layer": "detail"},
 	"grass_b": {"texture": "gen/grass_b", "blocks": false, "anchor": 3, "sway": 1.6, "layer": "detail"},
 	"grass_c": {"texture": "gen/grass_c", "blocks": false, "anchor": 3, "sway": 1.6, "layer": "detail"},
@@ -131,6 +153,17 @@ static func texture_path(id: String) -> String:
 
 static func blocks(id: String) -> bool:
 	return bool(DEFS[id].get("blocks", false))
+
+
+## Does this prop stop bullets? See the deadfall entry above.
+static func stops_bullets(id: String) -> bool:
+	return bool(DEFS[id].get("stops_bullets", false))
+
+
+## Circles that stop bullets, in sprite-local space. Deliberately a SEPARATE
+## key from `blockers` - anything in that one becomes solid to bodies too.
+static func bullet_blockers(id: String) -> Array:
+	return DEFS[id].get("bullet_blockers", [])
 
 
 static func blockers(id: String) -> Array:

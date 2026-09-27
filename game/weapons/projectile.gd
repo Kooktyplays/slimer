@@ -84,12 +84,16 @@ func launch(at: Vector2, dir: Vector2, cfg: Dictionary) -> void:
 	(_shape.shape as CircleShape2D).radius = _radius
 	_query_shape.radius = _radius
 
+	# DEADFALL is in both masks, and only in these two places in the whole game.
+	# _resolve already treats any StaticBody2D as terrain and expires the bullet
+	# with the usual spark, so a deadfall needs no special case there - it is
+	# simply another thing a shot can stop against.
 	if from_player:
 		collision_layer = Layers.PLAYER_BULLET
-		_query.collision_mask = Layers.ENEMY | Layers.WORLD
+		_query.collision_mask = Layers.ENEMY | Layers.WORLD | Layers.DEADFALL
 	else:
 		collision_layer = Layers.ENEMY_BULLET
-		_query.collision_mask = Layers.PLAYER | Layers.WORLD
+		_query.collision_mask = Layers.PLAYER | Layers.WORLD | Layers.DEADFALL
 	collision_mask = _query.collision_mask
 
 	# Check the spawn point itself before moving. This is the point-blank fix:

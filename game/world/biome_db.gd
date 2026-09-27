@@ -52,7 +52,7 @@ const DEFS := {
 		"scatter": {
 			"bush_a": 1.0, "bush_b": 0.7, "bush_c": 1.0,
 			"rock_a": 0.6, "rock_b": 0.35, "rock_c": 0.7,
-			"log_a": 0.28, "log_b": 0.25, "stump": 0.30, "fern": 0.8,
+			"deadfall": 0.34, "log_a": 0.28, "log_b": 0.25, "stump": 0.30, "fern": 0.8,
 			"mushroom": 0.45,
 		},
 		"clearing": {
@@ -84,7 +84,7 @@ const DEFS := {
 		},
 		"scatter": {
 			"bush_a": 0.5, "bush_c": 0.6, "reeds": 1.4, "fern": 1.2,
-			"rock_a": 0.3, "log_a": 0.6, "log_b": 0.55, "stump": 0.7,
+			"rock_a": 0.3, "deadfall": 0.34, "log_a": 0.6, "log_b": 0.55, "stump": 0.7,
 			"mushroom": 0.6,
 		},
 		"clearing": {
@@ -111,7 +111,7 @@ const DEFS := {
 		# Nothing green is still standing.
 		"trees": {"tree_dead": 1.6, "stump": 0.9, "pine_tree": 0.25},
 		"scatter": {
-			"stump": 1.2, "log_a": 0.9, "log_b": 0.8,
+			"stump": 1.2, "deadfall": 0.34, "log_a": 0.9, "log_b": 0.8,
 			"rock_a": 0.9, "rock_b": 0.7, "rock_c": 0.8, "pebbles": 0.6,
 		},
 		"clearing": {"pebbles": 1.0, "rock_c": 0.5, "grass_c": 0.25},
@@ -132,6 +132,7 @@ const DEFS := {
 		},
 		"trees": {"pine_tree": 1.8, "tree_dead": 0.8, "tree_round_b": 0.3},
 		"scatter": {
+			"deadfall": 0.34,
 			"fern": 1.1, "mushroom": 1.0, "bush_c": 0.6, "stump": 0.5,
 			"rock_a": 0.5, "rock_b": 0.4, "log_b": 0.4,
 		},
@@ -152,7 +153,7 @@ const DEFS := {
 		"trees": {"tree_round_a": 1.6, "tree_round_b": 1.6, "pine_tree": 0.5},
 		"scatter": {
 			"bush_a": 1.2, "bush_b": 1.0, "bush_c": 1.2, "fern": 1.3,
-			"mushroom": 1.1, "log_a": 0.5, "stump": 0.4, "rock_c": 0.4,
+			"mushroom": 1.1, "deadfall": 0.34, "log_a": 0.5, "stump": 0.4, "rock_c": 0.4,
 		},
 		"clearing": {
 			"grass_a": 1.0, "grass_b": 1.0, "flower_a": 0.7, "flower_b": 0.7,

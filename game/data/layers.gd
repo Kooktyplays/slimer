@@ -11,3 +11,11 @@ const ENEMY := 1 << 2
 const PLAYER_BULLET := 1 << 3
 const ENEMY_BULLET := 1 << 4
 const PICKUP := 1 << 5
+## Deadfall: stops BULLETS, not bodies.
+##
+## Its own bit rather than the dead PICKUP one, which is still named "pickup" in
+## project.godot. The whole trick is that the player, every enemy, every boss
+## and every enemy bullet mask WORLD and nothing else - so a body on a different
+## layer is walked straight through by the entire cast with no edits to any of
+## them, and only the projectile query has to learn about it.
+const DEADFALL := 1 << 6

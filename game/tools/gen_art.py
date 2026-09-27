@@ -1180,6 +1180,42 @@ def gen_logs():
     a.save("log_b.png", rim=C.BARK_L, rim_alpha=120, seed=3452)
 
 
+def gen_deadfall():
+    """A low lattice of dead branches. Stops bullets, not bodies.
+
+    The pack's readability rule is that brown and grey things stop you and green
+    things do not, and this is the one object that breaks it - so it cannot look
+    like a log. It is drawn as a SPARSE CROSSED LATTICE with daylight between
+    the branches, pale and sun-bleached rather than wet bark, and low enough to
+    read as something you would step through rather than climb.
+
+    That gap structure is the whole tell: you can see through it, so you can
+    walk through it, and a shot cannot.
+    """
+    a = Art(96, 54)
+    ground_shadow(a, 48, 46, 40, 8)
+    pale = (176, 158, 126)
+    mid = (146, 128, 98)
+    dark = (112, 96, 72)
+    # three long branches at shallow angles, crossing
+    for (x0, y0, x1, y1, w, col) in (
+        (6, 40, 88, 30, 5.0, dark),
+        (10, 26, 84, 42, 4.5, mid),
+        (18, 44, 78, 18, 4.0, mid),
+    ):
+        a.line([(x0, y0), ((x0 + x1) / 2, (y0 + y1) / 2 - 3), (x1, y1)], (*col, 255), w)
+    # short broken stubs, so the silhouette is ragged rather than woven
+    rng = random.Random(4412)
+    for _ in range(7):
+        sx = rng.uniform(14, 82)
+        sy = rng.uniform(22, 44)
+        ang = rng.uniform(-1.0, 1.0)
+        ln = rng.uniform(7, 14)
+        a.line([(sx, sy), (sx + math.cos(ang) * ln, sy + math.sin(ang) * ln)],
+               (*pale, 255), 3.0)
+    a.save("deadfall.png", rim=pale, rim_alpha=130, seed=3411, grain=0.07)
+
+
 def gen_ground_detail():
     # grass tufts
     for idx, seed in enumerate((3, 19, 61)):
@@ -1938,6 +1974,7 @@ def main():
         ("rocks", gen_rocks),
         ("logs", gen_logs),
         ("ground detail", gen_ground_detail),
+        ("deadfall", gen_deadfall),
         ("shop props", gen_shop_props),
         ("boss: bramble", gen_boss_bramble),
         ("boss: toad", gen_boss_toad),

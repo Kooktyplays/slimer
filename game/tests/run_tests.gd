@@ -29,6 +29,7 @@ func _run() -> void:
 	_test_straggler_escalation()
 	_test_second_wave_enemies()
 	_test_written_text()
+	_test_deadfall()
 	_test_sfx_stability()
 	_test_font()
 	_test_boss_phases()
@@ -1342,6 +1343,85 @@ func _test_sfx_stability() -> void:
 ## Existence is checked too, because two of these are read with a bare subscript
 ## at runtime: tutor.gd indexes def["hint"] the moment an enemy first spawns, so
 ## a type without one crashes mid-wave and no test covered it.
+## Deadfall stops bullets and not bodies, and never becomes terrain.
+##
+## The mechanism is that the player, every enemy, every boss and every enemy
+## bullet mask WORLD and nothing else - so a body on its own layer is walked
+## through by the entire cast with no edits to any of them. That is elegant and
+## it is also completely invisible: nothing about "enemy.collision_mask ==
+## Layers.WORLD" says "and this is what lets deadfall work". Asserted here so
+## adding DEADFALL to an actor mask later fails loudly instead of quietly
+## turning a lattice of branches into a wall.
+##
+## The other half is that a bullet blocker must never reach layout.blockers.
+## That array feeds the navigation raster (inflated by ACTOR_CLEARANCE), the
+## reachability flood, the corridor repair, the roominess check and the
+## sealed-arena test. A circle in there marks ground unwalkable that bodies can
+## actually cross, and every one of those guarantees would then be reasoning
+## about geometry that does not exist.
+func _test_deadfall() -> void:
+	_check(Layers.DEADFALL != Layers.WORLD and Layers.DEADFALL != Layers.ENEMY
+		and Layers.DEADFALL != Layers.PLAYER and Layers.DEADFALL != Layers.PICKUP,
+		"Layers.DEADFALL collides with another layer bit")
+
+	# A bullet must see it...
+	var proj: Node = load("res://weapons/projectile.tscn").instantiate()
+	add_child(proj)
+	proj.call("launch", Vector2.ZERO, Vector2.RIGHT,
+		{"damage": 1.0, "speed": 100.0, "radius": 4.0})
+	_check(int(proj.get("collision_mask")) & Layers.DEADFALL != 0,
+		"a player bullet does not collide with deadfall - it shoots straight "
+		+ "through the one prop that exists to stop it")
+	proj.queue_free()
+
+	# ...and nothing that walks may.
+	var e: Enemy = load("res://actors/enemy.tscn").instantiate()
+	add_child(e)
+	e.configure(EnemyTypes.GREEN, 3)
+	_check(e.collision_mask & Layers.DEADFALL == 0,
+		"enemies collide with deadfall - it is a wall now, not cover")
+	e.queue_free()
+
+	_check(PropCatalog.stops_bullets("deadfall"), "deadfall does not stop bullets")
+	_check(not PropCatalog.blocks("deadfall"),
+		"deadfall is flagged as blocking - it will be rasterised into the "
+		+ "navigation grid and bodies will path around thin air")
+	_check(not PropCatalog.bullet_blockers("deadfall").is_empty(),
+		"deadfall has no bullet blockers, so it stops nothing")
+	_check(PropCatalog.blockers("deadfall").is_empty(),
+		"deadfall declares body blockers")
+
+	# ...and in a real forest, across every biome, it never lands in blockers.
+	var total := 0
+	for biome: String in BiomeDB.ORDER:
+		# generate() is STATIC and returns the generator. Calling it on a fresh
+		# instance and then reading that instance's props gives an empty list,
+		# and every check inside the loop passes by never running - which is
+		# exactly what the total below was added to catch, and did.
+		var g := ForestGenerator.generate(4242, biome)
+		# One assertion per biome, not one per deadfall-times-blocker pair: the
+		# naive nested version emitted seventy-six thousand checks and told you
+		# nothing more than this does.
+		var coincident := 0
+		for prop: Dictionary in g.props:
+			if String(prop["id"]) != "deadfall":
+				continue
+			total += 1
+			for b: Dictionary in g.blockers:
+				if (b["pos"] as Vector2).distance_to(prop["pos"]) <= 1.0:
+					coincident += 1
+					break
+		_check(coincident == 0,
+			"%d deadfall props in %s put circles in layout.blockers - the "
+				% [coincident, biome]
+			+ "navigation grid now has walls where bodies can walk")
+	# Without this the loop above is vacuous: a weight that stopped placing any
+	# deadfall at all would make every check inside it pass by never running.
+	_check(total > 0,
+		"no deadfall was placed in any of the five biomes - it is in the "
+		+ "catalogue but nothing scatters it, so none of the above was tested")
+
+
 func _test_written_text() -> void:
 	var hints := {}
 	for id: String in EnemyTypes.ORDER:

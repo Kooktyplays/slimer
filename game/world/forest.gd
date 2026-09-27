@@ -251,6 +251,39 @@ func _build_collision() -> void:
 		shape.position = b["pos"]
 		body.add_child(shape)
 	_build_boundary(body)
+	_build_deadfall()
+
+
+## A second static body, on the deadfall layer, for props that stop bullets and
+## not bodies.
+##
+## Derived from layout.props on the spot rather than read from a list the
+## generator keeps. That is the whole safety argument: props is the single
+## source of truth, so a deadfall that _clear_corridor removed loses its shapes
+## for free and one that survived keeps them. A stored parallel array would go
+## stale the moment that function ran, because it rewrites props and blockers
+## and would not know to rewrite a third list.
+##
+## Two bodies, not hundreds - same reason the obstacle body holds every circle
+## rather than one body per tree.
+func _build_deadfall() -> void:
+	var body := StaticBody2D.new()
+	body.name = "Deadfall"
+	body.collision_layer = Layers.DEADFALL
+	body.collision_mask = 0
+	add_child(body)
+	for prop: Dictionary in layout.props:
+		var id: String = prop["id"]
+		if not PropCatalog.stops_bullets(id):
+			continue
+		var s: float = float(prop["scale"])
+		for b: Dictionary in PropCatalog.bullet_blockers(id):
+			var shape := CollisionShape2D.new()
+			var circle := CircleShape2D.new()
+			circle.radius = float(b["radius"]) * s
+			shape.shape = circle
+			shape.position = prop["pos"] + (b["offset"] as Vector2) * s
+			body.add_child(shape)
 
 
 ## Four slabs that close the arena.
