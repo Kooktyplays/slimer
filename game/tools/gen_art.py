@@ -17,6 +17,8 @@ from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
+import font as font_tool
+
 ROOT = Path(__file__).resolve().parent.parent
 SPRITES = ROOT / "assets" / "sprites"
 OUT = SPRITES / "gen"
@@ -1681,6 +1683,9 @@ def main():
         ("pickups", gen_pickups),
         ("ui icons", gen_ui_icons),
         ("particles", gen_particles),
+        # The typeface. Last, and counted separately below: it lands in
+        # assets/fonts/gen/, not assets/sprites/gen/, so it is not a sprite.
+        ("typeface", font_tool.main),
     ]
     for label, fn in steps:
         fn()

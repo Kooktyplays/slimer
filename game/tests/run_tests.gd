@@ -27,6 +27,8 @@ func _run() -> void:
 	_test_thief_and_mimic()
 	_test_corpses()
 	_test_straggler_escalation()
+	_test_sfx_stability()
+	_test_font()
 	_test_boss_phases()
 	_test_boss_phase_bar()
 	_test_kill_feedback()
@@ -1165,6 +1167,158 @@ func _test_boss_curve() -> void:
 ## So the escalation is not a nicety. A wave that cannot end is unrecoverable
 ## for the player, and a slime that walks through a trunk for the last few
 ## seconds of a wave is a far smaller price than that.
+## Every shipped sound is still the sound that shipped.
+##
+## tools/gen_sfx.py has one module-level `rng`, seeded once and shared by every
+## generator, so a sound's identity is its POSITION in the file. Inserting one
+## anywhere but the end re-draws the noise stream for everything after it:
+## adding `deflect` to impacts() once silently rewrote 25 unrelated wavs, and
+## nothing caught it because every file was still a valid, plausible sound.
+##
+## That rule was a comment. This makes it an assertion.
+##
+## When a change to an existing sound IS intended, run `gen_sfx.py --manifest`
+## and say which sounds changed in the commit message. The manifest diff is the
+## whole point: one added line reads very differently from twenty-six modified
+## ones, so the reviewer sees the blast radius rather than being told about it.
+## The game has its own typeface, and it is a real outline font.
+##
+## The second half of that sentence is the load-bearing part. ui_theme.gd sets
+## outline_size on EVERY label - 6 px normally, 10 px on titles - and that
+## outline is the only thing keeping white text legible over a green forest.
+## Outlines come from the stroker, which needs real contour data. A bitmap font
+## has none, so shipping one would turn every outline in the interface into a
+## silent no-op: nothing would error, nothing would look obviously broken in a
+## screenshot of a menu, and text over grass would just quietly stop reading.
+func _test_font() -> void:
+	var path := UITheme.FONT_PATH
+	_check(ResourceLoader.exists(path),
+		"the generated typeface is missing - run tools/gen_art.py")
+	if not ResourceLoader.exists(path):
+		return
+	var font: FontFile = load(path)
+	_check(font != null, "%s did not load as a FontFile" % path)
+	if font == null:
+		return
+
+	# A bitmap FontFile carries a non-zero fixed_size. An outline font does not.
+	_check(font.fixed_size == 0,
+		("the typeface is a fixed-size bitmap font (%d px) - every label "
+			% font.fixed_size)
+		+ "outline in the game is now doing nothing")
+
+	# ...and prove it positively rather than only by absence: ask the text
+	# server for the actual outline of a glyph. Real contours here are what the
+	# stroker will have to work with.
+	var rids := font.get_rids()
+	_check(not rids.is_empty(), "the typeface exposes no font RID")
+	if rids.is_empty():
+		return
+	var rid: RID = rids[0]
+	# TextServer is a class, not an autoload - the live one comes from
+	# TextServerManager. Calling it statically is a parse error, and a parse
+	# error in tests/ means the harness never loads and so never calls quit(),
+	# which presents as check.sh hanging rather than as a failure.
+	var ts := TextServerManager.get_primary_interface()
+	for probe: String in ["A", "g", "0"]:
+		var idx := ts.font_get_glyph_index(rid, 64, probe.unicode_at(0), 0)
+		var contours: Dictionary = ts.font_get_glyph_contours(rid, 64, idx)
+		var pts: PackedVector3Array = contours.get("points", PackedVector3Array())
+		_check(pts.size() > 2,
+			"glyph '%s' has %d outline points - the stroker has nothing to "
+				% [probe, pts.size()] + "outline")
+
+	# ...and that it is actually INSTALLED, not merely present on disk.
+	#
+	# The asset existing and the interface using it are two different claims,
+	# and only the second one is the feature. Main._ready calls
+	# UITheme.install_font() before it builds a screen, and the harness boots
+	# through Main, so by the time this runs the fallback should already be
+	# ours. Without this assertion the font could silently stop being applied -
+	# a renamed constant, a reordered _ready - and every other check here would
+	# still pass while the game rendered in the stock face.
+	_check(ThemeDB.fallback_font == font,
+		"the typeface loads but is not installed as ThemeDB.fallback_font - "
+		+ "the interface is still rendering in Godot's stock face")
+
+	# Coverage. 95 printable ASCII plus the nine non-ASCII the UI actually uses.
+	var chars := font.get_supported_chars()
+	_check(chars.length() >= 104,
+		"the typeface covers %d characters, expected at least 104"
+			% chars.length())
+	for needed: String in ["\u00b7", "\u00d7", "\u2014", "\u2026", "\u2726"]:
+		_check(chars.contains(needed),
+			"the typeface has no glyph for U+%04X, which the UI renders"
+				% needed.unicode_at(0))
+
+	# Every glyph advances. A zero-advance glyph stacks the next one on top of
+	# it, which reads as a missing character rather than as a broken one.
+	for i in chars.length():
+		var ch := chars[i]
+		_check(font.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x > 0.0,
+			"glyph U+%04X has no advance" % ch.unicode_at(0))
+
+	# Tabular figures. The HUD counts money, waves, kills and the combo upward
+	# in real time; with proportional digits a 1 replacing a 0 makes the whole
+	# number twitch sideways on the frame it changes.
+	var zero := font.get_string_size("0", HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x
+	for d: String in ["1", "2", "3", "4", "5", "6", "7", "8", "9"]:
+		_close(font.get_string_size(d, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x, zero,
+			"digit %s is not the same width as 0 - the HUD counters will jitter"
+				% d, 0.01)
+
+	# Every size the interface actually asks for, from the HUD's smallest label
+	# to the main menu title, renders something.
+	for size: int in [12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 26, 28, 30,
+			32, 34, 38, 40, 42, 44, 46, 54, 92, 104]:
+		var w := font.get_string_size("Wave 12", HORIZONTAL_ALIGNMENT_LEFT, -1,
+			size).x
+		_check(w > 0.0, "the typeface renders nothing at %d px" % size)
+
+
+func _test_sfx_stability() -> void:
+	var raw := _read_source("res://tools/sfx_manifest.json")
+	if raw.is_empty():
+		return
+	var parsed: Variant = JSON.parse_string(raw)
+	_check(parsed is Dictionary, "sfx_manifest.json is not a JSON object")
+	if not (parsed is Dictionary):
+		return
+	var sounds: Dictionary = (parsed as Dictionary).get("sounds", {})
+	_check(sounds.size() >= 47,
+		"the sfx manifest covers only %d sounds - it has lost entries"
+			% sounds.size())
+
+	var changed: Array[String] = []
+	for name: String in sounds:
+		var path := "res://assets/sfx/%s.wav" % name
+		if not FileAccess.file_exists(path):
+			_check(false, "the manifest lists %s, which is not in assets/sfx" % name)
+			continue
+		if FileAccess.get_sha256(path) != String(sounds[name]):
+			changed.append(name)
+	# Reported as one failure naming all of them, not one per sound. The
+	# diagnosis is the SHAPE of the list: a single name is a deliberate edit, a
+	# run of twenty is the positional-rng bug and the fix is to move the new
+	# generator to the end of main() rather than to re-record the manifest.
+	_check(changed.is_empty(),
+		"%d shipped sounds changed: %s - if this was not intended, a new sound "
+			% [changed.size(), ", ".join(changed)]
+		+ "was inserted before the end of gen_sfx.py's main()")
+
+	# ...and every wav on disk is covered, so a new sound cannot slip in
+	# unrecorded and quietly widen the blind spot.
+	var dir := DirAccess.open("res://assets/sfx")
+	_check(dir != null, "could not open assets/sfx")
+	if dir == null:
+		return
+	for file: String in dir.get_files():
+		if not file.ends_with(".wav"):
+			continue
+		_check(sounds.has(file.get_basename()),
+			"%s is not in the sfx manifest - run gen_sfx.py --manifest" % file)
+
+
 func _test_straggler_escalation() -> void:
 	Combat.reset()
 	_check(not Combat.hunt_mode, "hunt mode is on before anything has stalled")
