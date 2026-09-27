@@ -137,6 +137,106 @@ class Art:
             color,
         )
 
+    def rim(self, color, dx=-2.0, dy=-3.0, alpha=120):
+        """A light band along one edge of the silhouette, inside the alpha.
+
+        The edge is `A - shift(A)`; intersecting that with `A` keeps it inside
+        the shape. This is the cheapest thing in the whole pack that makes an
+        object read as lit rather than as a flat fill, and it applies to every
+        sprite without touching any of their geometry.
+
+        The alpha channel is saved and restored around the paste, so the
+        silhouette is byte-identical afterwards. That is not defensive
+        programming - the slime's crown, face, badge and hit radius are all
+        offsets measured against its neutral frame, and `_test_animation`
+        asserts that frame's bounding box never moves.
+
+        The shifted copy is PASTED into a blank rather than made with
+        ImageChops.offset, because offset wraps: the slime fills its canvas edge
+        to edge at rest, so a wrapped shift would draw the left edge's rim down
+        the right-hand side.
+        """
+        a = self.img.getchannel("A")
+        shifted = Image.new("L", a.size, 0)
+        shifted.paste(a, (int(dx * SS), int(dy * SS)))
+        band = ImageChops.multiply(ImageChops.subtract(a, shifted), a)
+        layer = Image.new("RGBA", self.img.size, (*color, 255))
+        keep = a.copy()
+        self.img.paste(layer, (0, 0), band.point(lambda v: v * alpha // 255))
+        self.img.putalpha(keep)
+
+    def light_dither(self, shape_fn, color, level=0.5):
+        """As light(), but the tone boundary breaks into an ordered pattern.
+
+        The Bayer cell is SS pixels across so it survives finish(). Drawing a
+        1px dither on a 4x supersampled canvas and then LANCZOS-downsampling
+        averages it straight back into the smooth gradient it was meant to
+        replace, which is the whole trap here.
+
+        Deterministic - a fixed matrix, no RNG - so it cannot shift any other
+        sprite's output.
+        """
+        layer = Image.new("RGBA", self.img.size, (0, 0, 0, 0))
+        sub = Art.__new__(Art)
+        sub.w, sub.h, sub.img = self.w, self.h, layer
+        sub.d = ImageDraw.Draw(layer)
+        shape_fn(sub, color)
+
+        bayer = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]
+        cut = int(level * 16)
+        cell = Image.new("L", (4 * SS, 4 * SS), 0)
+        cd = ImageDraw.Draw(cell)
+        for by in range(4):
+            for bx in range(4):
+                if bayer[by][bx] < cut:
+                    cd.rectangle([bx * SS, by * SS, (bx + 1) * SS - 1,
+                                  (by + 1) * SS - 1], fill=255)
+        tile = Image.new("L", self.img.size, 0)
+        for ty in range(0, self.img.size[1], 4 * SS):
+            for tx in range(0, self.img.size[0], 4 * SS):
+                tile.paste(cell, (tx, ty))
+
+        mask = ImageChops.multiply(
+            ImageChops.multiply(self.img.getchannel("A"),
+                                layer.getchannel("A")), tile)
+        keep = self.img.getchannel("A").copy()
+        self.img.paste(layer, (0, 0), mask)
+        self.img.putalpha(keep)
+
+    def speckle(self, seed, amount=0.06):
+        """Break a flat fill with a faint value-noise field.
+
+        Multiplied into what is already drawn, so it follows the existing tones
+        rather than flattening them, and the alpha is restored afterwards so the
+        silhouette cannot move.
+
+        Its own small PRNG field rather than the tileable noise used by the
+        ground tiles: this does not need to tile, and borrowing that helper
+        would couple every prop's appearance to a function written for 256px
+        seamless floors. `seed` is always explicit and never a call counter - a
+        generator whose output depends on how many times it has run is exactly
+        the bug that made gen_sfx.py append-only.
+        """
+        w, h = self.img.size
+        # Sized off the FINAL pixel dimensions, not the supersampled canvas. A
+        # field derived from the 4x canvas comes out four times coarser than
+        # intended and reads as blotches rather than as surface.
+        small = (max(6, self.w // 3), max(6, self.h // 3))
+        rng = random.Random(seed)
+        field = Image.new("L", small)
+        field.putdata([rng.randint(0, 255) for _ in range(small[0] * small[1])])
+        field = field.resize((w, h), Image.BILINEAR)
+
+        lo = int(255 * (1.0 - amount))
+        span = int(255 * 2.0 * amount)
+        scale = field.point(lambda v: lo + v * span // 255)
+        keep = self.img.getchannel("A").copy()
+        r, g, b, _a = self.img.split()
+        self.img = Image.merge("RGBA", (
+            ImageChops.multiply(r, scale), ImageChops.multiply(g, scale),
+            ImageChops.multiply(b, scale), keep))
+        self.d = ImageDraw.Draw(self.img)
+
     def dot(self, cx, cy, r, color=C.WHITE, alpha=210):
         self.circle(cx, cy, r, (*color, alpha))
 
@@ -144,7 +244,22 @@ class Art:
     def finish(self) -> Image.Image:
         return self.img.resize((self.w, self.h), Image.LANCZOS)
 
-    def save(self, name: str):
+    def save(self, name: str, rim=None, rim_alpha=110, seed=None, grain=0.05):
+        """Write the sprite, optionally shading it first.
+
+        `rim` and `seed` are here rather than at every call site because
+        lighting a prop is one decision per material, not per file - the two
+        round trees, the dead tree and the stump all want the same bark rim, and
+        spelling that out four times is how they drift apart.
+
+        Both passes preserve alpha exactly, so adding either to a prop cannot
+        move its blocker circles: PropCatalog states those in sprite-local
+        pixels measured against the drawn shape.
+        """
+        if seed is not None:
+            self.speckle(seed, grain)
+        if rim is not None:
+            self.rim(rim, alpha=rim_alpha)
         img = self.finish()
         OUT.mkdir(parents=True, exist_ok=True)
         img.save(OUT / name)
@@ -280,6 +395,21 @@ def _draw_slime(a: "Art", sq: float, xs: float = 0.0) -> None:
     # bubble stuck to the slime; light() masks to what is already drawn.
     a.light(lambda s, c: s.ellipse(X(38), Y(18), RX(17), RY(11), c), (255, 255, 255, 110))
     a.light(lambda s, c: s.ellipse(X(34), Y(15), RX(7), RY(5), c), (255, 255, 255, 200))
+
+    # Surface, then rim. Both are alpha-preserving by construction, which is
+    # what lets them be added to a sprite whose exact framing is load-bearing:
+    # the crown, face and badge offsets and the hit radii in EnemyTypes are all
+    # measured against this frame, and _test_animation asserts its bounding box
+    # never moves.
+    #
+    # The speckle is barely visible on one slime and is the difference between
+    # a wall of them reading as moulded plastic or as something wet. The rim is
+    # in SLIME_XL rather than white on purpose: recolor() rewrites hue per
+    # pixel, so an in-family tone rotates with the body into all ten colours,
+    # where a white edge would stay white on every one of them and flatten the
+    # roster back out.
+    a.speckle(4801, 0.042)
+    a.rim(P.SLIME_XL, dx=-2.0, dy=-3.0, alpha=150)
 
 
 def gen_slime_body():
@@ -564,7 +694,7 @@ def gen_pine_tree():
         a.poly([(64 - half, y), (64 + half, y), (64, y - 48)], (*P.PINE_M, 255))
     a.light(lambda s, c: s.ellipse(42, 46, 38, 70, c), (*P.PINE_L, 255))
     a.light(lambda s, c: s.ellipse(98, 122, 40, 48, c), (*P.PINE_D, 255))
-    a.save("pine_tree.png")
+    a.save("pine_tree.png", rim=C.LEAF_XL, rim_alpha=118, seed=3886)
 
 
 def gen_ground_shadow():
@@ -834,7 +964,7 @@ def gen_trees():
         canopy.light(lambda s, c: s.blob(w * 0.36, h * 0.14, 26, 16, c, wobble=0.2,
                                          seed=seed + 3), (*C.LEAF_XL, 255))
         a.img.alpha_composite(canopy.img)
-        a.save(f"tree_round_{'ab'[idx]}.png")
+        a.save(f"tree_round_{'ab'[idx]}.png", rim=C.LEAF_XL, rim_alpha=118, seed=3859)
 
     # dead / bare tree
     a = Art(120, 156)
@@ -846,7 +976,7 @@ def gen_trees():
     a.line([(60, 70), (74, 40), (70, 18)], (*C.BARK_D, 255), 6)
     a.line([(32, 52), (16, 44)], (*C.BARK_D, 255), 5)
     a.line([(92, 62), (108, 56)], (*C.BARK_D, 255), 5)
-    a.save("tree_dead.png")
+    a.save("tree_dead.png", rim=C.BARK_L, rim_alpha=120, seed=3495)
 
     # stump
     a = Art(74, 66)
@@ -855,7 +985,7 @@ def gen_trees():
     a.ellipse(37, 24, 23, 11, (*C.BARK_L, 255))
     a.ellipse(37, 24, 15, 7, (*C.BARK_M, 255))
     a.ellipse(37, 24, 7, 3, (*C.BARK_L, 255))
-    a.save("stump.png")
+    a.save("stump.png", rim=C.BARK_L, rim_alpha=120, seed=3812)
 
 
 def gen_bushes():
@@ -879,7 +1009,7 @@ def gen_bushes():
             for _ in range(5):
                 a.circle(rng.uniform(w * 0.2, w * 0.8), rng.uniform(h * 0.4, h * 0.75),
                          3.2, (214, 74, 84, 255))
-        a.save(f"bush_{'abc'[idx]}.png")
+        a.save(f"bush_{'abc'[idx]}.png", rim=C.LEAF_XL, rim_alpha=115, seed=3873)
 
 
 def gen_rocks():
@@ -891,7 +1021,7 @@ def gen_rocks():
                seed=seed)
         a.light(lambda s, c: s.blob(w * 0.42, h * 0.32, w * 0.34, h * 0.24, c,
                                     wobble=0.3, seed=seed + 5), (*C.ROCK_L, 255))
-        a.save(f"rock_{'abc'[idx]}.png")
+        a.save(f"rock_{'abc'[idx]}.png", rim=C.ROCK_L, rim_alpha=125, seed=3198)
 
     # pebble scatter
     a = Art(54, 30)
@@ -901,7 +1031,7 @@ def gen_rocks():
         r = rng.uniform(3, 6)
         a.ellipse(cx, cy, r, r * 0.72, (*C.ROCK_M, 255))
         a.ellipse(cx - r * 0.2, cy - r * 0.25, r * 0.6, r * 0.4, (*C.ROCK_L, 255))
-    a.save("pebbles.png")
+    a.save("pebbles.png", rim=C.ROCK_L, rim_alpha=125, seed=3543)
 
 
 def gen_logs():
@@ -913,7 +1043,7 @@ def gen_logs():
     a.ellipse(16, 29, 5, 9, (*C.BARK_L, 255))
     for x in (48, 78, 104):
         a.line([(x, 20), (x + 5, 38)], (*C.BARK_D, 120), 2)
-    a.save("log_a.png")
+    a.save("log_a.png", rim=C.BARK_L, rim_alpha=120, seed=3452)
 
     # mossy log
     a = Art(120, 52)
@@ -924,7 +1054,7 @@ def gen_logs():
         a.blob(cx, 16, 15, 7, (*C.LEAF_M, 255), wobble=0.3, seed=cx)
     a.ellipse(14, 27, 8, 14, (*C.BARK_D, 255))
     a.ellipse(14, 27, 4, 8, (*C.BARK_L, 255))
-    a.save("log_b.png")
+    a.save("log_b.png", rim=C.BARK_L, rim_alpha=120, seed=3452)
 
 
 def gen_ground_detail():
@@ -940,7 +1070,7 @@ def gen_ground_detail():
             lean = rng.uniform(-5, 5)
             tone = C.LEAF_L if i % 2 else C.LEAF_M
             a.poly([(x - 2.4, h - 3), (x + lean, top), (x + 2.4, h - 3)], (*tone, 255))
-        a.save(f"grass_{'abc'[idx]}.png")
+        a.save(f"grass_{'abc'[idx]}.png", rim=C.LEAF_XL, rim_alpha=100, seed=3606)
 
     # fern
     a = Art(58, 50)
@@ -951,7 +1081,7 @@ def gen_ground_detail():
         for t in (0.45, 0.7, 0.9):
             px, py = 29 + (ex - 29) * t, 46 + (ey - 46) * t
             a.ellipse(px, py, 5, 3.2, (*C.LEAF_M, 255))
-    a.save("fern.png")
+    a.save("fern.png", rim=C.LEAF_XL, rim_alpha=100, seed=3601)
 
     # flowers
     for idx, petal in enumerate(((252, 220, 90), (236, 130, 190))):
@@ -961,7 +1091,7 @@ def gen_ground_detail():
             ang = math.radians(i * 60)
             a.circle(13 + math.cos(ang) * 5, 12 + math.sin(ang) * 5, 4, (*petal, 255))
         a.circle(13, 12, 3.4, (*C.GOLD_M, 255))
-        a.save(f"flower_{'ab'[idx]}.png")
+        a.save(f"flower_{'ab'[idx]}.png", rim=C.LEAF_XL, rim_alpha=95, seed=3766)
 
     # mushroom cluster
     a = Art(38, 34)
@@ -971,14 +1101,14 @@ def gen_ground_detail():
         a.ellipse(cx, cy, r, r * 0.78, (206, 78, 70, 255))
         a.ellipse(cx - r * 0.25, cy - r * 0.22, r * 0.55, r * 0.35, (232, 118, 106, 255))
         a.dot(cx + r * 0.3, cy - r * 0.1, 1.6, C.WHITE, 235)
-    a.save("mushroom.png")
+    a.save("mushroom.png", rim=C.BONE, rim_alpha=110, seed=3454)
 
     # reeds (pond edge)
     a = Art(40, 62)
     for x, top in ((10, 20), (20, 8), (30, 24)):
         a.line([(x, 58), (x + 3, top)], (*C.LEAF_D, 255), 3)
         a.rrect(x + 1, top - 8, x + 5, top + 4, 2, (*C.BARK_M, 255))
-    a.save("reeds.png")
+    a.save("reeds.png", rim=C.LEAF_XL, rim_alpha=100, seed=3243)
 
     # lily pad
     a = Art(46, 34)
@@ -986,7 +1116,7 @@ def gen_ground_detail():
     a.poly([(23, 17), (44, 12), (44, 22)], (0, 0, 0, 0))
     a.d.pieslice([2 * SS, 2 * SS, 44 * SS, 32 * SS], -18, 18, fill=(0, 0, 0, 0))
     a.ellipse(19, 13, 12, 8, (*C.LEAF_L, 255))
-    a.save("lilypad.png")
+    a.save("lilypad.png", rim=C.LEAF_L, rim_alpha=100, seed=3163)
 
 
 def gen_shop_props():
@@ -999,7 +1129,7 @@ def gen_shop_props():
     a.poly([(24, 38), (48, 38), (42, 22), (30, 22)], (255, 226, 140, 255))
     a.circle(36, 30, 6, (255, 248, 208, 255))
     a.poly([(18, 20), (54, 20), (36, 6)], (*C.ROCK_D, 255))
-    a.save("shop_lantern.png")
+    a.save("shop_lantern.png", rim=C.GOLD_L, rim_alpha=120, seed=3152)
 
     # campfire (rest phase)
     a = Art(70, 58)
@@ -1009,7 +1139,7 @@ def gen_shop_props():
     a.poly([(35, 6), (46, 30), (24, 30)], (250, 148, 44, 255))
     a.poly([(35, 14), (43, 32), (27, 32)], (255, 200, 60, 255))
     a.poly([(35, 22), (40, 33), (30, 33)], (255, 244, 176, 255))
-    a.save("campfire.png")
+    a.save("campfire.png", rim=C.BARK_L, rim_alpha=115, seed=3764)
 
 
 # --------------------------------------------------------------------------
@@ -1042,6 +1172,18 @@ def save_posed(a: "Art", name: str) -> None:
     size their hit shapes from texture height, and a vertical strip would
     silently resize every one of them.
     """
+    # Rim every boss from one place rather than in five generators. Bosses are
+    # the largest sprites in the game - the Oak is 340x332 - so a flat fill
+    # reads as flat at a size where nothing else does, and they are also the
+    # thing the player spends the longest looking at.
+    #
+    # Applied before finish(), so it is part of the drawing rather than a
+    # post-process on the downsample, and alpha-preserving like every other
+    # pass here: BOSS_POSES resizes this image per pose and pastes it anchored
+    # at the feet, so a silhouette that grew by even a pixel would shift every
+    # pose's footing.
+    a.speckle(9137, 0.05)
+    a.rim(C.BONE, dx=-2.5, dy=-3.5, alpha=95)
     img = a.finish()
     w, h = img.size
     sheet = Image.new("RGBA", (w * len(BOSS_POSES), h), (0, 0, 0, 0))

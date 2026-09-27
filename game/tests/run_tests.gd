@@ -1572,6 +1572,32 @@ func _test_animation() -> void:
 	# The walk indexes off WALK_FRAMES, never off hframes. Page the hop phase
 	# across the whole strip and every slime plays its own death animation
 	# each time it touches the ground.
+	# The neutral slime frame fills its canvas edge to edge, and that is a
+	# contract rather than an observation.
+	#
+	# Every offset measured against this sprite assumes it: the elite crown, the
+	# face, the shape badge, and the hit radii in EnemyTypes - which are stated
+	# in final pixels and deliberately NOT scaled. A silhouette that sat
+	# differently inside the same canvas would leave crowns floating above their
+	# slimes and hurtboxes that no longer match what is drawn, and neither
+	# failure looks like an art change when you go looking for it.
+	#
+	# Shading is free to change; this only pins the outline. gen_art.py's rim,
+	# speckle and dither passes are all alpha-preserving by construction for
+	# exactly this reason, so a lighting pass cannot trip it - only a change to
+	# the shape itself, which is the change that needs re-checking those offsets.
+	var slime: Texture2D = load(EnemyTypes.texture_path(EnemyTypes.GREEN))
+	if slime != null:
+		var img := slime.get_image()
+		var fw := img.get_width() / Enemy.BODY_FRAMES
+		var frame0 := img.get_region(Rect2i(0, 0, fw, img.get_height()))
+		frame0.convert(Image.FORMAT_RGBA8)
+		var used := frame0.get_used_rect()
+		_check(used == Rect2i(0, 0, fw, img.get_height()),
+			("the neutral slime frame no longer fills its canvas (%s of %dx%d) "
+				% [str(used), fw, img.get_height()])
+			+ "- the crown, face, badge and hit radii are all offsets against it")
+
 	var enemy_src := _read_source("res://actors/enemy.gd")
 	_check(not enemy_src.contains("(1.0 - bounce) * float(_body.hframes)"),
 		"the walk cycle indexes off hframes - it will page into the flinch "
