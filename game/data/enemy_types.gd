@@ -42,7 +42,7 @@ const DEFS := {
 		"radius": 30.0,
 		"unlock_wave": 1,
 		"weight": 1.0,
-		"hint": "Green slimes chase you down. Keep moving.",
+		"hint": "They come straight at you, and that is all they do. Keep moving.",
 	},
 	BLUE: {
 		"name": "Darter",
@@ -57,7 +57,7 @@ const DEFS := {
 		"radius": 25.0,
 		"unlock_wave": 4,
 		"weight": 0.95,
-		"hint": "Blue darters are fast and try to get behind you.",
+		"hint": "Fast, and it wants your back. Do not let one get round you.",
 	},
 	RED: {
 		"name": "Brute",
@@ -72,7 +72,7 @@ const DEFS := {
 		"radius": 44.0,
 		"unlock_wave": 6,
 		"weight": 0.7,
-		"hint": "Red brutes soak damage and hit hard. Don't get cornered.",
+		"hint": "It takes a lot and it gives a lot. Never let one corner you.",
 	},
 	PURPLE: {
 		"name": "Spitter",
@@ -87,7 +87,7 @@ const DEFS := {
 		"radius": 30.0,
 		"unlock_wave": 8,
 		"weight": 0.8,
-		"hint": "Purple spitters keep their distance. Close in or break line of sight.",
+		"hint": "It will not come to you. Close the gap, or put a tree between you.",
 		# ranged-specific
 		"projectile_damage": 9.0,
 		"projectile_speed": 430.0,
@@ -112,7 +112,7 @@ const DEFS := {
 		"radius": 32.0,
 		"unlock_wave": 10,
 		"weight": 0.55,
-		"hint": "Yellow hoarders hoard the gold and run. Hunt them down first.",
+		"hint": "It is carrying more than the rest and it knows it. Hunt it first.",
 		# They break away sooner and keep more distance, so catching one is a
 		# decision with a cost rather than something that happens incidentally.
 		"flee_range": 520.0,
@@ -133,7 +133,7 @@ const DEFS := {
 		"radius": 34.0,
 		"unlock_wave": 15,
 		"weight": 0.7,
-		"hint": "Orange bloaters detonate. Kill them early, at range.",
+		"hint": "It is going to go off. Make sure you are somewhere else when it does.",
 		"blast_damage": 26.0,
 		"blast_radius": 165.0,
 		"fuse_range": 95.0,
@@ -161,7 +161,7 @@ const DEFS := {
 		"radius": 34.0,
 		"unlock_wave": 13,
 		"weight": 0.6,
-		"hint": "Warded slimes shrug off abilities. Shoot them.",
+		"hint": "Abilities slide straight off this one. Shoot it.",
 		# Permanent, and safe to make permanent: the player always has a gun.
 		"immune_to": Combat.SOURCE_ABILITY,
 		# It walks through your zoning in a straight line and does not flinch,
@@ -185,7 +185,7 @@ const DEFS := {
 		"radius": 36.0,
 		"unlock_wave": 18,
 		"weight": 0.55,
-		"hint": "Carapace slimes shell up and bullets glance off. Break them with an ability.",
+		"hint": "While it is shelled, bullets go nowhere. Open it with an ability.",
 		"immune_to": Combat.SOURCE_BULLET,
 		# The shell CYCLES rather than being permanent, and that is a
 		# deliberate departure from "bullets only".
@@ -215,7 +215,7 @@ const DEFS := {
 		"radius": 27.0,
 		"unlock_wave": 16,
 		"weight": 0.6,
-		"hint": "Teal thieves steal your coins and run. Kill one to get them back.",
+		"hint": "It takes what you have and runs. Catch it and you get it all back.",
 		# The counterpart to the Hoarder: one hoards gold, one takes yours.
 		"steal": Vector2i(28, 55),
 		# Once it has your money it wants distance, so it reuses the skittish

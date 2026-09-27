@@ -139,7 +139,10 @@ func _build() -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	footer.add_child(spacer)
 
-	var leave := UITheme.button("CONTINUE  [F]")
+	# The key is read, not spelled. This said "[F]" beside a rebinding
+	# screen that lets the player move it.
+	var leave := UITheme.button("CONTINUE  [%s]" % InputBinds.label_for_action(
+		Save.keybinds, "interact", Game.input_device).to_upper())
 	leave.custom_minimum_size = Vector2(260, 52)
 	leave.pressed.connect(_on_continue)
 	footer.add_child(leave)

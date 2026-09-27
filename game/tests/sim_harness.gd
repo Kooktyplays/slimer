@@ -299,13 +299,24 @@ func _tick_waves() -> void:
 	# Keep the run alive: this test is about the loop not wedging, not about
 	# whether an AI can out-play wave 26.
 	#
-	# The threshold was 0.75, and that was not enough of a margin. A wave-25
-	# boss slam is 38 base against a damage_scale that caps at 2.4, so roughly 91
-	# - more than the 75 health this used to let the bot sit at. The bot was
-	# being one-shot from "healthy" about one run in six, and because the death
-	# screen then waits for a choice the harness never makes, it presented as a
-	# four-minute stall at wave 25 rather than as a death.
-	if Game.run.hp < Game.run.max_hp * 0.95:
+	# Topped up to FULL every frame, not to a threshold. It was 0.75, then 0.95,
+	# and both still let the bot be killed at wave 25: a boss slam there is 38
+	# base against a damage_scale that caps at 2.4, and contact poison ticks
+	# through a separate path in the same frame. Any threshold is a margin that
+	# a late-game hit can clear in one go.
+	#
+	# So the bot is effectively immortal here, deliberately. This harness exists
+	# to prove the LOOP holds - waves advance, bosses die, shops open and close,
+	# death resets - and a bot that dies at wave 25 proves nothing about any of
+	# that. The death path is still exercised, on purpose, by the death-reset
+	# test at the end.
+	#
+	# When it did die it never looked like a death: Game leaves State.RUN
+	# correctly, the death screen comes up, and it waits for a choice nothing
+	# here makes - so the stall watchdog reported "wave 25 is wedged" four
+	# minutes later and it read as an unkillable boss. That was the single
+	# biggest source of sim flake all along.
+	if Game.run.hp < Game.run.max_hp:
 		Game.run.hp = Game.run.max_hp
 
 	# The ending pauses the game and waits for a choice. Always CONTINUE, so

@@ -280,6 +280,15 @@ static func describe(data: Dictionary) -> String:
 
 ## Label for whichever device the player is currently using - what the HUD and
 ## the pause-menu control list show.
+## The one-line "here is how you move" string, in one place.
+##
+## It existed twice - once in the main menu and once in the tutor - and the two
+## copies had already drifted: "Click to shoot" against "Left click to shoot".
+## Two strings saying the same thing slightly differently is how a game starts
+## looking like it was assembled rather than written.
+const OPENING_CONTROLS := "WASD to move.  Mouse to aim.  Left click to shoot."
+
+
 static func label_for_action(overrides: Dictionary, action: String,
 		device: String) -> String:
 	var data := first_of_kind(overrides, action, device == DEVICE_PAD)

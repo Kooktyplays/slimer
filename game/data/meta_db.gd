@@ -44,57 +44,57 @@ const DEFS := {
 	# ---- new shop entries --------------------------------------------------
 	"upg_heavy_slugs": {
 		"kind": KIND_UPGRADE, "cost": 140,
-		"name": "Heavy Slugs", "desc": "Adds a big-damage option to the shop pool.",
+		"name": "Heavy Slugs", "desc": "The rest starts carrying slugs. Slower, and they go through things.",
 	},
 	"upg_runaway_sear": {
 		"kind": KIND_UPGRADE, "cost": 160,
-		"name": "Runaway Sear", "desc": "Adds a large fire-rate option to the shop pool.",
+		"name": "Runaway Sear", "desc": "The rest starts carrying a barrel that will not stop. You will run dry.",
 	},
 	"upg_split_barrel": {
 		"kind": KIND_UPGRADE, "cost": 260,
-		"name": "Split Barrel", "desc": "Adds the +1 projectile option to the shop pool.",
+		"name": "Split Barrel", "desc": "The rest starts carrying a second barrel. Every shot is two.",
 	},
 	"upg_thirsting_grip": {
 		"kind": KIND_UPGRADE, "cost": 220,
-		"name": "Thirsting Grip", "desc": "Adds a lifesteal option to the shop pool.",
+		"name": "Thirsting Grip", "desc": "The rest starts carrying a grip that takes something back from the kill.",
 	},
 	"upg_deep_reserves": {
 		"kind": KIND_UPGRADE, "cost": 240,
-		"name": "Deep Reserves", "desc": "Adds an extra-ability-charge option to the shop.",
+		"name": "Deep Reserves", "desc": "The rest starts carrying one more use of whatever you brought.",
 	},
 
 	# ---- starting passives (small, stacking tiers) -------------------------
 	"pas_vigor_1": {
 		"kind": KIND_PASSIVE, "cost": 130, "stat": "max_hp", "amount": 10.0,
-		"name": "Vigor I", "desc": "Start each run with +10 maximum health.",
+		"name": "Vigor I", "desc": "You arrive harder to finish. Ten more.",
 	},
 	"pas_vigor_2": {
 		"kind": KIND_PASSIVE, "cost": 300, "stat": "max_hp", "amount": 12.0,
-		"name": "Vigor II", "desc": "Another +12 maximum health.", "needs": "pas_vigor_1",
+		"name": "Vigor II", "desc": "Harder again. Twelve more on top.", "needs": "pas_vigor_1",
 	},
 	"pas_purse_1": {
 		"kind": KIND_PASSIVE, "cost": 170, "stat": "start_money", "amount": 160.0,
-		"name": "Seed Money", "desc": "Start each run with 160 coins.",
+		"name": "Seed Money", "desc": "You arrive with 160 coins already in hand.",
 	},
 	"pas_edge_1": {
 		"kind": KIND_PASSIVE, "cost": 240, "stat": "gun.damage", "amount": 2.0,
-		"name": "Honed Edge", "desc": "Start each run with +2 bullet damage.",
+		"name": "Honed Edge", "desc": "Whatever you came in with is sharper. Two more.",
 	},
 	"pas_edge_2": {
 		"kind": KIND_PASSIVE, "cost": 480, "stat": "gun.damage", "amount": 2.0,
-		"name": "Honed Edge II", "desc": "Another +2 starting damage.", "needs": "pas_edge_1",
+		"name": "Honed Edge II", "desc": "Sharper still. Two more again.", "needs": "pas_edge_1",
 	},
 	"pas_reserve": {
 		"kind": KIND_PASSIVE, "cost": 340, "stat": "ability_extra_charges", "amount": 1.0,
-		"name": "Second Wind", "desc": "Every ability starts with +1 charge.",
+		"name": "Second Wind", "desc": "Everything you bring arrives with one more use in it.",
 	},
 	"pas_attune": {
 		"kind": KIND_PASSIVE, "cost": 280, "stat": "essence_mul", "amount": 0.25,
-		"name": "Attunement", "desc": "+25% Essence earned from every run.",
+		"name": "Attunement", "desc": "The forest gives up a quarter more of itself to you.",
 	},
 	"pas_haggle": {
 		"kind": KIND_PASSIVE, "cost": 260, "stat": "free_rerolls", "amount": 1.0,
-		"name": "Haggler", "desc": "One free shop reroll each visit.",
+		"name": "Haggler", "desc": "One look at different stock, free, at every rest.",
 	},
 }
 

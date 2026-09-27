@@ -22,7 +22,7 @@ const SLOT_COUNT := 3
 const DEFS := {
 	"dash": {
 		"name": "Dash",
-		"desc": "Blink through enemies and bullets. Brief invulnerability.",
+		"desc": "Gone from where you were. For a moment nothing can reach you.",
 		"icon": "icon_dash",
 		"sound": "dash",
 		"cooldown": 3.2,
@@ -35,7 +35,7 @@ const DEFS := {
 	},
 	"grenade": {
 		"name": "Grenade",
-		"desc": "Lob an explosive at the cursor. Heavy area damage.",
+		"desc": "Throw it and stand back. 90 damage, 190 across.",
 		"icon": "icon_grenade",
 		"sound": "explosion",
 		"cooldown": 7.0,
@@ -49,7 +49,7 @@ const DEFS := {
 	},
 	"shield": {
 		"name": "Bulwark",
-		"desc": "A barrier absorbs the next 120 damage for 6 seconds.",
+		"desc": "Something between you and the next 120 damage. Six seconds.",
 		"icon": "icon_shield",
 		"sound": "shield",
 		"cooldown": 14.0,
@@ -62,7 +62,7 @@ const DEFS := {
 	},
 	"timeslow": {
 		"name": "Torpor",
-		"desc": "Slow every enemy and enemy bullet to 35% for 4 seconds.",
+		"desc": "The forest drops to a third of itself for four seconds. Bullets too.",
 		"icon": "icon_timeslow",
 		"sound": "timeslow",
 		"cooldown": 18.0,
@@ -75,7 +75,7 @@ const DEFS := {
 	},
 	"nova": {
 		"name": "Nova",
-		"desc": "Detonate around yourself, damaging and flinging back everything near.",
+		"desc": "Everything close leaves in a hurry, and hurt.",
 		"icon": "icon_nova",
 		"sound": "nova",
 		"cooldown": 11.0,
@@ -89,7 +89,7 @@ const DEFS := {
 	},
 	"heal": {
 		"name": "Bloom",
-		"desc": "Restore 35% of maximum health instantly.",
+		"desc": "A third of you, back, at once.",
 		"icon": "icon_heal",
 		"sound": "heal",
 		"cooldown": 26.0,
@@ -101,7 +101,7 @@ const DEFS := {
 	},
 	"lightning": {
 		"name": "Stormcall",
-		"desc": "Chain lightning arcs between up to 7 nearby enemies.",
+		"desc": "It jumps. Up to seven of them, if seven are standing close enough.",
 		"icon": "icon_lightning",
 		"sound": "lightning",
 		"cooldown": 9.0,
@@ -115,7 +115,7 @@ const DEFS := {
 	},
 	"rapidfire": {
 		"name": "Frenzy",
-		"desc": "Triple fire rate and free reloads for 5 seconds.",
+		"desc": "Three times the rate and nothing to reload, for five seconds.",
 		"icon": "icon_rapidfire",
 		"sound": "rapidfire",
 		"cooldown": 20.0,
@@ -128,7 +128,7 @@ const DEFS := {
 	},
 	"orbital": {
 		"name": "Satellites",
-		"desc": "Three orbs circle you for 12 seconds, damaging what they touch.",
+		"desc": "Three of them, circling, for twelve seconds. Walk through the crowd.",
 		"icon": "icon_orbital",
 		"sound": "orbital",
 		"cooldown": 22.0,
@@ -143,7 +143,7 @@ const DEFS := {
 	},
 	"decoy": {
 		"name": "Effigy",
-		"desc": "Drop a lure that pulls enemies for 7 seconds, then bursts.",
+		"desc": "Something more interesting than you, for seven seconds. Then it goes off.",
 		"icon": "icon_decoy",
 		"sound": "decoy",
 		"cooldown": 16.0,
@@ -158,7 +158,7 @@ const DEFS := {
 	},
 	"surge": {
 		"name": "Surge",
-		"desc": "Sprint at nearly double speed for 3.5 seconds. No invulnerability.",
+		"desc": "Nearly twice the speed for 3.5 seconds, and nothing to hide behind.",
 		"icon": "icon_surge",
 		"sound": "dash",
 		"cooldown": 9.0,
@@ -200,7 +200,7 @@ const DEFS := {
 	},
 	"cinders": {
 		"name": "Cinders",
-		"desc": "Set the ground alight at the cursor. Burns whatever stands in it.",
+		"desc": "The ground burns where you put it, and goes on burning.",
 		"icon": "icon_cinders",
 		"sound": "explosion",
 		"cooldown": 13.0,

@@ -63,7 +63,7 @@ func _stats_line() -> Control:
 	var runs := int(Save.stats["runs"])
 	if runs == 0:
 		var first := UITheme.label(
-			"WASD to move.  Mouse to aim.  Click to shoot.", 18, UITheme.TEXT_DIM)
+			InputBinds.OPENING_CONTROLS, 18, UITheme.TEXT_DIM)
 		first.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		return first
 	var l := UITheme.label(

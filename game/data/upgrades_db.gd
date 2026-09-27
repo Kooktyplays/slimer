@@ -158,31 +158,36 @@ const CLASS_LOCKED := {
 
 ## One per class. All five feed the ultimate rather than the gun, so picking a
 ## class changes what the shop is *for*, not only what it sells.
+##
+## Each of these is locked to one class, so each names THAT class's ultimate.
+## They used to share three descriptions between five items - three of them read
+## "Ultimate charges 25% faster" word for word - which told the player nothing
+## about what they were buying and read as a table someone had filled in.
 const CLASS_UPGRADES := {
 	"ult_charge": {
 		"name": "Old Instincts", "cat": CATEGORY_UTILITY,
 		"stat": "ultimate_rate", "kind": Kind.MUL, "amount": 1.25,
-		"desc": "Ultimate charges 25% faster", "cost": 210, "weight": 0.9,
+		"desc": "Recall the Wood comes round 25% sooner", "cost": 210, "weight": 0.9,
 	},
 	"ult_duration": {
 		"name": "Stubborn", "cat": CATEGORY_SURVIVAL,
 		"stat": "ultimate_power", "kind": Kind.MUL, "amount": 1.35,
-		"desc": "Your ultimate lasts 35% longer", "cost": 230, "weight": 0.9,
+		"desc": "Last Stand holds for 35% longer", "cost": 230, "weight": 0.9,
 	},
 	"ult_bloodlust": {
 		"name": "Thirst", "cat": CATEGORY_SURVIVAL,
 		"stat": "ultimate_rate", "kind": Kind.MUL, "amount": 1.25,
-		"desc": "Ultimate charges 25% faster", "cost": 240, "weight": 0.9,
+		"desc": "Crimson Hour comes round 25% sooner", "cost": 240, "weight": 0.9,
 	},
 	"ult_cadence": {
 		"name": "Tuned", "cat": CATEGORY_UTILITY,
 		"stat": "ultimate_rate", "kind": Kind.MUL, "amount": 1.25,
-		"desc": "Ultimate charges 25% faster", "cost": 220, "weight": 0.9,
+		"desc": "Overclock comes round 25% sooner", "cost": 220, "weight": 0.9,
 	},
 	"ult_harvest": {
 		"name": "Deep Roots", "cat": CATEGORY_UTILITY,
 		"stat": "ultimate_power", "kind": Kind.MUL, "amount": 1.35,
-		"desc": "Your ultimate lasts 35% longer", "cost": 220, "weight": 0.9,
+		"desc": "Bloom keeps going 35% longer", "cost": 220, "weight": 0.9,
 	},
 }
 

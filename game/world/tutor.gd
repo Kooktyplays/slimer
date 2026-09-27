@@ -44,7 +44,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_timer += delta
 	if _timer > 0.0 and not _shown_this_run.has("move"):
-		_hint("move", "WASD to move.  Mouse to aim.  Left click to shoot.")
+		_hint("move", InputBinds.OPENING_CONTROLS)
 	if _timer > _ability_prompt_at and not _shown_this_run.has("ability"):
 		# Read the keys from the bindings rather than naming them, so a rebind
 		# cannot turn this hint into a lie.
@@ -129,4 +129,6 @@ func _on_pickup(kind: String, _at: Vector2) -> void:
 
 
 func _on_reload(_duration: float) -> void:
-	_hint("reload", "Out of ammo - you reload automatically, or press R early.")
+	_hint("reload", ("Out of ammo. It reloads itself, or press %s and get ahead of it."
+		% InputBinds.label_for_action(Save.keybinds, "reload",
+			Game.input_device).to_upper()))

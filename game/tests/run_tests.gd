@@ -28,6 +28,7 @@ func _run() -> void:
 	_test_corpses()
 	_test_straggler_escalation()
 	_test_second_wave_enemies()
+	_test_written_text()
 	_test_sfx_stability()
 	_test_font()
 	_test_boss_phases()
@@ -1329,6 +1330,70 @@ func _test_sfx_stability() -> void:
 ## Spitter that kited at exactly its preferred range - so a new behaviour that
 ## can hide, lie down or go untargetable gets its exits asserted rather than
 ## reasoned about.
+## Player-facing text exists, and no two things say the same thing.
+##
+## The uniqueness half is the part that earns its place. Five class upgrades
+## shipped sharing three descriptions between them - three of them read
+## "Ultimate charges 25% faster" word for word - and nothing noticed, because
+## every one of them was a valid non-empty string. Duplicate copy is the exact
+## signature of a table that was filled in rather than written, and it is
+## invisible to any check that only asks whether a field is present.
+##
+## Existence is checked too, because two of these are read with a bare subscript
+## at runtime: tutor.gd indexes def["hint"] the moment an enemy first spawns, so
+## a type without one crashes mid-wave and no test covered it.
+func _test_written_text() -> void:
+	var hints := {}
+	for id: String in EnemyTypes.ORDER:
+		var def := EnemyTypes.get_def(id)
+		var hint := String(def.get("hint", ""))
+		_check(not hint.is_empty(),
+			"%s has no hint - tutor.gd reads def[\"hint\"] directly and will "
+				% id + "crash the first time one spawns")
+		_check(not hints.has(hint),
+			"%s and %s share a hint word for word" % [id, hints.get(hint, "")])
+		hints[hint] = id
+
+	var descs := {}
+	for id: String in AbilitiesDB.ORDER:
+		var d := String(AbilitiesDB.get_def(id).get("desc", ""))
+		_check(not d.is_empty(), "ability '%s' has no description" % id)
+		_check(not descs.has(d),
+			"abilities '%s' and '%s' have the same description"
+				% [id, descs.get(d, "")])
+		descs[d] = id
+
+	# The class-locked shop items. One per class, so each should be describing
+	# a different ultimate by name.
+	var class_descs := {}
+	for id: String in UpgradesDB.CLASS_UPGRADES:
+		var cd := String(UpgradesDB.CLASS_UPGRADES[id].get("desc", ""))
+		_check(not cd.is_empty(), "class upgrade '%s' has no description" % id)
+		_check(not class_descs.has(cd),
+			"class upgrades '%s' and '%s' read identically - the player cannot "
+				% [id, class_descs.get(cd, "")]
+			+ "tell what they are buying")
+		class_descs[cd] = id
+
+	var meta_descs := {}
+	for id: String in MetaDB.DEFS:
+		var md := MetaDB.description(id)
+		_check(not md.is_empty(), "meta unlock '%s' has no description" % id)
+		_check(not meta_descs.has(md),
+			"meta unlocks '%s' and '%s' read identically"
+				% [id, meta_descs.get(md, "")])
+		meta_descs[md] = id
+
+	# The opening controls line lives in one place now. It was in two, and they
+	# had already drifted apart by a word.
+	_check(not InputBinds.OPENING_CONTROLS.is_empty(),
+		"the opening controls line is empty")
+	for path: String in ["res://ui/main_menu.gd", "res://world/tutor.gd"]:
+		_check(not _read_source(path).contains("WASD to move"),
+			"%s spells the controls line out again instead of reading "
+				% path + "InputBinds.OPENING_CONTROLS")
+
+
 func _test_second_wave_enemies() -> void:
 	Combat.reset()
 	var scene: PackedScene = load("res://actors/enemy.tscn")
