@@ -352,7 +352,51 @@ SLIME_DEATH = (
 SLIME_FRAMES = len(SLIME_WALK) + 1 + len(SLIME_DEATH)
 
 
-def _draw_slime(a: "Art", sq: float, xs: float = 0.0) -> None:
+class SlimeShape:
+    """Per-type silhouette deltas for the base slime.
+
+    "Ten enemies are one slime through an HSV rotation" is the loudest tell in
+    the art, and rim light cannot fix it - recolor() rewrites RGB per pixel and
+    passes alpha through untouched, so the recolour approach structurally cannot
+    produce a per-type outline. This is where that changes.
+
+    What may vary: how far the base spreads, how irregular the edge is, the
+    wobble seed, and an optional marking drawn inside the body.
+
+    What may NOT vary: the height of the dome. The elite crown is positioned
+    against the apex, the face against it, the badge against it, and the hit
+    radii in EnemyTypes are stated in final pixels measured against it. Move the
+    apex and every elite of that colour wears a floating crown - which is why
+    there is no dome_squash here to reach for.
+    """
+
+    def __init__(self, spread=1.0, wobble=0.04, seed=11, marking=""):
+        self.spread = spread
+        self.wobble = wobble
+        self.seed = seed
+        self.marking = marking
+
+
+## One shape per enemy colour. Green is the base and must stay exactly the
+## base: gen_icons crops frame 0 of slime_body.png for the app icon, the menu
+## backdrop pages the same sheet, and _test_animation asserts that frame fills
+## its canvas.
+SLIME_SHAPES = {
+    "green":  SlimeShape(),
+    "blue":   SlimeShape(spread=0.94, wobble=0.03, seed=23),            # darter: tighter
+    "red":    SlimeShape(spread=1.07, wobble=0.05, seed=31, marking="plate"),
+    "purple": SlimeShape(spread=0.97, wobble=0.06, seed=47, marking="spots"),
+    "yellow": SlimeShape(spread=1.04, wobble=0.07, seed=59, marking="spots"),
+    "orange": SlimeShape(spread=1.05, wobble=0.09, seed=67, marking="bulge"),
+    "violet": SlimeShape(spread=0.99, wobble=0.05, seed=71, marking="ring"),
+    "grey":   SlimeShape(spread=1.03, wobble=0.03, seed=83, marking="plate"),
+    "teal":   SlimeShape(spread=0.95, wobble=0.06, seed=89, marking="streak"),
+    "pale":   SlimeShape(spread=1.00, wobble=0.04, seed=97, marking="ring"),
+}
+
+
+def _draw_slime(a: "Art", sq: float, xs: float = 0.0,
+                shape: "SlimeShape" = None) -> None:
     """One slime into `a`, squashed by `sq` about the ground line.
 
     Deforms around y=90 - the feet - so the base stays planted while the body
@@ -363,8 +407,13 @@ def _draw_slime(a: "Art", sq: float, xs: float = 0.0) -> None:
     default; the flinch and death frames want to pull in or splay out
     independently of how far they have compressed.
     """
+    if shape is None:
+        shape = SLIME_SHAPES["green"]
     if xs <= 0.0:
         xs = 1.0 / (sq ** 0.5)
+    # The type's spread widens the BASE only. The dome keeps its own width so
+    # the apex stays put; see SlimeShape.
+    bx = xs * shape.spread
 
     def Y(y: float) -> float:
         return 90 - (90 - y) * sq
@@ -382,9 +431,10 @@ def _draw_slime(a: "Art", sq: float, xs: float = 0.0) -> None:
     # did. Every offset tuned against it - the elite crown at y=-34, the face at
     # y=-6, the badge at y=14, the hit radii in EnemyTypes - is relative to this
     # frame, so the neutral frame has to stay exactly what it was.
-    a.blob(X(54), Y(52), RX(54), RY(38), (*P.SLIME_M, 255), wobble=0.04, seed=11)
-    a.ellipse(X(54), Y(34), RX(45), RY(34), (*P.SLIME_M, 255))   # dome
-    a.ellipse(X(54), Y(68), RX(53), RY(22), (*P.SLIME_M, 255))   # base
+    a.blob(X(54), Y(52), RX(54) * shape.spread, RY(38), (*P.SLIME_M, 255),
+           wobble=shape.wobble, seed=shape.seed)
+    a.ellipse(X(54), Y(34), RX(45), RY(34), (*P.SLIME_M, 255))   # dome - fixed
+    a.ellipse(X(54), Y(68), RX(53) * shape.spread, RY(22), (*P.SLIME_M, 255))
     # the base darkens where it meets the ground
     a.light(lambda s, c: s.ellipse(X(54), Y(96), RX(58), RY(30), c), (*P.SLIME_D, 255))
     # top-lit dome
@@ -408,11 +458,35 @@ def _draw_slime(a: "Art", sq: float, xs: float = 0.0) -> None:
     # pixel, so an in-family tone rotates with the body into all ten colours,
     # where a white edge would stay white on every one of them and flatten the
     # roster back out.
-    a.speckle(4801, 0.042)
+    # The type's marking. Drawn INSIDE the body, after the light wash, so it
+    # survives the hue rotation as a tonal difference rather than a hue one -
+    # and so it cannot alter the silhouette the crown and badge are pinned to.
+    if shape.marking == "spots":
+        for sx, sy, sr in ((36, 46, 7), (66, 40, 5.5), (52, 62, 6)):
+            a.light(lambda s_, c, _x=sx, _y=sy, _r=sr:
+                    s_.ellipse(X(_x), Y(_y), RX(_r), RY(_r * 0.8), c),
+                    (*P.SLIME_D, 130))
+    elif shape.marking == "plate":
+        a.light(lambda s_, c: s_.ellipse(X(54), Y(30), RX(34), RY(20), c),
+                (*P.SLIME_D, 85))
+    elif shape.marking == "ring":
+        a.light(lambda s_, c: s_.ellipse(X(54), Y(48), RX(38), RY(26), c),
+                (*P.SLIME_D, 75))
+        a.light(lambda s_, c: s_.ellipse(X(54), Y(48), RX(28), RY(19), c),
+                (*P.SLIME_L, 85))
+    elif shape.marking == "streak":
+        a.light(lambda s_, c: s_.poly(
+            [(X(26), Y(58)), (X(82), Y(44)), (X(82), Y(53)), (X(26), Y(67))], c),
+            (*P.SLIME_D, 105))
+    elif shape.marking == "bulge":
+        a.light(lambda s_, c: s_.ellipse(X(54), Y(58), RX(30), RY(18), c),
+                (*P.SLIME_L, 110))
+
+    a.speckle(4801 + shape.seed, 0.042)
     a.rim(P.SLIME_XL, dx=-2.0, dy=-3.0, alpha=150)
 
 
-def gen_slime_body():
+def _build_slime_sheet(shape=None):
     """The slime every enemy colour is derived from, as an 8-frame strip.
 
     Four walk frames, then one flinch, then three of dying. Laid out in that
@@ -432,19 +506,19 @@ def gen_slime_body():
     frames = []
     for sq in SLIME_WALK:
         f = Art(108, 90)
-        _draw_slime(f, sq)
+        _draw_slime(f, sq, shape=shape)
         frames.append(f.finish())
 
     # Appended, never inserted. Both generators in this project are seeded
     # positionally and gen_icons() crops frame 0 by fixed pixels, so the walk
     # cycle has to stay exactly where it was at the front of the strip.
     f = Art(108, 90)
-    _draw_slime(f, SLIME_FLINCH[0], SLIME_FLINCH[1])
+    _draw_slime(f, SLIME_FLINCH[0], SLIME_FLINCH[1], shape=shape)
     frames.append(f.finish())
 
     for sq, xs, alpha in SLIME_DEATH:
         f = Art(108, 90)
-        _draw_slime(f, sq, xs)
+        _draw_slime(f, sq, xs, shape=shape)
         img = f.finish()
         if alpha < 1.0:
             # Fade the whole frame rather than the fill colours, so it survives
@@ -460,8 +534,18 @@ def gen_slime_body():
     sheet = Image.new("RGBA", (108 * len(frames), 90), (0, 0, 0, 0))
     for i, f in enumerate(frames):
         sheet.paste(f, (i * 108, 0))
+    return sheet
+
+
+def gen_slime_body():
+    """The base slime, saved as slime_body.png.
+
+    Still the canonical sheet even though every enemy colour now draws its own:
+    gen_icons crops frame 0 of this file for the app icon, and the menu backdrop
+    loads it directly. It is the green shape, unmodified.
+    """
     OUT.mkdir(parents=True, exist_ok=True)
-    sheet.save(OUT / "slime_body.png")
+    _build_slime_sheet(SLIME_SHAPES["green"]).save(OUT / "slime_body.png")
 
 
 def gen_slime_face():
@@ -786,11 +870,14 @@ def recolor(src: Image.Image, hue_deg: float, sat_mul: float, val_mul: float) ->
 
 
 def gen_enemies():
-    # Reads the slime authored above, in OUT, not the pack file in SPRITES.
-    body = Image.open(OUT / "slime_body.png")
+    # Each colour is now DRAWN with its own silhouette and then recoloured,
+    # rather than being the one base sheet through a hue rotation. The rotation
+    # still does the palette - value contrast survives it exactly as before -
+    # but the shape no longer has to.
     OUT.mkdir(parents=True, exist_ok=True)
     for name, (hue, sm, vm) in ENEMY_TINTS.items():
-        recolor(body, hue, sm, vm).save(OUT / f"enemy_{name}_body.png")
+        sheet = _build_slime_sheet(SLIME_SHAPES.get(name, SLIME_SHAPES["green"]))
+        recolor(sheet, hue, sm, vm).save(OUT / f"enemy_{name}_body.png")
 
     # elite trim: a spiky crown ring drawn over the body silhouette
     for name, (hue, sm, vm) in ENEMY_TINTS.items():
