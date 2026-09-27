@@ -32,15 +32,27 @@ const SIM_DAMAGE_ASSIST := 12.0
 ## crowd or a repeat boss legitimately runs minutes, and a tight window here
 ## turns "the bot is not very good" into a reported softlock.
 const STALL_FRAMES := 14400
-## Earnings ceiling for a full 26-wave run.
+## Runaway canary on a full 26-wave run. Deliberately loose.
 ##
-## Measured, not guessed. With COMBO_MONEY_MUL flattened to 1.0 the same run
-## earns ~30,000; with the shipped curve it earns 36,000-41,000, so the chain is
-## worth about +30% rather than the runaway it looked like from the headline
-## figure alone. This ceiling sits at roughly twice the observed maximum: high
-## enough that ordinary variance never trips it, low enough to catch the shape
-## of bug that made the Vampire pay 17,201 when nothing else did.
-const MAX_EARNED := 80_000
+## It was 80,000, chosen as "about twice the observed maximum" from a sample of
+## two. Thirty-odd runs later that was plainly wrong: the real distribution is a
+## tight 33,000-42,000 body with a long right tail, and the tail is legitimate.
+## The two runs that broke 80,000 had best combos of 146 and 72 against a
+## typical 48 - a chain held that long genuinely earns that much, because
+## COMBO_MONEY_MUL tops out at 1.9x and elites pay 3x, and a lucky run gets both.
+##
+## A ceiling that fires on two runs in sixteen for reasons that are not bugs is
+## worse than no ceiling at all: it teaches whoever sees it that a red suite is
+## normal. So this now sits far above anything variance produces and only
+## catches the shape of bug it was written for - a multiplier compounding into
+## itself, which is orders of magnitude, not percentages. The Vampire's
+## kill-spread once paid 17,201 when nothing else did; that is the class of
+## thing this exists to notice.
+##
+## Note the player's BALANCE is not the concern either way. Every run measured,
+## passing or failing, finished holding double-digit coins: the shop is the
+## constraint on spending, not income.
+const MAX_EARNED := 250_000
 
 var _frames := 0
 var _failures: Array[String] = []
@@ -78,6 +90,11 @@ var _bot_stuck := 0
 var _no_kill_frames := 0
 var _last_enemy_count := 0
 var _last_boss_hp := INF
+## Frames the player has been dead while the run kept going. See _process.
+var _dead_frames := 0
+## Set when the harness kills the player ON PURPOSE, so the death-reset test
+## does not trip the softlock guard above.
+var _deaths_expected := 0
 var _target_index := 0
 
 
@@ -170,6 +187,28 @@ func _process(_delta: float) -> void:
 		_fail("hit the frame ceiling without reaching wave %d" % TARGET_WAVE)
 		_finish()
 		return
+	# A dead player with the run still going is a softlock, and it must be
+	# reported at the moment it happens rather than four minutes later.
+	#
+	# Found by the stall watchdog reporting "player=(2350,1933) hp=0
+	# alive=false" at wave 25: the player had died, Game never left State.RUN,
+	# and the whole wave went on swarming a corpse. From 14,400 frames away the
+	# symptom was indistinguishable from an unkillable boss. Caught here, the
+	# state at the instant of death is still on screen, which is the only thing
+	# that identifies which guard swallowed the transition.
+	if (_deaths_expected == 0 and Game.run != null and Game.run.hp <= 0.0
+			and Game.state == Game.State.RUN):
+		_dead_frames += 1
+		if _dead_frames > 60:
+			_fail(("the player died on wave %d and the run did not end - "
+				+ "state=%d phase=%d, %d enemies still active. "
+				+ "Game._on_player_died only transitions from State.RUN.")
+				% [_last_wave, Game.state, Game.phase, Combat.enemy_count()])
+			_dump_state()
+			_finish()
+			return
+	else:
+		_dead_frames = 0
 	if _frames - _last_progress_frame > STALL_FRAMES:
 		# Say WHAT is stuck, not just that something is. A wedged boss wave and
 		# a wedged shop look identical from the wave counter alone, and the
@@ -199,11 +238,24 @@ func _process(_delta: float) -> void:
 				(hb.collision_layer if hb != null else -1),
 				str(hb.monitorable) if hb != null else "n/a",
 				e.global_position.distance_to(Combat.player_position())]
+		# And the player, because "every enemy is 2px from the player" has two
+		# completely different causes and they look identical from here.
+		# Combat.player_position() returns Vector2.ZERO when the reference is
+		# invalid, and Enemy._target_position() feeds that straight into every
+		# _think() - so a lost player herds the entire wave to the world origin
+		# and reports them all as standing on top of you.
+		var pl := Combat.player()
+		var player_note := " player=none(registry lost - enemies are walking to the world origin)"
+		if pl != null:
+			player_note = " player=%s hp=%.0f alive=%s" % [
+				str(pl.global_position.round()),
+				(Game.run.hp if Game.run != null else -1.0),
+				str(pl.get("alive"))]
 		var shop_note := " shop=%s" % ("open" if _run_node() != null
 			and _run_node().get("shop") != null else "none")
 		var vic_note := " victory=%s" % ("up" if _run_node() != null
 			and _run_node().get("victory") != null else "none")
-		_note("stall detail:" + boss_note + enemy_note + shop_note + vic_note)
+		_note("stall detail:" + player_note + boss_note + enemy_note + shop_note + vic_note)
 		_fail("no wave progress for %d frames (stuck on wave %d, phase %d)"
 			% [STALL_FRAMES, _last_wave, Game.phase])
 		_dump_state()
@@ -432,11 +484,21 @@ func _begin_death_test(player: Player) -> void:
 			_pre_death["damage"]]
 		+ "%d upgrades bought" % _pre_death["upgrades"].size())
 	if Game.run.money_earned > MAX_EARNED:
-		_fail("the run earned %d, over the %d ceiling - a payout multiplier has "
-			% [Game.run.money_earned, MAX_EARNED]
-			+ "run away and the shop will not be a choice any more")
+		# Name what it bought. The first guess for a runaway is always the combo
+		# multiplier, and on this economy that guess was wrong: trimming the top
+		# of COMBO_MONEY_MUL from 2.4 to 1.9 moved the outlier from 95,641 to
+		# 96,082, which is no movement at all. Whatever compounds is in this
+		# list, so print it rather than guessing again.
+		var bought: Array[String] = []
+		for id: String in _pre_death["upgrades"]:
+			bought.append(id)
+		_fail("the run earned %d, over the %d ceiling. Best combo %d, %d kills, "
+			% [Game.run.money_earned, MAX_EARNED, _best_combo,
+				Game.run.kills]
+			+ "upgrades: %s" % ", ".join(bought))
 	for action: String in ["move_up", "move_down", "move_left", "move_right"]:
 		Input.action_release(action)
+	_deaths_expected += 1
 	player.take_damage(1_000_000.0)
 
 

@@ -27,7 +27,11 @@ echo "--- boot errors: $COUNT"
 echo "--- loading the test harness"
 # No `timeout` on macOS by default, so this is done by hand: run in the
 # background, poll, and kill it if it overruns.
-TESTLOG=$(mktemp)
+# Templated, not a bare `mktemp`. BSD mktemp with no template ignores TMPDIR and
+# uses the Darwin per-user temp dir, which is not writable under a sandbox that
+# has been handed an explicit TMPDIR - and the failure mode was this script
+# reporting "No such file or directory" for the log it never created.
+TESTLOG=$(mktemp "${TMPDIR:-/tmp}/slimer-tests.XXXXXX")
 "$GODOT" --headless --path . -- tests > "$TESTLOG" 2>&1 &
 TEST_PID=$!
 WAITED=0

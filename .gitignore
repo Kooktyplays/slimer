@@ -45,3 +45,9 @@ build/
 # nested inside the tree. Leading **/ because a pattern with a slash in it is
 # anchored to this file's directory, and these appear under subdirectories too.
 **/.claude/worktrees/
+
+# iconutil scratch. gen_icons builds the .icns from this and leaves it behind.
+game/assets/sprites/gen/*.iconset/
+
+# Python bytecode from the asset generators.
+game/tools/__pycache__/

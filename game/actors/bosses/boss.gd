@@ -485,7 +485,7 @@ func _atk_slam() -> void:
 	var t := _wind_up(lead)
 	t.tween_callback(func() -> void:
 		FX.explosion(target, radius, def["tint"])
-		Audio.play("boss_attack", -1.0)
+		Audio.play_at("boss_attack", global_position, -1.0)
 		Game.shake(Balance.SHAKE_BOSS_SLAM, 0.45)
 		Combat.explode_on_player(target, radius, 38.0 * _damage_scale)
 		_visual.scale = Vector2.ONE * float(def["scale"]) * (1.0 + 0.06 * repeat))
@@ -508,7 +508,7 @@ func _atk_radial() -> void:
 			if absf(angle_difference(a, gap)) < 0.42:
 				continue
 			_fire(Vector2.RIGHT.rotated(a), 330.0, 12.0)
-		Audio.play("boss_attack", -6.0)
+		Audio.play_at("boss_attack", global_position, -6.0)
 		FX.ring(global_position, 180.0, def["tint"], 0.35, 0.2))
 	t.tween_interval(0.2)
 	t.tween_callback(_recover)
@@ -523,7 +523,7 @@ func _atk_aimed_volley() -> void:
 			var dir := (Combat.player_position() - global_position).normalized()
 			var spread := deg_to_rad(_rng.randf_range(-9.0, 9.0))
 			_fire(dir.rotated(spread), 470.0, 14.0)
-			Audio.play("enemy_shoot", -8.0, 0.12))
+			Audio.play_at("enemy_shoot", global_position, -8.0, 0.12))
 		t.tween_interval(0.14)
 	t.tween_callback(_recover)
 
@@ -554,7 +554,7 @@ func _atk_charge() -> void:
 		line.queue_free()
 		_charging = true
 		_charge_velocity = dir * 1150.0
-		Audio.play("boss_attack", 0.0)
+		Audio.play_at("boss_attack", global_position, 0.0)
 		Game.shake(5.0, 0.3))
 	t.tween_interval(distance / 1150.0)
 	t.tween_callback(func() -> void:
@@ -607,7 +607,7 @@ func _atk_spiral() -> void:
 				_fire(Vector2.RIGHT.rotated(a), 300.0, 10.0))
 		t.tween_interval(0.075)
 	t.tween_callback(func() -> void:
-		Audio.play("boss_attack", -8.0)
+		Audio.play_at("boss_attack", global_position, -8.0)
 		_recover())
 
 
@@ -628,7 +628,7 @@ func _atk_rain() -> void:
 			inner.tween_interval(lead)
 			inner.tween_callback(func() -> void:
 				FX.explosion(at, radius, def["tint"])
-				Audio.play("explosion", -12.0)
+				Audio.play_at("explosion", global_position, -12.0)
 				Combat.explode_on_player(at, radius, 25.0 * _damage_scale)))
 		t.tween_interval(0.22)
 	t.tween_interval(lead)
@@ -748,7 +748,7 @@ func _atk_tongue() -> void:
 	var t := _wind_up(lead)
 	t.tween_callback(func() -> void:
 		line.default_color = Color(0.95, 0.45, 0.5, 0.85)
-		Audio.play("boss_attack", -3.0)
+		Audio.play_at("boss_attack", global_position, -3.0)
 		Game.shake(4.5, 0.25)
 		var p := Combat.player()
 		if p != null:
@@ -828,7 +828,7 @@ func _atk_rootquake() -> void:
 
 	var t := _wind_up(lead)
 	t.tween_callback(func() -> void:
-		Audio.play("boss_attack", -2.0)
+		Audio.play_at("boss_attack", global_position, -2.0)
 		Game.shake(6.0, 0.5)
 		for step in steps:
 			var inner := create_tween()

@@ -658,7 +658,7 @@ func _spawn_bullet(dir: Vector2) -> void:
 		"color": def["tint"],
 		"scale": 1.15,
 	})
-	Audio.play_throttled("enemy_shoot", 0.07, -17.0, 0.2)
+	Audio.play_at_throttled("enemy_shoot", hit_center(), 0.07, -17.0, 0.2)
 	Events.enemy_shot_fired.emit(self)
 	_squash(1.25)
 
@@ -715,7 +715,7 @@ func _detonate() -> void:
 	if is_elite:
 		damage *= Balance.ELITE_DAMAGE_MULTIPLIER
 	FX.explosion(global_position, radius)
-	Audio.play("explosion", -6.0)
+	Audio.play_at("explosion", global_position, -6.0)
 	Game.shake(Balance.SHAKE_EXPLOSION * 0.7, 0.3)
 	Combat.explode_on_player(global_position, radius, damage)
 	# bloaters also hurt each other, which is what makes a cluster of them
@@ -852,9 +852,13 @@ func _steal() -> void:
 	var take := mini(randi_range(want.x, want.y), Game.run.money)
 	if take <= 0:
 		return
+	# lose_money, not a bare subtraction: theft has to come off lifetime
+	# earnings too, or the coins handed back when this dies are counted as
+	# fresh income and the results screen reports money the player never made.
+	take = Game.run.lose_money(take)
+	if take <= 0:
+		return
 	stolen_value = take
-	Game.run.money -= take
-	Events.money_changed.emit(Game.run.money, -take)
 	money_value += take
 	FX.floating_text(hit_center() + Vector2(0, -60), "-%d" % take,
 		Color(1.0, 0.5, 0.4))
@@ -897,7 +901,7 @@ func _reveal() -> void:
 		* (Balance.ELITE_SCALE if is_elite else 1.0)
 	FX.burst(hit_center(), def["tint"], 16, 1.3)
 	FX.ring(hit_center(), hit_radius * 2.2, Color(1.0, 0.9, 0.5), 0.35, 0.2)
-	Audio.play("enemy_death", -8.0, 0.4)
+	Audio.play_at("enemy_death", global_position, -8.0, 0.4)
 	Game.shake(3.0, 0.2)
 	Events.enemy_revealed.emit(self)
 
@@ -1012,7 +1016,7 @@ func _deflect(from: Vector2) -> void:
 	if now - _last_deflect_text > DEFLECT_TEXT_INTERVAL:
 		_last_deflect_text = now
 		FX.floating_text(at + Vector2(0, -60), "IMMUNE", DEFLECT_COLOR)
-	Audio.play_throttled("deflect", 0.08, -12.0, 0.15)
+	Audio.play_at_throttled("deflect", hit_center(), 0.08, -12.0, 0.15)
 	_material.set_shader_parameter("flash_color", DEFLECT_COLOR)
 	_flash = 0.6
 	_material.set_shader_parameter("flash", 0.6)
@@ -1037,7 +1041,7 @@ func die(award: bool = true, leave_corpse: bool = true) -> void:
 	var at := global_position
 	if award:
 		FX.burst(at, def["tint"], 14 if not is_elite else 22, 1.0 if not is_elite else 1.5)
-		Audio.play_throttled("enemy_death", 0.05, -11.0, 0.18)
+		Audio.play_at_throttled("enemy_death", at, 0.05, -11.0, 0.18)
 		if elite_mod == "volatile":
 			# Deferred for the same reason as _split: death usually arrives
 			# from a bullet's body_entered, mid physics flush.
@@ -1083,7 +1087,7 @@ func _detonate_volatile(at: Vector2, for_wave: int) -> void:
 	var radius := 200.0
 	var damage := 22.0 * Balance.damage_scale(for_wave, Game.is_nightmare())
 	FX.explosion(at, radius, Color(1.0, 0.55, 0.3))
-	Audio.play("explosion", -7.0)
+	Audio.play_at("explosion", global_position, -7.0)
 	Game.shake(Balance.SHAKE_EXPLOSION * 0.6, 0.25)
 	Combat.explode_on_player(at, radius, damage)
 	# It hurts the pack too, exactly like a Bloater, which is what makes a

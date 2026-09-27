@@ -255,6 +255,27 @@ func add_money(amount: int) -> void:
 	Events.money_changed.emit(money, gained)
 
 
+## Money taken off the player by something that is not a purchase.
+##
+## Only the Thief does this. It has to come off `money_earned` as well, and that
+## is the whole point of the function: theft used to decrement `money` directly,
+## so the coins it handed back when you killed it were credited through
+## add_money() as fresh income. A steal-and-recover round trip therefore added
+## its full value to lifetime earnings while the balance netted to zero, and a
+## late run with several Thieves reported earning 97,024 coins while finishing
+## with 31 in hand and ten upgrades bought.
+##
+## Symmetrical, so both outcomes come out right: kill the Thief and the credit
+## restores what this removed, or let it escape and the loss stands - which is
+## exactly what "it got away with your money" should mean.
+func lose_money(amount: int) -> int:
+	var taken := clampi(amount, 0, money)
+	money -= taken
+	money_earned = maxi(0, money_earned - taken)
+	Events.money_changed.emit(money, -taken)
+	return taken
+
+
 func spend_money(amount: int) -> bool:
 	if money < amount:
 		return false

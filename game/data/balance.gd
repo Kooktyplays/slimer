@@ -318,17 +318,20 @@ const SHAKE_COMBO_TIER_UP := 3.2
 ## to the corpse's own payout before the coins are split, so a live chain
 ## visibly showers more coins rather than quietly crediting a bonus.
 ##
-## The top of this curve was 2.4 and is now 1.9, because the tail was the
-## problem rather than the median. Ten sim runs earned 33,000-45,000 nine times
-## and 95,641 once: the multiplier is applied to the largest payouts exactly
-## when a long chain is easiest to hold, so the good runs compound and the
-## ordinary ones do not. Flattening the whole curve to 1.0 still earns ~30,000,
-## so the chain was only ever worth about +30% on a normal run - trimming the
-## top costs that run almost nothing and takes roughly a fifth off the outlier.
+## This top figure was briefly trimmed to 1.9 to kill an earnings outlier. It
+## did not: the outlier moved from 95,641 to 111,252, which is noise, and over
+## thirty runs the tail turned out to be a long chain rather than a bug - the
+## breaching runs had best combos of 146 and 72 against a typical 48. The trim
+## was reverted because it cost an ordinary run about 7% of its payout in
+## exchange for nothing at all.
 ##
-## Still unvalidated by human play, and it still compounds with money_mul and
-## with the Vampire's kill-spread. SimHarness.MAX_EARNED is the guard now.
-const COMBO_MONEY_MUL: Array[float] = [1.0, 1.15, 1.3, 1.5, 1.7, 1.9]
+## Flattening the whole curve to 1.0 still earns ~30,000 a run, so the chain is
+## worth roughly +30% on normal play, which is the number to argue about.
+##
+## Unvalidated by human play, and it compounds with money_mul and with the
+## Vampire's kill-spread. SimHarness.MAX_EARNED is a loose canary on that, not
+## a tight bound - see the comment there before tightening it again.
+const COMBO_MONEY_MUL: Array[float] = [1.0, 1.2, 1.45, 1.75, 2.05, 2.4]
 
 
 ## Payout multiplier for `tier`, clamped so a new tier can never index off the

@@ -1,8 +1,15 @@
-[gd_resource type="AudioBusLayout" load_steps=4 format=3 uid="uid://m4cq43nu8bbm"]
+[gd_resource type="AudioBusLayout" load_steps=5 format=3 uid="uid://m4cq43nu8bbm"]
 
 [sub_resource type="AudioEffectLowPassFilter" id="LowPass_music"]
 cutoff_hz = 20500.0
 resonance = 0.2
+
+[sub_resource type="AudioEffectReverb" id="Reverb_sfx"]
+room_size = 0.55
+damping = 0.42
+spread = 0.7
+dry = 1.0
+wet = 0.18
 
 [sub_resource type="AudioEffectDistortion" id="Dist_a"]
 mode = 2
@@ -47,6 +54,8 @@ bus/5/mute = false
 bus/5/bypass_fx = false
 bus/5/volume_db = -3.0
 bus/5/send = &"Master"
+bus/5/effect/0/effect = SubResource("Reverb_sfx")
+bus/5/effect/0/enabled = true
 bus/6/name = &"UI"
 bus/6/solo = false
 bus/6/mute = false

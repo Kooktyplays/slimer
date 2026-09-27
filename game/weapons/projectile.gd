@@ -158,10 +158,17 @@ func _resolve(collider: Object, rid: RID, at: Vector2) -> bool:
 
 	body.call("take_damage", damage, is_crit, at, knockback, Combat.SOURCE_BULLET)
 	FX.impact(at, Color(1, 1, 1) if not is_crit else Color(1.0, 0.85, 0.4), 0.85)
+	# The two most-repeated sounds in the game - a fully upgraded gun lands
+	# eighteen of these a second - so they get the widest jitter of anything.
+	# Audio.play applies a matching loudness wobble off the same figure, which
+	# together is what stops a sustained burst reading as one held buzz.
+	# Deliberately NOT positional: these are feedback about the player's own
+	# shot connecting, and panning them would push confirmation of your own
+	# trigger pull off to one side of your head.
 	if is_crit:
-		Audio.play_throttled("crit", 0.05, -10.0, 0.12)
+		Audio.play_throttled("crit", 0.05, -10.0, 0.22)
 	else:
-		Audio.play_throttled("hit", 0.045, -13.0, 0.14)
+		Audio.play_throttled("hit", 0.045, -13.0, 0.24)
 
 	if _hit.size() > pierce:
 		_expire()

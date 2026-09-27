@@ -9,7 +9,10 @@ Outputs 44.1 kHz 16-bit mono WAVs to assets/sfx/. Godot imports .wav directly.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import math
+import sys
 import wave
 from pathlib import Path
 
@@ -454,6 +457,28 @@ def additions():
         decay(sweep(0.10, 3200, 1700, "tri"), 0.018) * 0.30), 1.6))
 
 
+MANIFEST = ROOT / "tools" / "sfx_manifest.json"
+
+
+def write_manifest() -> None:
+    """Rewrite sfx_manifest.json from whatever is currently on disk.
+
+    Deliberately behind a flag rather than part of main(). The manifest exists so
+    the logic suite fails when a .wav changes unintentionally, and a generator
+    that refreshed it on every run would assert nothing at all - it would simply
+    record the damage and pass.
+
+    Run `gen_sfx.py --manifest` only when a change to an existing sound is
+    intended, and say which sounds changed in the commit message.
+    """
+    rows = {f.stem: hashlib.sha256(f.read_bytes()).hexdigest()
+            for f in sorted(OUT.glob("*.wav"))}
+    payload = json.loads(MANIFEST.read_text()) if MANIFEST.exists() else {}
+    payload["sounds"] = rows
+    MANIFEST.write_text(json.dumps(payload, indent="\t", sort_keys=True) + "\n")
+    print(f"manifest: {len(rows)} sounds -> {MANIFEST.relative_to(ROOT)}")
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     for label, fn in (
@@ -469,4 +494,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--manifest" in sys.argv:
+        write_manifest()
+    else:
+        main()
