@@ -16,6 +16,9 @@ var _flames: Node2D = null
 
 
 func setup(at: Vector2, def: Dictionary) -> void:
+	# The Devourer eats these. One group rather than two type checks,
+	# so a third zoning ability later is one line.
+	add_to_group("zoning")
 	global_position = at
 	_life = float(def["duration"])
 	_radius = float(def["radius"])

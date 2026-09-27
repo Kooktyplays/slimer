@@ -63,6 +63,8 @@ const BODY_FRAMES := 8
 const FLINCH_TIME := 0.10
 ## Time per death frame. Three of them, so a corpse is on screen ~0.21s.
 const DEATH_FRAME_TIME := 0.07
+## Soil, for the Burrower going under and coming back up.
+const C_SOIL := Color(0.42, 0.31, 0.19)
 
 ## Where Visual/Body sits inside Visual, before Visual's own scale is applied.
 ## Mirrors enemy.tscn. The drawn offset is this times the slime's visual scale,
@@ -144,6 +146,26 @@ var _ward_until := 0.0
 ## into a money printer.
 var stolen_value := 0
 const THIEF_ESCAPE_DISTANCE := 1500.0
+
+## Husk. Down but not dead: it has run out of health once, is lying on the
+## ground playing its last death frame, and will get back up.
+##
+## It stays REGISTERED, visible and shootable the whole time. That is the
+## counterplay - finish it off while it is down - and it is also the safety
+## property: an untargetable body that still counted would be a wave that can
+## never end, which is the shape of the Phasing bug and of the Spitter wedge.
+var _husk_down := false
+var _husk_spent := false
+var _husk_timer := 0.0
+## Burrower. Underground and untargetable, on a cycle that always comes back up.
+var _burrowed := false
+var _burrow_timer := 0.0
+## Knot. The other half of the pair and the line drawn between them.
+var _knot_partner: Enemy = null
+var _knot_line: Line2D = null
+var _knot_hit_at := 0.0
+## Devourer. Throttles how often it looks for zoning to eat.
+var _eat_timer := 0.0
 
 ## Counts down while the flinch frame is showing; the walk cycle leaves the
 ## body frame alone until it hits zero.
@@ -315,6 +337,20 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	_flinch_timer = 0.0
 	_death_frame = -1
 	_death_timer = 0.0
+	# Pooled state for the second-wave behaviours. All of these leave the node
+	# in a state that would be wrong on a recycle - a husk still "down", a
+	# burrower still untargetable - so they are cleared on every acquire as well
+	# as in _pool_reset.
+	_husk_down = false
+	_husk_spent = false
+	_husk_timer = 0.0
+	_burrowed = false
+	_burrow_timer = float(def.get("burrow_up", 2.4))
+	_knot_partner = null
+	_knot_hit_at = 0.0
+	_eat_timer = 0.0
+	if _knot_line != null:
+		_knot_line.visible = false
 	visible = true
 	set_physics_process(true)
 	set_process(false)
@@ -359,6 +395,11 @@ func _physics_process(delta: float) -> void:
 	_attack_timer = maxf(0.0, _attack_timer - scaled)
 	if _is_turtle:
 		_tick_shell(scaled)
+	match String(def["behavior"]):
+		"husk": _tick_husk(scaled)
+		"burrow": _tick_burrow(scaled)
+		"knot": _tick_knot(scaled)
+		"devour": _tick_devour(scaled)
 	if is_elite:
 		_tick_elite(scaled)
 
@@ -483,6 +524,16 @@ func _think(target: Vector2) -> void:
 		_desired = dir
 		if String(def["behavior"]) == "ranged":
 			_try_shoot(dist, dir)
+		# A Burrower must not be allowed to spend the end of a wave underground.
+		# It is untargetable down there, so the last one alive could hold the
+		# wave open through its whole cycle, over and over. Mop-up surfaces it
+		# and keeps it up.
+		if _burrowed:
+			_surface()
+		# ...and a Husk stays put while it is down, because it is a body on the
+		# ground. It still revives on its own clock, so this cannot wedge.
+		if _husk_down:
+			_desired = Vector2.ZERO
 		return
 
 	match String(def["behavior"]):
@@ -545,6 +596,25 @@ func _think(target: Vector2) -> void:
 				_desired = (-dir + dir.orthogonal() * 0.4 * _flank_sign).normalized()
 				if dist > THIEF_ESCAPE_DISTANCE:
 					_escape()
+
+		"husk":
+			# Down means down. Everything else about it is an ordinary chaser.
+			_desired = Vector2.ZERO if _husk_down else dir
+
+		"burrow":
+			# It keeps closing while underground - that is the threat, since you
+			# cannot shoot it on the way in - but slower, because a burrower that
+			# crossed the arena untouchable would just be a teleport.
+			_desired = dir * (0.6 if _burrowed else 1.0)
+
+		"knot":
+			# Straight in, but each half drifts to one side so the pair spreads
+			# and the line between them sweeps an arc rather than staying a
+			# point. A tether you can stand next to is not a hazard.
+			_desired = (dir + dir.orthogonal() * 0.35 * _flank_sign).normalized()
+
+		"devour":
+			_desired = dir
 
 		"mimic":
 			# Bait until it is not. Reveals on proximity, and on finisher_mode
@@ -833,6 +903,12 @@ func take_damage(amount: float, is_crit: bool = false, from: Vector2 = Vector2.Z
 		speed = float(def["speed"]) * Balance.speed_scale(spawn_wave) * 1.85
 
 	if hp <= 0.0:
+		# A Husk does not die the first time. It goes down and gets back up,
+		# and it is only finished when it runs out while already down - which is
+		# what makes "put it down twice" the counterplay rather than a tax.
+		if String(def["behavior"]) == "husk" and not _husk_spent and not _husk_down:
+			_go_down()
+			return
 		die(true)
 
 
@@ -935,6 +1011,156 @@ func _tick_shell(delta: float) -> void:
 	_squash(1.22 if _shell_up else 0.82)
 	if _shell_up:
 		FX.ring(hit_center(), hit_radius * 1.5, DEFLECT_COLOR, 0.25, 0.35)
+
+
+## HUSK. Drop, play dead, get back up once.
+##
+## Deliberately NOT routed through die(): that unregisters from Combat, emits
+## enemy_died - paying out coins, combo and the wave's live count - and starts a
+## 0.21s pooling deadline. A husk that went through it would pay twice and would
+## be handed back to the pool mid-revive. It simply stops moving and shows its
+## last death frame instead, and stays on the books the whole time.
+func _go_down() -> void:
+	_husk_down = true
+	_husk_timer = float(def.get("revive_delay", 2.6))
+	hp = 1.0
+	_desired = Vector2.ZERO
+	velocity = Vector2.ZERO
+	_body.frame = DEATH_FRAMES[DEATH_FRAMES.size() - 1]
+	_visual.position.y = 0.0
+	Audio.play_at("enemy_death", global_position, -12.0, 0.3)
+	FX.burst(hit_center(), def["tint"], 8, 0.7)
+
+
+func _tick_husk(delta: float) -> void:
+	if not _husk_down:
+		return
+	_husk_timer -= delta
+	if _husk_timer > 0.0:
+		return
+	# Up again, at a fraction of its health, and it cannot do this twice.
+	_husk_down = false
+	_husk_spent = true
+	hp = maxf(1.0, max_hp * float(def.get("revive_fraction", 0.5)))
+	_body.frame = 0
+	_flash = 1.0
+	_material.set_shader_parameter("flash", 1.0)
+	FX.ring(hit_center(), hit_radius * 2.0, def["tint"], 0.35, 0.3)
+	Audio.play_at("boss_phase", global_position, -14.0, 0.2)
+
+
+## BURROWER. Untargetable underground, on a cycle that always surfaces.
+##
+## The hurtbox layer is what makes it untargetable, and clearing that layer is
+## exactly how the Phasing elite once produced permanently unhittable slimes -
+## so it is restored here, in configure() and in _pool_reset(), and finisher
+## mode forces a surface so the last one alive cannot ride its cycle forever.
+func _tick_burrow(delta: float) -> void:
+	_burrow_timer -= delta
+	if _burrow_timer > 0.0:
+		return
+	if _burrowed:
+		_surface()
+	else:
+		_burrowed = true
+		_burrow_timer = float(def.get("burrow_down", 1.9))
+		_hurtbox.collision_layer = 0
+		_visual.modulate.a = 0.28
+		_badge.visible = false
+		FX.burst(global_position, C_SOIL, 10, 0.8)
+
+
+func _surface() -> void:
+	if not _burrowed:
+		return
+	_burrowed = false
+	_burrow_timer = float(def.get("burrow_up", 2.4))
+	_hurtbox.collision_layer = Layers.ENEMY
+	_visual.modulate.a = 1.0
+	refresh_badge()
+	FX.burst(global_position, C_SOIL, 14, 1.0)
+
+
+## KNOT. Two of them, and the line between them burns.
+func _tick_knot(delta: float) -> void:
+	if not is_instance_valid(_knot_partner) or _knot_partner.dying:
+		_knot_partner = null
+	if _knot_partner == null:
+		_find_knot_partner()
+	if _knot_line != null:
+		_knot_line.visible = false
+	if _knot_partner == null:
+		return
+
+	var a := hit_center()
+	var b: Vector2 = _knot_partner.hit_center()
+	if a.distance_to(b) > float(def.get("tether_range", 620.0)):
+		return
+
+	# Drawn by the LOWER instance id only, so a pair draws one line rather than
+	# two stacked on each other - and so only one of them can charge the player
+	# for crossing it.
+	if get_instance_id() > _knot_partner.get_instance_id():
+		return
+	_draw_tether(a, b)
+
+	var p := Combat.player()
+	if p == null:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now < _knot_hit_at:
+		return
+	if Geometry2D.get_closest_point_to_segment(p.global_position, a, b) \
+			.distance_to(p.global_position) > 26.0:
+		return
+	_knot_hit_at = now + 0.6
+	if p.has_method("take_damage"):
+		p.call("take_damage", float(def.get("tether_damage", 16.0))
+			* Balance.damage_scale(spawn_wave, Game.is_nightmare()))
+
+
+func _find_knot_partner() -> void:
+	for other: Node2D in Combat.enemies():
+		if other == self or not (other is Enemy):
+			continue
+		var e := other as Enemy
+		if String(e.def["behavior"]) != "knot" or e.dying:
+			continue
+		if e._knot_partner != null and e._knot_partner != self:
+			continue
+		_knot_partner = e
+		e._knot_partner = self
+		return
+
+
+func _draw_tether(a: Vector2, b: Vector2) -> void:
+	if _knot_line == null:
+		_knot_line = Line2D.new()
+		_knot_line.width = 7.0
+		_knot_line.top_level = true
+		_knot_line.z_index = -1
+		_knot_line.default_color = Color(def["tint"], 0.85)
+		add_child(_knot_line)
+	_knot_line.visible = true
+	_knot_line.points = PackedVector2Array([a, b])
+
+
+## DEVOURER. Eats the ground you were relying on.
+func _tick_devour(delta: float) -> void:
+	_eat_timer -= delta
+	if _eat_timer > 0.0:
+		return
+	_eat_timer = 0.35
+	var reach := float(def.get("eat_range", 130.0))
+	for node: Node in get_tree().get_nodes_in_group("zoning"):
+		var n := node as Node2D
+		if not is_instance_valid(n) or n.global_position.distance_to(global_position) > reach:
+			continue
+		FX.burst(n.global_position, def["tint"], 14, 1.2)
+		Audio.play_at("enemy_death", n.global_position, -10.0, 0.25)
+		n.queue_free()
+		_squash(1.3)
+		return
 
 
 ## Elite behaviour that runs on a clock rather than on an event.
@@ -1133,6 +1359,12 @@ func _pool_reset() -> void:
 	_flinch_timer = 0.0
 	_death_frame = -1
 	_death_timer = 0.0
+	_husk_down = false
+	_husk_spent = false
+	_burrowed = false
+	_knot_partner = null
+	if _knot_line != null:
+		_knot_line.visible = false
 	_body.frame = 0
 	_hurtbox.collision_layer = Layers.ENEMY
 	# And the forest mask, for the same reason: parked is the one state

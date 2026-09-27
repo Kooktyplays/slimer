@@ -27,6 +27,7 @@ func _run() -> void:
 	_test_thief_and_mimic()
 	_test_corpses()
 	_test_straggler_escalation()
+	_test_second_wave_enemies()
 	_test_sfx_stability()
 	_test_font()
 	_test_boss_phases()
@@ -1317,6 +1318,104 @@ func _test_sfx_stability() -> void:
 			continue
 		_check(sounds.has(file.get_basename()),
 			"%s is not in the sfx manifest - run gen_sfx.py --manifest" % file)
+
+
+## The four behaviours added with the roster's second wave, and specifically the
+## ways each of them could stop a wave from ending.
+##
+## Every one of these is the same class of bug: an enemy that is present and
+## counted but cannot be killed. The game has shipped that bug twice already -
+## the Phasing elite that came back from the pool with no hurtbox, and the
+## Spitter that kited at exactly its preferred range - so a new behaviour that
+## can hide, lie down or go untargetable gets its exits asserted rather than
+## reasoned about.
+func _test_second_wave_enemies() -> void:
+	Combat.reset()
+	var scene: PackedScene = load("res://actors/enemy.tscn")
+
+	# --- Husk: goes down once, comes back up, and is shootable throughout ---
+	var h: Enemy = scene.instantiate()
+	add_child(h)
+	h.configure(EnemyTypes.BONE, 12)
+	var live := Combat.enemy_count()
+	h.take_damage(10_000.0)
+	_check(not h.dying, "a Husk died on its first knockdown instead of lying down")
+	_check(Combat.enemy_count() == live,
+		"a Husk stopped being counted while it was down - the wave can end "
+		+ "with it still on the field")
+	_check(h.get_node("Hurtbox").collision_layer == Layers.ENEMY,
+		"a downed Husk is not shootable, so it cannot be finished off")
+	_check(bool(h.get("_husk_down")), "a Husk is not flagged as down")
+
+	# it gets back up on its own clock, so it can never hold a wave open
+	for _i in 200:
+		h.call("_tick_husk", 0.05)
+	_check(not bool(h.get("_husk_down")), "a Husk never got back up")
+	_check(h.hp > 0.0, "a revived Husk came back with no health")
+
+	# ...and the second knockdown is final.
+	h.take_damage(10_000.0)
+	_check(h.dying, "a Husk went down twice - it is unkillable")
+	h.call("_pool_reset")
+	_check(not bool(h.get("_husk_spent")),
+		"a recycled Husk remembers it already revived, so it dies in one hit")
+
+	# --- Burrower: untargetable underground, but mop-up always surfaces it ---
+	var b: Enemy = scene.instantiate()
+	add_child(b)
+	b.configure(EnemyTypes.UMBER, 15)
+	b.set("_burrow_timer", 0.0)
+	b.call("_tick_burrow", 0.01)
+	_check(bool(b.get("_burrowed")), "a Burrower never went under")
+	_check(b.get_node("Hurtbox").collision_layer == 0,
+		"a burrowed enemy is still shootable - the state means nothing")
+
+	Combat.finisher_mode = true
+	b.call("_think", Combat.player_position())
+	_check(not bool(b.get("_burrowed")),
+		"a Burrower stayed under during mop-up - the last one alive can ride "
+		+ "its cycle and hold the wave open forever")
+	_check(b.get_node("Hurtbox").collision_layer == Layers.ENEMY,
+		"a surfaced Burrower did not get its hurtbox back")
+	Combat.finisher_mode = false
+
+	# and the recycle, which is where the Phasing elite went wrong
+	b.set("_burrowed", true)
+	b.get_node("Hurtbox").collision_layer = 0
+	b.call("_pool_reset")
+	_check(b.get_node("Hurtbox").collision_layer == Layers.ENEMY,
+		"a parked Burrower keeps its cleared hurtbox - it comes back "
+		+ "permanently unhittable")
+
+	# --- Knot: pairs up, and never with itself ---
+	var k1: Enemy = scene.instantiate()
+	var k2: Enemy = scene.instantiate()
+	add_child(k1)
+	add_child(k2)
+	k1.configure(EnemyTypes.INDIGO, 18)
+	k2.configure(EnemyTypes.INDIGO, 18)
+	k1.call("_find_knot_partner")
+	_check(k1.get("_knot_partner") == k2, "a Knot did not find its pair")
+	_check(k2.get("_knot_partner") == k1, "the pairing is not mutual")
+	_check(k1.get("_knot_partner") != k1, "a Knot tethered itself")
+
+	# --- Devourer: eats zoning, and only within reach ---
+	var d: Enemy = scene.instantiate()
+	add_child(d)
+	d.configure(EnemyTypes.RUST, 20)
+	var far := Node2D.new()
+	far.add_to_group("zoning")
+	add_child(far)
+	far.global_position = d.global_position + Vector2(4000, 0)
+	d.set("_eat_timer", 0.0)
+	d.call("_tick_devour", 0.01)
+	_check(is_instance_valid(far),
+		"a Devourer ate a wall on the other side of the forest")
+	far.queue_free()
+
+	for e: Enemy in [h, b, k1, k2, d]:
+		e.queue_free()
+	Combat.reset()
 
 
 func _test_straggler_escalation() -> void:

@@ -196,14 +196,18 @@ func _process(_delta: float) -> void:
 	# symptom was indistinguishable from an unkillable boss. Caught here, the
 	# state at the instant of death is still on screen, which is the only thing
 	# that identifies which guard swallowed the transition.
-	if (_deaths_expected == 0 and Game.run != null and Game.run.hp <= 0.0
-			and Game.state == Game.State.RUN):
+	if _deaths_expected == 0 and Game.state == Game.State.DEATH:
 		_dead_frames += 1
 		if _dead_frames > 60:
-			_fail(("the player died on wave %d and the run did not end - "
-				+ "state=%d phase=%d, %d enemies still active. "
-				+ "Game._on_player_died only transitions from State.RUN.")
-				% [_last_wave, Game.state, Game.phase, Combat.enemy_count()])
+			# Fail fast and say what happened. The death transition itself works
+			# fine; what the harness has no answer for is the death SCREEN,
+			# which waits for a choice nothing here makes. Left to the stall
+			# watchdog this reads as "wave 25 is wedged" four minutes later, and
+			# looks exactly like an unkillable boss.
+			_fail(("the bot was killed on wave %d - the run is sitting on the "
+				+ "death screen. The top-up above is meant to make that "
+				+ "impossible, so either it is too low or something bypasses it.")
+				% _last_wave)
 			_dump_state()
 			_finish()
 			return
@@ -294,7 +298,14 @@ func _tick_waves() -> void:
 
 	# Keep the run alive: this test is about the loop not wedging, not about
 	# whether an AI can out-play wave 26.
-	if Game.run.hp < Game.run.max_hp * 0.75:
+	#
+	# The threshold was 0.75, and that was not enough of a margin. A wave-25
+	# boss slam is 38 base against a damage_scale that caps at 2.4, so roughly 91
+	# - more than the 75 health this used to let the bot sit at. The bot was
+	# being one-shot from "healthy" about one run in six, and because the death
+	# screen then waits for a choice the harness never makes, it presented as a
+	# four-minute stall at wave 25 rather than as a death.
+	if Game.run.hp < Game.run.max_hp * 0.95:
 		Game.run.hp = Game.run.max_hp
 
 	# The ending pauses the game and waits for a choice. Always CONTINUE, so

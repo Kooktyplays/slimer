@@ -392,6 +392,10 @@ SLIME_SHAPES = {
     "grey":   SlimeShape(spread=1.03, wobble=0.03, seed=83, marking="plate"),
     "teal":   SlimeShape(spread=0.95, wobble=0.06, seed=89, marking="streak"),
     "pale":   SlimeShape(spread=1.00, wobble=0.04, seed=97, marking="ring"),
+    "bone":   SlimeShape(spread=0.92, wobble=0.02, seed=101, marking="plate"),
+    "rust":   SlimeShape(spread=1.09, wobble=0.08, seed=103, marking="bulge"),
+    "umber":  SlimeShape(spread=1.02, wobble=0.10, seed=107, marking="streak"),
+    "indigo": SlimeShape(spread=0.96, wobble=0.05, seed=109, marking="spots"),
 }
 
 
@@ -844,6 +848,13 @@ ENEMY_TINTS = {
     "grey":   (120, 0.16, 0.88),
     "teal":   (172, 0.85, 1.00),
     "pale":   (44,  0.34, 1.06),
+    # The second wave of types. Kept clear of their neighbours in hue AND in
+    # saturation, because the roster is now fourteen colours and adjacent hues
+    # are the first thing to stop reading in a crowd.
+    "bone":   (32,  0.18, 1.12),   # Husk - drained, the palest thing out there
+    "rust":   (14,  0.86, 0.80),   # Devourer - dark, heavy, eats your zoning
+    "umber":  (30,  0.62, 0.62),   # Burrower - soil, and darkest of the set
+    "indigo": (232, 0.74, 0.86),   # Knot - cold, and pairs read as one colour
 }
 
 
@@ -974,10 +985,35 @@ def gen_type_badges():
         a.ellipse(c, c + 3.0, r + g, r + g, col)
         a.rrect(c - r - g - 1, c + 3.0, c + r + g + 1, c + r + g + 4, 1.0, col)
 
+    def hourglass(a, col, g):
+        # Husk: it is a timer. Down, then up again.
+        a.poly([(c - r - g, c - r - g), (c + r + g, c - r - g), (c, c)], col)
+        a.poly([(c - r - g, c + r + g), (c + r + g, c + r + g), (c, c)], col)
+        a.rrect(c - 2 - g, c - 3, c + 2 + g, c + 3, 1, col)
+
+    def crescent(a, col, g):
+        # Devourer: a bite taken out of something.
+        a.circle(c - 1.5, c, r + g, col)
+        a.circle(c + 5.5, c, r * 0.82 + g, (0, 0, 0, 0))
+
+    def arrow(a, col, g):
+        # Burrower: it goes down.
+        a.poly([(c, c + r + g + 1), (c - r - g - 1, c - 1),
+                (c - 4 - g, c - 1), (c - 4 - g, c - r - g),
+                (c + 4 + g, c - r - g), (c + 4 + g, c - 1),
+                (c + r + g + 1, c - 1)], col)
+
+    def pentagon(a, col, g):
+        # Knot: they come in twos, and this is the odd shape out.
+        pts = [(c + (r + g + 1) * math.sin(math.tau * i / 5),
+                c - (r + g + 1) * math.cos(math.tau * i / 5)) for i in range(5)]
+        a.poly(pts, col)
+
     shapes = {
         "green": circle, "blue": chevron, "red": square, "purple": diamond,
         "yellow": triangle, "orange": burst, "violet": ring, "grey": hexagon,
         "teal": cross, "pale": halfdisc,
+        "bone": hourglass, "rust": crescent, "umber": arrow, "indigo": pentagon,
     }
     for name, fn in shapes.items():
         a = _badge()

@@ -14,9 +14,19 @@ const VIOLET := "violet"
 const GREY := "grey"
 const TEAL := "teal"
 const PALE := "pale"
+const BONE := "bone"
+const RUST := "rust"
+const UMBER := "umber"
+const INDIGO := "indigo"
 
-const ORDER: Array[String] = [GREEN, BLUE, RED, PURPLE, YELLOW, ORANGE,
-	VIOLET, GREY, TEAL, PALE]
+## Teaching order, and the array everything else iterates. A type missing from
+## here is invisible to the spawner, the tutor and every count in the suite.
+##
+## Re-spaced when the roster went from ten to fourteen: the run ENDS at wave 25
+## now, so four types appended above wave 20 would have been content almost
+## nobody saw. All fourteen are unlocked by wave 20.
+const ORDER: Array[String] = [GREEN, BLUE, RED, PURPLE, YELLOW, BONE, VIOLET,
+	UMBER, ORANGE, TEAL, INDIGO, GREY, RUST, PALE]
 
 const DEFS := {
 	GREEN: {
@@ -75,7 +85,7 @@ const DEFS := {
 		"money": Vector2i(10, 16),
 		"scale": 0.64,
 		"radius": 30.0,
-		"unlock_wave": 9,
+		"unlock_wave": 8,
 		"weight": 0.8,
 		"hint": "Purple spitters keep their distance. Close in or break line of sight.",
 		# ranged-specific
@@ -100,7 +110,7 @@ const DEFS := {
 		"money": Vector2i(70, 105),
 		"scale": 0.66,
 		"radius": 32.0,
-		"unlock_wave": 11,
+		"unlock_wave": 10,
 		"weight": 0.55,
 		"hint": "Yellow hoarders hoard the gold and run. Hunt them down first.",
 		# They break away sooner and keep more distance, so catching one is a
@@ -232,6 +242,55 @@ const DEFS := {
 		# player read the ground, which is a whole layer of attention the game
 		# did not previously use.
 		"disguise_range": 150.0,
+	},
+	BONE: {
+		"name": "Husk",
+		"behavior": "husk",
+		"tint": Color(0.86, 0.80, 0.70),
+		"hp": 46.0, "speed": 102.0, "contact_damage": 7.0, "threat": 2.0,
+		"money": Vector2i(9, 14), "scale": 0.62, "radius": 29.0,
+		"unlock_wave": 11, "weight": 0.8,
+		"hint": "Husks lie down when they run out. They get back up.",
+		# husk-specific. It stays registered, visible and shootable while down -
+		# finishing one off is the counterplay, and an untargetable corpse would
+		# be a way for a wave never to end.
+		"revive_delay": 2.6,
+		"revive_fraction": 0.5,
+	},
+	UMBER: {
+		"name": "Burrower",
+		"behavior": "burrow",
+		"tint": Color(0.55, 0.40, 0.22),
+		"hp": 78.0, "speed": 124.0, "contact_damage": 9.0, "threat": 2.6,
+		"money": Vector2i(12, 18), "scale": 0.66, "radius": 31.0,
+		"unlock_wave": 14, "weight": 0.7,
+		"hint": "Burrowers go under. Hold your shot until one surfaces.",
+		# Cycles, like the Carapace's shell, and for the same reason: a
+		# permanently untargetable enemy is a wave that can never end.
+		"burrow_down": 1.9,
+		"burrow_up": 2.4,
+	},
+	INDIGO: {
+		"name": "Knot",
+		"behavior": "knot",
+		"tint": Color(0.32, 0.38, 0.86),
+		"hp": 64.0, "speed": 96.0, "contact_damage": 8.0, "threat": 2.4,
+		"money": Vector2i(11, 16), "scale": 0.64, "radius": 30.0,
+		"unlock_wave": 17, "weight": 0.7,
+		"hint": "Knots pair up. The line strung between them hurts to cross.",
+		"tether_damage": 16.0,
+		"tether_range": 620.0,
+	},
+	RUST: {
+		"name": "Devourer",
+		"behavior": "devour",
+		"tint": Color(0.72, 0.26, 0.14),
+		"hp": 120.0, "speed": 88.0, "contact_damage": 11.0, "threat": 3.0,
+		"money": Vector2i(14, 20), "scale": 0.78, "radius": 37.0,
+		"unlock_wave": 19, "weight": 0.6,
+		"hint": "Devourers eat Thornwall and Cinders. Stop treating the ground "
+			+ "as cover.",
+		"eat_range": 130.0,
 	},
 }
 
