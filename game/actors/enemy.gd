@@ -128,6 +128,33 @@ var _is_turtle := false
 ## it can never be untargetable indefinitely.
 var _phased := false
 var _phase_timer := 0.0
+
+## Visual alpha is COMPOSED, never written directly.
+##
+## Three things fade an enemy: the Phasing elite going out of reach, the
+## Burrower going underground, and concealment in tall grass. They used to write
+## _visual.modulate.a themselves - the Phasing elite through a tween, the
+## Burrower directly - and a third writer would have made them fight, with
+## whichever ran last winning. Each now owns one channel, eased per frame, and
+## the drawn alpha is the lowest of them.
+##
+## Per-frame floats rather than tweens, and that is not a style preference. A
+## tween owned by a pooled node can outlive the recycle and repaint a live
+## enemy - enemy.gd records that trap three separate times - and the Phasing
+## tween was the last one left doing it.
+const PHASE_ALPHA := 0.25
+const BURROW_ALPHA := 0.28
+## How far concealment fades a hidden enemy. 1.0 means concealment changes
+## nothing on screen.
+const CONCEAL_ALPHA := 1.0
+## Slower than this counts as standing still, for concealment.
+const CONCEAL_STILL_SPEED := 22.0
+## Alpha units per second. 4.2 swings the Phasing elite's full 0.75 range in
+## about 0.18s, which is what its tween did.
+const ALPHA_RATE := 4.2
+var _phase_a := 1.0
+var _burrow_a := 1.0
+var _conceal_a := 1.0
 const PHASE_OUT := 0.9
 const PHASE_IN := 1.8
 
@@ -267,6 +294,9 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	# never end.
 	_hurtbox.collision_layer = Layers.ENEMY
 	_visual.modulate.a = 1.0
+	_phase_a = 1.0
+	_burrow_a = 1.0
+	_conceal_a = 1.0
 	stolen_value = 0
 	# Undisguise first, unconditionally. Enemies are pooled, and a Mimic handed
 	# back out as an ordinary slime still wearing a coin sprite would be the
@@ -395,6 +425,7 @@ func _physics_process(delta: float) -> void:
 	_attack_timer = maxf(0.0, _attack_timer - scaled)
 	if _is_turtle:
 		_tick_shell(scaled)
+	_tick_alpha(delta)
 	match String(def["behavior"]):
 		"husk": _tick_husk(scaled)
 		"burrow": _tick_burrow(scaled)
@@ -1013,6 +1044,35 @@ func _tick_shell(delta: float) -> void:
 		FX.ring(hit_center(), hit_radius * 1.5, DEFLECT_COLOR, 0.25, 0.35)
 
 
+func _tick_alpha(delta: float) -> void:
+	var step := ALPHA_RATE * delta
+	_phase_a = move_toward(_phase_a, PHASE_ALPHA if _phased else 1.0, step)
+	# The burrow eases twice as fast: going under is a dive, not a fade.
+	_burrow_a = move_toward(_burrow_a, BURROW_ALPHA if _burrowed else 1.0, step * 2.0)
+	_conceal_a = move_toward(_conceal_a, CONCEAL_ALPHA if _concealed() else 1.0, step)
+	_visual.modulate.a = minf(_phase_a, minf(_burrow_a, _conceal_a))
+
+
+## Is this enemy hidden in tall grass right now?
+func _concealed() -> bool:
+	return (_can_conceal() and Combat.conceals(global_position)
+		and velocity.length() < CONCEAL_STILL_SPEED)
+
+
+## The rules that keep concealment from ever costing the player a wave.
+##
+## Concealment is visual only - it never touches the hurtbox, never removes the
+## enemy from Combat's registry and never reaches enemies_in_radius, explode or
+## enemy_count. Any one of those would be a way for a wave not to end, or for
+## the HUD to disagree with the world. And it switches off entirely in mop-up:
+## once finisher_mode or hunt_mode is on, the last few enemies are the ones the
+## player has to FIND, and hiding them is the exact failure the straggler
+## escalation was built to prevent.
+func _can_conceal() -> bool:
+	return (not Combat.finisher_mode and not Combat.hunt_mode and not dying
+		and not _disguised)
+
+
 ## HUSK. Drop, play dead, get back up once.
 ##
 ## Deliberately NOT routed through die(): that unregisters from Combat, emits
@@ -1065,7 +1125,6 @@ func _tick_burrow(delta: float) -> void:
 		_burrowed = true
 		_burrow_timer = float(def.get("burrow_down", 1.9))
 		_hurtbox.collision_layer = 0
-		_visual.modulate.a = 0.28
 		_badge.visible = false
 		FX.burst(global_position, C_SOIL, 10, 0.8)
 
@@ -1076,7 +1135,6 @@ func _surface() -> void:
 	_burrowed = false
 	_burrow_timer = float(def.get("burrow_up", 2.4))
 	_hurtbox.collision_layer = Layers.ENEMY
-	_visual.modulate.a = 1.0
 	refresh_badge()
 	FX.burst(global_position, C_SOIL, 14, 1.0)
 
@@ -1175,8 +1233,7 @@ func _tick_elite(delta: float) -> void:
 				# is what actually makes it untargetable rather than merely
 				# invulnerable - shots pass through instead of pinging off.
 				_hurtbox.collision_layer = 0 if _phased else Layers.ENEMY
-				var t := create_tween()
-				t.tween_property(_visual, "modulate:a", 0.25 if _phased else 1.0, 0.18)
+				# The fade is _tick_alpha's job now; see _phase_a.
 				if not _phased:
 					FX.ring(hit_center(), hit_radius * 1.4,
 						Color(0.75, 0.7, 0.95), 0.25, 0.3)
@@ -1353,6 +1410,9 @@ func _pool_reset() -> void:
 	_knockback = Vector2.ZERO
 	_visual.rotation = 0.0
 	_visual.modulate.a = 1.0
+	_phase_a = 1.0
+	_burrow_a = 1.0
+	_conceal_a = 1.0
 	# Animation state, and the hurtbox a corpse cleared. configure() sets all
 	# of these again, but a parked enemy that is mid-death-frame with no
 	# hurtbox is one acquire away from being a live enemy nothing can shoot.

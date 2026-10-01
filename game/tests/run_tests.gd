@@ -32,6 +32,7 @@ func _run() -> void:
 	_test_deadfall()
 	_test_boss_stats()
 	_test_boss_pose_colour()
+	_test_concealment()
 	_test_sfx_stability()
 	_test_font()
 	_test_boss_phases()
@@ -1378,6 +1379,97 @@ func _test_sfx_stability() -> void:
 ## wind-up is the telegraph the whole fight is read from. This pins it as a
 ## colour change, so a refactor of gen_art's pose pipeline cannot quietly go
 ## back to "the same drawing, resized" and leave every assertion green.
+## Concealment in tall grass, and every way it could have cost the player a
+## wave.
+##
+## This is the riskiest feature in the plan for one reason: it is the only one
+## that makes an enemy harder to find, and the game has already shipped two
+## different versions of "an enemy is present but the player cannot deal with
+## it" - the Phasing elite that came back from the pool with no hurtbox, and the
+## Spitter that kited at exactly its preferred range. Both presented as unrelated
+## mysteries minutes later. So the exits are asserted, not argued.
+func _test_concealment() -> void:
+	Combat.reset()
+
+	# Nothing tweens an enemy's alpha any more. The Phasing elite did, and a
+	# tween owned by a pooled node can outlive the recycle and repaint a live
+	# enemy.
+	_check(not _read_source("res://actors/enemy.gd").contains(
+			'tween_property(_visual, "modulate'),
+		"something still tweens an enemy's alpha - it will fight the composed "
+		+ "alpha, and survives a pool recycle")
+
+	var e: Enemy = load("res://actors/enemy.tscn").instantiate()
+	add_child(e)
+	e.configure(EnemyTypes.GREEN, 3)
+
+	# A terrain that is tall grass everywhere. cell_of clamps to the grid, so a
+	# 4x4 grid of 1s conceals any position at all.
+	var terrain := ForestGenerator.new()
+	terrain.cols = 4
+	terrain.rows = 4
+	var cg := PackedByteArray()
+	cg.resize(16)
+	cg.fill(1)
+	terrain.conceal_grid = cg
+	Combat.terrain = terrain
+	e.velocity = Vector2.ZERO
+
+	_check(bool(e.call("_concealed")), "a still enemy in tall grass is not concealed")
+
+	e.velocity = Vector2(200, 0)
+	_check(not bool(e.call("_concealed")),
+		"a moving enemy stayed concealed - grass hides what is waiting, not "
+		+ "what is coming at you")
+	e.velocity = Vector2.ZERO
+
+	# THE assertion. Once the wave is in mop-up, the last few enemies are the
+	# ones the player has to find, and hiding them is precisely the failure the
+	# straggler escalation exists to prevent.
+	Combat.finisher_mode = true
+	_check(not bool(e.call("_concealed")),
+		"an enemy stayed concealed during finisher mode - the last one alive "
+		+ "can sit invisible in the grass while the wave waits for it")
+	Combat.finisher_mode = false
+	Combat.hunt_mode = true
+	_check(not bool(e.call("_concealed")),
+		"an enemy stayed concealed during hunt mode, which exists to end a "
+		+ "wave that will not end")
+	Combat.hunt_mode = false
+
+	# Visual only: it never touches the hurtbox or the registry.
+	var live := Combat.enemy_count()
+	for _i in 60:
+		e.call("_tick_alpha", 0.05)
+	_check(e.get_node("Hurtbox").collision_layer == Layers.ENEMY,
+		"concealment cleared the hurtbox - that is the Phasing bug again")
+	_check(Combat.enemy_count() == live,
+		"a concealed enemy dropped out of Combat's registry, so the wave can "
+		+ "end with it alive, or never end")
+	_check(is_equal_approx(e.get_node("Visual").modulate.a, Enemy.CONCEAL_ALPHA),
+		"a concealed enemy did not settle at CONCEAL_ALPHA")
+
+	# One composed alpha: phasing and concealment both feed it, lowest wins.
+	e.set("_phased", true)
+	for _i in 60:
+		e.call("_tick_alpha", 0.05)
+	_check(is_equal_approx(e.get_node("Visual").modulate.a,
+			minf(Enemy.PHASE_ALPHA, Enemy.CONCEAL_ALPHA)),
+		"phasing and concealment did not compose - one of them overwrote the "
+		+ "other")
+
+	# And the recycle clears every channel.
+	e.call("_pool_reset")
+	_check(e.get_node("Visual").modulate.a == 1.0,
+		"a parked enemy kept a faded alpha and will spawn half-invisible")
+	_check(float(e.get("_phase_a")) == 1.0 and float(e.get("_conceal_a")) == 1.0
+			and float(e.get("_burrow_a")) == 1.0,
+		"a parked enemy kept an alpha channel below 1.0")
+
+	e.queue_free()
+	Combat.reset()
+
+
 func _test_boss_pose_colour() -> void:
 	for id: String in BossDB.DEFS:
 		var tex: Texture2D = load(String(BossDB.get_def(id)["body"]))

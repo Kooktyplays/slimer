@@ -399,6 +399,21 @@ func _idx(cx: int, cy: int) -> int:
 	return cy * cols + cx
 
 
+## Concealment grid, one byte per CELL exactly like `grid`: 1 where the cell is
+## inside tall grass. Empty until patches exist, in which case conceals() is
+## false everywhere.
+var conceal_grid := PackedByteArray()
+
+
+func conceals(p: Vector2) -> bool:
+	if conceal_grid.is_empty():
+		return false
+	var c := cell_of(p)
+	if c.x < 0 or c.y < 0 or c.x >= cols or c.y >= rows:
+		return false
+	return conceal_grid[c.y * cols + c.x] != 0
+
+
 func cell_of(p: Vector2) -> Vector2i:
 	return Vector2i(
 		clampi(int(p.x / CELL), 0, cols - 1),

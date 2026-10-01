@@ -51,6 +51,11 @@ static var finisher_stall: float = 0.0
 static var hunt_mode: bool = false
 static var _finisher_count: int = -1
 
+## The forest the current wave is fought in, for concealment queries. Set by
+## run.gd whenever the forest is (re)built; null between runs and in tests that
+## never build one, in which case nothing is ever concealed.
+static var terrain: ForestGenerator = null
+
 static var _enemies: Array[Node2D] = []
 static var _player: Node2D = null
 
@@ -64,6 +69,7 @@ static func reset() -> void:
 	_finisher_count = -1
 	_enemies.clear()
 	_player = null
+	terrain = null
 
 
 ## Advance the end-of-wave escalation clock. Called once per frame by the wave
@@ -98,6 +104,19 @@ static func unregister_enemy(e: Node2D) -> void:
 
 static func set_player(p: Node2D) -> void:
 	_player = p
+
+
+## Is `p` inside tall grass? One array index on the generator's concealment
+## grid, so it is cheap enough to ask for every enemy every frame.
+##
+## Purely a question about the ground. Whether a given enemy is HIDDEN is
+## Enemy._concealed()'s decision, because that also depends on whether it is
+## moving and on whether the wave is in mop-up - and those rules are the ones
+## that keep concealment from ever holding a wave open.
+static func conceals(p: Vector2) -> bool:
+	if terrain == null:
+		return false
+	return terrain.conceals(p)
 
 
 static func player() -> Node2D:

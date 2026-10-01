@@ -36,6 +36,7 @@ func _ready() -> void:
 
 	layout = forest.build(Game.run.seed_value,
 		BiomeDB.id_for_depth(Game.depth_for_wave(Game.run.wave + 1)))
+	Combat.terrain = layout
 
 	waves = WaveController.new()
 	waves.name = "Waves"
@@ -342,6 +343,7 @@ func _maybe_descend() -> void:
 	# from the one number the results screen shows.
 	layout = forest.build(Game.run.seed_value + Game.depth_for_wave(
 		Game.run.wave + 1) * 104729, next_biome)
+	Combat.terrain = layout
 
 	if keep_player:
 		forest.sorted_layer.add_child(player)
