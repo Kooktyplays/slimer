@@ -880,6 +880,18 @@ def recolor(src: Image.Image, hue_deg: float, sat_mul: float, val_mul: float) ->
     return out
 
 
+## Crown spike rhythm per colour: (how many spikes, every Nth one is tall).
+## Distinct at the size an elite is drawn, and nothing more than that - the
+## shape badge is what identifies the TYPE; this only stops every crown being
+## the same crown.
+CROWN_STYLE = {
+    "green": (7, 1), "blue": (5, 1), "red": (9, 2), "purple": (6, 2),
+    "yellow": (8, 1), "orange": (7, 3), "violet": (5, 2), "grey": (9, 3),
+    "teal": (6, 1), "pale": (8, 2), "bone": (5, 3), "rust": (9, 1),
+    "umber": (7, 2), "indigo": (6, 3),
+}
+
+
 def gen_enemies():
     # Each colour is now DRAWN with its own silhouette and then recoloured,
     # rather than being the one base sheet through a hue rotation. The rotation
@@ -895,10 +907,23 @@ def gen_enemies():
         a = Art(108, 90)
         rr, gg, bb = colorsys.hsv_to_rgb(hue / 360.0, min(1.0, 0.55 * sm), 1.0)
         col = (round(rr * 255), round(gg * 255), round(bb * 255))
-        for i in range(7):
-            x = 16 + i * 12.6
-            a.poly([(x - 6, 30), (x, 8), (x + 6, 30)], (*C.GOLD_M, 255))
-            a.poly([(x - 3, 26), (x, 14), (x + 3, 26)], (*C.GOLD_L, 255))
+        # Each colour's crown has its own spike pattern. They were all seven
+        # identical gold spikes with only the centre gem changing, which made
+        # an elite of any colour read as the same elite with a different dot.
+        #
+        # Only the HORIZONTAL rhythm varies. Every spike still rises from y=30
+        # to its tip between y=8 and y=16, and the band stays at y=26-36, so
+        # the crown sits on the dome exactly where it always has - the crown
+        # offset is measured against that apex and must not move.
+        spikes, tall_every = CROWN_STYLE.get(name, (7, 1))
+        span = 80.0
+        for i in range(spikes):
+            x = 14 + (i + 0.5) * span / spikes
+            tip = 8 if i % tall_every == 0 else 16
+            hw = min(6.0, span / spikes * 0.46)
+            a.poly([(x - hw, 30), (x, tip), (x + hw, 30)], (*C.GOLD_M, 255))
+            a.poly([(x - hw * 0.5, 26), (x, tip + 6), (x + hw * 0.5, 26)],
+                   (*C.GOLD_L, 255))
         a.rrect(12, 26, 96, 36, 5, (*C.GOLD_D, 255))
         a.rrect(12, 26, 96, 31, 3, (*C.GOLD_M, 255))
         a.circle(54, 31, 4, (*col, 255))
@@ -1144,6 +1169,12 @@ def gen_rocks():
                seed=seed)
         a.light(lambda s, c: s.blob(w * 0.42, h * 0.32, w * 0.34, h * 0.24, c,
                                     wobble=0.3, seed=seed + 5), (*C.ROCK_L, 255))
+        # The shaded underside, broken into an ordered dither where it meets the
+        # lit top rather than ending on a clean vector edge. Stone is the
+        # material this suits: the stipple reads as grain, where on a slime it
+        # would read as noise.
+        a.light_dither(lambda s, c: s.ellipse(w * 0.52, h * 0.86, w * 0.48,
+                                              h * 0.30, c), (*C.ROCK_D, 255), 0.55)
         a.save(f"rock_{'abc'[idx]}.png", rim=C.ROCK_L, rim_alpha=125, seed=3198)
 
     # pebble scatter

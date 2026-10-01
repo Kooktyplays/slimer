@@ -2750,30 +2750,42 @@ func _read_source(path: String) -> String:
 func _test_arena_is_sealed() -> void:
 	var size := ForestGenerator.WORLD_SIZE
 	var inset := ForestGenerator.WALL_INSET
-	for i in 24:
-		var g := ForestGenerator.generate(9000 + i * 577)
-		var leaks := 0
-		# sample densely enough that a one-cell gap cannot hide between samples
-		var step := ForestGenerator.CELL * 0.5
-		var x := 0.0
-		while x <= size.x:
-			if g.is_open(Vector2(x, inset * 0.5)) \
-					or g.is_open(Vector2(x, size.y - inset * 0.5)):
-				leaks += 1
-			x += step
-		var y := 0.0
-		while y <= size.y:
-			if g.is_open(Vector2(inset * 0.5, y)) \
-					or g.is_open(Vector2(size.x - inset * 0.5, y)):
-				leaks += 1
-			y += step
-		_check(leaks == 0,
-			"seed %d has %d walkable points outside the wall" % [g.seed_value, leaks])
-		# and the spawn point must be comfortably inside it, not tucked in the band
-		_check(g.spawn_point.x > inset and g.spawn_point.y > inset
-				and g.spawn_point.x < size.x - inset
-				and g.spawn_point.y < size.y - inset,
-			"seed %d spawns the player outside the wall" % g.seed_value)
+	# Every biome, not only the default one. This used to call generate() with
+	# no biome argument, so it only ever checked Greenwood - while the forest is
+	# regenerated in a different biome at every depth boundary, each with its own
+	# prop tables, pond counts and hazard. A biome whose scatter left a gap in the
+	# border would have walked straight past a test that never built it.
+	for biome: String in BiomeDB.ORDER:
+		for i in 6:
+			_check_sealed(ForestGenerator.generate(9000 + i * 577, biome),
+				size, inset, biome)
+
+
+func _check_sealed(g: ForestGenerator, size: Vector2, inset: float,
+		biome: String) -> void:
+	var leaks := 0
+	# sample densely enough that a one-cell gap cannot hide between samples
+	var step := ForestGenerator.CELL * 0.5
+	var x := 0.0
+	while x <= size.x:
+		if g.is_open(Vector2(x, inset * 0.5)) \
+				or g.is_open(Vector2(x, size.y - inset * 0.5)):
+			leaks += 1
+		x += step
+	var y := 0.0
+	while y <= size.y:
+		if g.is_open(Vector2(inset * 0.5, y)) \
+				or g.is_open(Vector2(size.x - inset * 0.5, y)):
+			leaks += 1
+		y += step
+	_check(leaks == 0,
+		"%s seed %d has %d walkable points outside the wall"
+			% [biome, g.seed_value, leaks])
+	# and the spawn point must be comfortably inside it, not tucked in the band
+	_check(g.spawn_point.x > inset and g.spawn_point.y > inset
+			and g.spawn_point.x < size.x - inset
+			and g.spawn_point.y < size.y - inset,
+		"%s seed %d spawns the player outside the wall" % [biome, g.seed_value])
 
 
 ## Nightmare is one flag, threaded through three curves. Each has to actually
