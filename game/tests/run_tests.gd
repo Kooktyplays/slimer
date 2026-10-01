@@ -33,6 +33,7 @@ func _run() -> void:
 	_test_boss_stats()
 	_test_boss_pose_colour()
 	_test_concealment()
+	_test_grass_placement()
 	_test_sfx_stability()
 	_test_font()
 	_test_boss_phases()
@@ -1388,6 +1389,56 @@ func _test_sfx_stability() -> void:
 ## it" - the Phasing elite that came back from the pool with no hurtbox, and the
 ## Spitter that kited at exactly its preferred range. Both presented as unrelated
 ## mysteries minutes later. So the exits are asserted, not argued.
+## Where tall grass is allowed to be, across every biome.
+##
+## Measured over 200 forests when this was written: grass conceals 1.5%-4.2% of
+## open ground and every forest gets at least six patches. The band asserted
+## below is deliberately much wider than that. It exists to catch the two
+## failures that matter - grass that silently stopped being placed, and a tuning
+## change that hid half the map - not to pin a number that varies by seed.
+func _test_grass_placement() -> void:
+	var patched := 0
+	for biome: String in BiomeDB.ORDER:
+		for i in 6:
+			var g := ForestGenerator.generate(7000 + i * 431, biome)
+			if not g.failure.is_empty():
+				continue
+			_check(g.conceal_grid.size() == g.cols * g.rows,
+				"%s: the concealment grid is %d cells, the map is %d"
+					% [biome, g.conceal_grid.size(), g.cols * g.rows])
+			_check(not g.conceals(g.spawn_point),
+				"%s seed %d: the player spawns inside tall grass" % [biome, i])
+			_check(not g.conceals(g.shop_point),
+				"%s seed %d: the shop sits in tall grass" % [biome, i])
+			for cl: Dictionary in g.clearings:
+				_check(not g.conceals(cl["center"]),
+					"%s seed %d: a clearing is concealed - clearings are where "
+						% [biome, i] + "fights are meant to be readable")
+
+			var open := 0
+			var hidden := 0
+			var hidden_in_wall := 0
+			for k in g.grid.size():
+				var c := g.conceal_grid[k] != 0
+				if g.grid[k] == ForestGenerator.OPEN:
+					open += 1
+					hidden += int(c)
+				elif c:
+					hidden_in_wall += 1
+			_check(hidden_in_wall == 0,
+				"%s seed %d: %d blocked cells are marked as concealing"
+					% [biome, i, hidden_in_wall])
+			var frac := float(hidden) / maxf(open, 1.0)
+			_check(frac > 0.005 and frac < 0.12,
+				"%s seed %d: grass conceals %.1f%% of open ground"
+					% [biome, i, frac * 100.0])
+			if not g.grass_patches.is_empty():
+				patched += 1
+	# Non-vacuous: if no forest got any grass, every check above passed by
+	# looking at an empty grid.
+	_check(patched > 0, "no forest in any biome got a single patch of grass")
+
+
 func _test_concealment() -> void:
 	Combat.reset()
 

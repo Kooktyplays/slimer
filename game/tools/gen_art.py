@@ -1180,6 +1180,31 @@ def gen_logs():
     a.save("log_b.png", rim=C.BARK_L, rim_alpha=120, seed=3452)
 
 
+def gen_tall_grass():
+    """A clump of tall blades, for the grass that hides things.
+
+    Has to read as clearly DIFFERENT from the short ground grass, which is
+    scattered everywhere and hides nothing - otherwise the player cannot tell
+    which grass to be wary of. So it is twice the height, darker, densely
+    packed, and drawn on the y-sorted layer where it overlaps whatever stands in
+    it rather than lying flat underneath.
+
+    Green and passable, so it keeps the pack's readability rule: green things
+    do not stop you.
+    """
+    a = Art(48, 70)
+    rng = random.Random(5521)
+    for k in range(9):
+        bx = 8 + k * 4.0 + rng.uniform(-2, 2)
+        tip_x = bx + rng.uniform(-9, 9)
+        tip_y = rng.uniform(4, 18)
+        w = rng.uniform(3.2, 4.6)
+        col = (*(C.LEAF_D if k % 3 == 0 else C.LEAF_M), 255)
+        a.poly([(bx - w, 68), (tip_x, tip_y), (bx + w, 68)], col)
+    a.light(lambda s_, c: s_.ellipse(20, 26, 16, 18, c), (*C.LEAF_L, 255))
+    a.save("tall_grass.png", rim=C.LEAF_XL, rim_alpha=110, seed=3519, grain=0.06)
+
+
 def gen_deadfall():
     """A low lattice of dead branches. Stops bullets, not bodies.
 
@@ -2086,6 +2111,7 @@ def main():
         ("logs", gen_logs),
         ("ground detail", gen_ground_detail),
         ("deadfall", gen_deadfall),
+        ("tall grass", gen_tall_grass),
         ("shop props", gen_shop_props),
         ("boss: bramble", gen_boss_bramble),
         ("boss: gardener", gen_boss_gardener),

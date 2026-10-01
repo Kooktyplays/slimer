@@ -78,6 +78,17 @@ const DEFS := {
 	"mushroom": {"texture": "gen/mushroom", "blocks": false, "anchor": 4, "sway": 0.3, "layer": "detail"},
 
 	# ---- flat ground detail (drawn below everything, never sorted) ---------
+	# ---- hides what stands still in it ------------------------------------
+	#
+	# Placed by ForestGenerator._place_grass in patches, not by the biome
+	# scatter tables, because where it goes is a gameplay decision - never in a
+	# clearing, a path, a pond or near the spawn - rather than a dressing one.
+	# On the y-sorted layer so stalks in front of an enemy draw over it.
+	"tall_grass": {
+		"texture": "gen/tall_grass", "blocks": false, "anchor": 4,
+		"sway": 1.5, "layer": "ground_prop",
+	},
+
 	# ---- stops bullets, not bodies -----------------------------------------
 	#
 	# The one object that breaks the pack's readability rule. Brown and grey

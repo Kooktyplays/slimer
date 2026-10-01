@@ -144,9 +144,11 @@ var _phase_timer := 0.0
 ## tween was the last one left doing it.
 const PHASE_ALPHA := 0.25
 const BURROW_ALPHA := 0.28
-## How far concealment fades a hidden enemy. 1.0 means concealment changes
-## nothing on screen.
-const CONCEAL_ALPHA := 1.0
+## How far concealment fades a hidden enemy. Low enough that a slime sitting in
+## the grass is easy to miss at a glance, high enough that it is never fully
+## gone - a player who looks carefully should always be able to find it, which
+## is the difference between "hidden" and "cheated".
+const CONCEAL_ALPHA := 0.32
 ## Slower than this counts as standing still, for concealment.
 const CONCEAL_STILL_SPEED := 22.0
 ## Alpha units per second. 4.2 swings the Phasing elite's full 0.75 range in
