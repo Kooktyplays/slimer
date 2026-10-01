@@ -75,6 +75,12 @@ var bullet_container: Node = null
 var spawner: WaveController = null
 var layout: ForestGenerator = null
 
+## How far past the boss's own radius the dressed floor reaches.
+const ARENA_RADIUS_SCALE := 4.2
+const ARENA_STONES := 11
+## The dressing, freed when the boss dies or is reused from the pool.
+var _arena: Node2D = null
+
 var _damage_scale := 1.0
 var _attack_timer := 2.0
 var _flash := 0.0
@@ -210,6 +216,7 @@ func enter(at: Vector2) -> void:
 	_visual.scale *= 0.1
 	_visual.modulate.a = 0.0
 
+	_dress_arena(at)
 	Audio.play("boss_spawn", 2.0, 0.0)
 	Events.boss_spawned.emit(self, display_name, is_major)
 
@@ -416,6 +423,7 @@ func _choose_attack() -> void:
 		"chorus": _atk_chorus()
 		"rootquake": _atk_rootquake()
 		"devour": _atk_devour()
+		"hedgerow": _atk_hedgerow()
 
 
 func _telegraph_time() -> float:
@@ -485,7 +493,7 @@ func _atk_slam() -> void:
 	var t := _wind_up(lead)
 	t.tween_callback(func() -> void:
 		FX.explosion(target, radius, def["tint"])
-		Audio.play_at("boss_attack", global_position, -1.0)
+		Audio.play_at("boss_move_slam", global_position, -1.0)
 		Game.shake(Balance.SHAKE_BOSS_SLAM, 0.45)
 		Combat.explode_on_player(target, radius, 38.0 * _damage_scale)
 		_visual.scale = Vector2.ONE * float(def["scale"]) * (1.0 + 0.06 * repeat))
@@ -508,7 +516,7 @@ func _atk_radial() -> void:
 			if absf(angle_difference(a, gap)) < 0.42:
 				continue
 			_fire(Vector2.RIGHT.rotated(a), 330.0, 12.0)
-		Audio.play_at("boss_attack", global_position, -6.0)
+		Audio.play_at("boss_move_radial", global_position, -6.0)
 		FX.ring(global_position, 180.0, def["tint"], 0.35, 0.2))
 	t.tween_interval(0.2)
 	t.tween_callback(_recover)
@@ -554,7 +562,7 @@ func _atk_charge() -> void:
 		line.queue_free()
 		_charging = true
 		_charge_velocity = dir * 1150.0
-		Audio.play_at("boss_attack", global_position, 0.0)
+		Audio.play_at("boss_move_charge", global_position, 0.0)
 		Game.shake(5.0, 0.3))
 	t.tween_interval(distance / 1150.0)
 	t.tween_callback(func() -> void:
@@ -607,7 +615,7 @@ func _atk_spiral() -> void:
 				_fire(Vector2.RIGHT.rotated(a), 300.0, 10.0))
 		t.tween_interval(0.075)
 	t.tween_callback(func() -> void:
-		Audio.play_at("boss_attack", global_position, -8.0)
+		Audio.play_at("boss_move_spiral", global_position, -8.0)
 		_recover())
 
 
@@ -700,6 +708,54 @@ func _atk_blink_radial() -> void:
 ## The gap is shown before the walls are solid, so this is a "move now, and
 ## know where to" - the opposite question to the boss's charge, which is "get
 ## off this line".
+## GARDENER. Grows a hedge maze around you, a wall at a time.
+##
+## Snare fences you into a ring; this fences you out of the arena. Three long
+## walls at spread angles, placed between the Gardener and the player so the
+## room shrinks along the axis you would want to retreat down, and they last
+## long enough to matter to the next attack rather than only to this one.
+##
+## Uses the same Thornwall the player's ability builds, which boss.gd already
+## preloads for Snare - one implementation of "a wall", so a hedge obeys exactly
+## the rules the player already learned. It blocks the Gardener too, and that is
+## the trade: walls are invisible to the navigation grid, which is baked when
+## the forest is built, so one that fences itself in burns RELOCATE_AFTER before
+## blinking out. That is a fair price for the player being able to do the same
+## thing to it.
+func _atk_hedgerow() -> void:
+	var target := Combat.player_position()
+	var lead := _telegraph_time() * 1.15
+	var toward := (target - global_position).normalized()
+	var length := 340.0 + 40.0 * phase
+	var walls := 2 + phase
+
+	# Telegraphed on the ground where each wall will stand, not as one big ring:
+	# the player has to be able to see WHICH way out is about to close.
+	var spots: Array[Vector2] = []
+	var angles: Array[float] = []
+	for i in walls:
+		var spread := (float(i) / maxf(walls - 1.0, 1.0) - 0.5) * 1.5
+		var dir := toward.rotated(spread)
+		var at := target + dir * 240.0
+		if layout != null and not layout.is_open(at):
+			continue
+		spots.append(at)
+		angles.append(dir.angle() + PI * 0.5)
+		FX.telegraph(at, 90.0, lead, Color(0.40, 0.70, 0.34))
+
+	var t := _wind_up(lead)
+	t.tween_callback(func() -> void:
+		Audio.play_at("ability", global_position, -4.0)
+		for i in spots.size():
+			var wall: Node2D = THORNWALL.instantiate()
+			get_parent().add_child(wall)
+			wall.call("setup", spots[i], angles[i],
+				{"duration": 6.5, "length": length})
+		Game.shake(5.0, 0.3))
+	t.tween_interval(0.3)
+	t.tween_callback(_recover)
+
+
 func _atk_snare() -> void:
 	var center := Combat.player_position()
 	var radius := 300.0
@@ -748,7 +804,7 @@ func _atk_tongue() -> void:
 	var t := _wind_up(lead)
 	t.tween_callback(func() -> void:
 		line.default_color = Color(0.95, 0.45, 0.5, 0.85)
-		Audio.play_at("boss_attack", global_position, -3.0)
+		Audio.play_at("boss_move_tongue", global_position, -3.0)
 		Game.shake(4.5, 0.25)
 		var p := Combat.player()
 		if p != null:
@@ -828,7 +884,7 @@ func _atk_rootquake() -> void:
 
 	var t := _wind_up(lead)
 	t.tween_callback(func() -> void:
-		Audio.play_at("boss_attack", global_position, -2.0)
+		Audio.play_at("boss_move_quake", global_position, -2.0)
 		Game.shake(6.0, 0.5)
 		for step in steps:
 			var inner := create_tween()
@@ -1008,6 +1064,65 @@ func _check_phase() -> void:
 	t.tween_callback(_recover)
 
 
+## Dress the ground the boss is about to fight on.
+##
+## There is no boss clearing in the generator - boss_controller drops the boss
+## 620px from wherever the player was standing, on whatever open ground fits its
+## radius - so arriving looked exactly like walking into another part of the
+## forest. A boss is the one moment the game stops being a wave, and nothing on
+## screen said so.
+##
+## Done at RUNTIME, the way thornwall.gd does it, rather than by teaching the
+## generator about arenas: the generator bakes its navigation grid when the
+## forest is built, so anything added afterwards is invisible to pathing. That
+## is exactly why this is decoration only - a ground disc and a ring of stones,
+## no collision, nothing that an enemy could get stuck behind. An arena that
+## pathing cannot see must not be an arena that bodies can hit.
+func _dress_arena(at: Vector2) -> void:
+	_clear_arena()
+	var ground := get_parent().get_parent().get_node_or_null("Ground")
+	if ground == null:
+		ground = get_parent()
+	_arena = Node2D.new()
+	_arena.name = "BossArena"
+	_arena.z_index = -18
+	ground.add_child(_arena)
+
+	var r := hit_radius * ARENA_RADIUS_SCALE
+	var floor_poly := Polygon2D.new()
+	var pts := PackedVector2Array()
+	for i in 30:
+		var a := TAU * i / 30.0
+		var wobble := 0.90 + 0.14 * sin(a * 3.0 + float(_rng.seed % 17))
+		pts.append(at + Vector2.RIGHT.rotated(a) * r * wobble)
+	floor_poly.polygon = pts
+	floor_poly.color = Color(def["tint"], 0.16)
+	_arena.add_child(floor_poly)
+
+	# A ring of stones, pushed out past where the fight happens so they frame it
+	# rather than stand in it.
+	var stone: Texture2D = load("res://assets/sprites/gen/rock_b.png")
+	if stone == null:
+		return
+	for i in ARENA_STONES:
+		var a := TAU * i / float(ARENA_STONES) + float(_rng.randi() % 100) * 0.01
+		var spot := at + Vector2.RIGHT.rotated(a) * r * 0.94
+		if layout != null and not layout.is_open(spot):
+			continue
+		var sp := Sprite2D.new()
+		sp.texture = stone
+		sp.position = spot
+		sp.scale = Vector2.ONE * _rng.randf_range(0.8, 1.25)
+		sp.modulate = Color(0.78, 0.80, 0.82, 0.95)
+		_arena.add_child(sp)
+
+
+func _clear_arena() -> void:
+	if _arena != null and is_instance_valid(_arena):
+		_arena.queue_free()
+	_arena = null
+
+
 func _die() -> void:
 	if dying:
 		return
@@ -1017,6 +1132,9 @@ func _die() -> void:
 	Combat.unregister_enemy(self)
 	remove_from_group("enemies")
 
+	# The arena goes with it. Left behind, a cleared boss would leave a stone
+	# ring sitting in the middle of the next ordinary wave.
+	_clear_arena()
 	Audio.play("boss_death", 2.0, 0.0)
 	Game.shake(Balance.SHAKE_BOSS_SLAM, 1.0)
 

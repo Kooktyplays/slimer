@@ -16,6 +16,7 @@ const KIND_FEAT := "feat"           ## done in a single run
 ## stat keys these read from Save.stats, beyond the ones that already existed
 const BOSS_STAT_KEYS: Array[String] = [
 	"boss_bramble", "boss_toad", "boss_wisp", "boss_oak", "boss_sovereign",
+	"boss_gardener",
 ]
 
 const DEFS := {

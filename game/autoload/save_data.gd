@@ -65,6 +65,7 @@ var stats := {
 	"boss_wisp": 0,
 	"boss_oak": 0,
 	"boss_sovereign": 0,
+	"boss_gardener": 0,
 	## Runs that reached and cleared the finale. The game's completion count.
 	"runs_completed": 0,
 }

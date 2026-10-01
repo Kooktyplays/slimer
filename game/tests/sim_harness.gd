@@ -175,8 +175,29 @@ func _boot() -> void:
 	# reason.
 	Game.run.gun["damage"] = float(Game.run.gun["damage"]) * SIM_DAMAGE_ASSIST
 
+	# Restore health INSIDE the damage path, not only after it. Both of
+	# Player's damage paths emit player_damaged before they check for death, so
+	# refilling here means the death check that follows sees a full bar.
+	#
+	# The per-frame top-up below was not enough on its own, at any threshold -
+	# 0.75, then 0.95, then unconditional. The design guarantees that no SINGLE
+	# boss attack can kill a full-health player, and that holds; but a slam, a
+	# contact poison tick and a contact hit can all land in one physics frame,
+	# and _process only runs after that frame is over. Three sources summing
+	# past max_hp inside one step killed the bot from full health at wave 25,
+	# with the top-up never getting a turn.
+	if not Events.player_damaged.is_connected(_on_player_damaged):
+		Events.player_damaged.connect(_on_player_damaged)
+
 	_last_progress_frame = _frames
 	_started = true
+
+
+## See the connection in _begin. Gated on _deaths_expected so the deliberate
+## kill at the end of the run - the death-reset test - still goes through.
+func _on_player_damaged(_amount: float, _from: Vector2) -> void:
+	if _deaths_expected == 0 and Game.run != null:
+		Game.run.hp = Game.run.max_hp
 
 
 func _process(_delta: float) -> void:

@@ -1393,6 +1393,69 @@ def gen_boss_bramble():
     a.save("boss_bramble_eyes.png")
 
 
+def gen_boss_gardener():
+    """Mini-boss 4: The Gardener - a topiary figure that grows the hedge.
+
+    Deliberately the most UPRIGHT boss in the set. Bramble is a squat root mass,
+    the Toadfather is wide and low, the Wisp is a floating disc and the Oak is a
+    tree - so this one is tall and narrow with long arms, and reads as a figure
+    rather than as a growth. Its whole attack is reshaping the room, and a
+    silhouette that looks like it is reaching lands that better than another
+    lump.
+    """
+    w, h = 236, 244
+    a = Art(w, h)
+    ground_shadow(a, w / 2, h - 14, 58, 14)
+
+    # a narrow trunk, planted
+    a.poly([(w / 2 - 22, h - 16), (w / 2 - 15, h * 0.42),
+            (w / 2 + 15, h * 0.42), (w / 2 + 22, h - 16)], (*C.BARK_D, 255))
+    for sx in (-1, 1):
+        a.line([(w / 2 + sx * 14, h - 30), (w / 2 + sx * 40, h - 20),
+                (w / 2 + sx * 52, h - 14)], (*C.BARK_D, 255), 10)
+
+    # long reaching arms, drawn before the hedge body so they emerge from it
+    for sx in (-1, 1):
+        a.line([(w / 2 + sx * 30, h * 0.44), (w / 2 + sx * 76, h * 0.50),
+                (w / 2 + sx * 92, h * 0.72)], (*C.BARK_M, 255), 11)
+        # three splayed fingers - the thing that plants the walls
+        for k in (-0.34, 0.0, 0.34):
+            a.line([(w / 2 + sx * 92, h * 0.72),
+                    (w / 2 + sx * (92 + math.cos(k) * 22),
+                     h * 0.72 + 26 + math.sin(k) * 16)], (*C.BARK_M, 255), 5)
+
+    # the hedge itself: overlapping clumps, so the edge is foliage not a blob
+    for (cx, cy, rx, ry, sd) in ((0.50, 0.30, 62, 52, 21), (0.34, 0.36, 40, 34, 22),
+                                 (0.66, 0.36, 40, 34, 23), (0.50, 0.44, 54, 34, 24)):
+        a.blob(w * cx, h * cy, rx, ry, (*C.LEAF_M, 255), wobble=0.20, seed=sd)
+    a.light(lambda s, c: s.blob(w * 0.42, h * 0.22, 52, 34, c, wobble=0.22, seed=25),
+            (*C.LEAF_L, 255))
+    a.light(lambda s, c: s.blob(w * 0.38, h * 0.16, 32, 20, c, wobble=0.24, seed=26),
+            (*C.LEAF_XL, 255))
+
+    # clipped flat across the top. A hedge is a thing someone has cut.
+    # Clipped flat across the top - a hedge is a thing someone has cut. Seated
+    # INTO the foliage rather than floating above it: drawn clear of the crown
+    # it reads as a plank balanced on a bush.
+    a.light(lambda s_, c: s_.poly(
+        [(w * 0.16, h * 0.20), (w * 0.84, h * 0.20),
+         (w * 0.84, h * 0.13), (w * 0.16, h * 0.13)], c), (*C.LEAF_D, 255))
+
+    # shears, slung at its side, closed
+    a.line([(w / 2 + 62, h * 0.52), (w / 2 + 96, h * 0.34)], (*C.ROCK_L, 255), 5)
+    a.line([(w / 2 + 62, h * 0.52), (w / 2 + 92, h * 0.28)], (*C.ROCK_M, 255), 5)
+
+    save_posed(a, "boss_gardener_body.png")
+
+    a = Art(112, 44)
+    for ex in (26, 86):
+        a.ellipse(ex, 22, 16, 14, (26, 30, 22, 255))
+        a.ellipse(ex, 21, 8, 9, (226, 236, 168, 255))
+        a.ellipse(ex, 21, 3.5, 6, (26, 30, 22, 255))
+        a.dot(ex - 4, 16, 3)
+    a.save("boss_gardener_eyes.png")
+
+
 def gen_boss_toad():
     """Mini-boss 2: Toadfather - bloated toad that spits and spawns adds."""
     w, h = 232, 172
@@ -1977,6 +2040,7 @@ def main():
         ("deadfall", gen_deadfall),
         ("shop props", gen_shop_props),
         ("boss: bramble", gen_boss_bramble),
+        ("boss: gardener", gen_boss_gardener),
         ("boss: toad", gen_boss_toad),
         ("boss: wisp", gen_boss_wisp),
         ("boss: oak", gen_boss_oak),

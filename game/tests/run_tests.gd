@@ -30,6 +30,7 @@ func _run() -> void:
 	_test_second_wave_enemies()
 	_test_written_text()
 	_test_deadfall()
+	_test_boss_stats()
 	_test_sfx_stability()
 	_test_font()
 	_test_boss_phases()
@@ -1359,6 +1360,30 @@ func _test_sfx_stability() -> void:
 ## sealed-arena test. A circle in there marks ground unwalkable that bodies can
 ## actually cross, and every one of those guarantees would then be reasoning
 ## about geometry that does not exist.
+## Every boss is wired into the save and the Clean Sweep achievement.
+##
+## Three lists have to agree - BossDB.DEFS, AchievementsDB.BOSS_STAT_KEYS and
+## the stats in save_data - and nothing checked that they did.
+## Save.record_boss_kill silently returns on a key it does not recognise, so a
+## boss added without its stat makes Clean Sweep quietly unearnable forever, and
+## a key listed without a stat behind it does the same thing from the other
+## direction. Neither failure produces an error; the achievement simply never
+## fires, which is not something a play-test finds.
+func _test_boss_stats() -> void:
+	for id: String in BossDB.DEFS:
+		var key := "boss_" + id
+		_check(AchievementsDB.BOSS_STAT_KEYS.has(key),
+			"boss '%s' is not in BOSS_STAT_KEYS - Clean Sweep will never "
+				% id + "require it, so it is not actually a clean sweep")
+		_check(Save.stats.has(key),
+			"boss '%s' has no save stat - Save.record_boss_kill returns "
+				% id + "silently and the kill is never recorded")
+	for key: String in AchievementsDB.BOSS_STAT_KEYS:
+		_check(BossDB.DEFS.has(key.trim_prefix("boss_")),
+			"BOSS_STAT_KEYS lists '%s', which is not a boss - Clean Sweep can "
+				% key + "never be completed")
+
+
 func _test_deadfall() -> void:
 	_check(Layers.DEADFALL != Layers.WORLD and Layers.DEADFALL != Layers.ENEMY
 		and Layers.DEADFALL != Layers.PLAYER and Layers.DEADFALL != Layers.PICKUP,

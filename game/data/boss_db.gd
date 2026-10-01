@@ -22,7 +22,7 @@ extends RefCounted
 ## Both rules are asserted in the logic suite; a phase list that is a superset
 ## of the one before it is a test failure, not a style note.
 
-const MINI_ROTATION: Array[String] = ["bramble", "toad", "wisp"]
+const MINI_ROTATION: Array[String] = ["bramble", "toad", "wisp", "gardener"]
 const MAJOR_ROTATION: Array[String] = ["oak", "sovereign"]
 
 ## "radius" is the final hit radius in world pixels, not scaled by "scale".
@@ -160,6 +160,38 @@ const DEFS := {
 		"summon_elite": true,
 		"projectile": "res://assets/sprites/gen/boss_orb.png",
 		"attack_interval": Vector2(1.5, 2.3),
+	},
+	"gardener": {
+		"name": "The Gardener",
+		"title": "Keeper of the Hedge",
+		"body": "res://assets/sprites/gen/boss_gardener_body.png",
+		"eyes": "res://assets/sprites/gen/boss_gardener_eyes.png",
+		"eye_offset": Vector2(0, -34),
+		"major": false,
+		"scale": 1.72,
+		"radius": 116.0,
+		"speed": 78.0,
+		"contact_damage": 24.0,
+		"tint": Color(0.36, 0.56, 0.32),
+		# It reshapes the arena instead of filling it with bullets, so its
+		# phases are about how much room you are left with rather than about how
+		# much is being thrown. Each list drops at least one attack from the one
+		# before it: a phase that only appends has changed the rate and nothing
+		# else, and the suite fails a superset outright.
+		"phases": [
+			# open ground, ordinary pressure - this is the phase that teaches
+			# you what the arena looked like before it started closing
+			["aimed_volley", "summon"],
+			# the hedges start, and the volley stops
+			["hedgerow", "summon", "rain"],
+			# no more adds; now it is just you and less and less floor
+			["hedgerow", "shockwave", "charge"],
+		],
+		"signature": "hedgerow",
+		"summon_types": ["green", "violet", "bone"],
+		"summon_count": 3,
+		"projectile": "res://assets/sprites/gen/thorn.png",
+		"attack_interval": Vector2(2.3, 3.4),
 	},
 }
 

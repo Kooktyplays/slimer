@@ -63,6 +63,10 @@ SIDE = 70          # default side bearing
 ## whole number twitch sideways every frame it changes.
 DIGIT_ADV = 560
 
+## A fixed head timestamp, so the file is byte-identical across regenerations.
+## Seconds since 1904-01-01, which is TrueType's epoch; this is 2026-01-01.
+FONT_EPOCH = 3850070400
+
 
 # --------------------------------------------------------------------------
 # contour helpers
@@ -649,6 +653,17 @@ def build(path: Path) -> dict:
     fb.setupOS2(sTypoAscender=ASCENDER, sTypoDescender=DESCENDER,
                 sCapHeight=CAP, sxHeight=XH, usWeightClass=500)
     fb.setupPost()
+
+    # Pin the timestamps. fontTools stamps head.created with the current time
+    # and, on save, rewrites head.modified to "now" as well - so regenerating
+    # identical letterforms produced a different binary every run. That broke
+    # the claim LICENSE-ASSETS.md makes about every asset here ("re-running them
+    # reproduces the exact art the game ships with") and left a spurious diff in
+    # git for anyone who ran gen_art.py and changed nothing.
+    fb.font["head"].created = FONT_EPOCH
+    fb.font["head"].modified = FONT_EPOCH
+    fb.font.recalcTimestamp = False
+
     path.parent.mkdir(parents=True, exist_ok=True)
     fb.save(str(path))
     return data
