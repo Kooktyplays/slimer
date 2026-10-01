@@ -31,6 +31,7 @@ func _run() -> void:
 	_test_written_text()
 	_test_deadfall()
 	_test_boss_stats()
+	_test_boss_pose_colour()
 	_test_sfx_stability()
 	_test_font()
 	_test_boss_phases()
@@ -1369,6 +1370,53 @@ func _test_sfx_stability() -> void:
 ## a key listed without a stat behind it does the same thing from the other
 ## direction. Neither failure produces an error; the achievement simply never
 ## fires, which is not something a play-test finds.
+## Every boss's wind-up frame is a different COLOUR from its idle frame.
+##
+## Proportion alone - the wind-up as a squash of the idle drawing - reads when
+## you are looking straight at the boss and not at all out of the corner of
+## your eye, which is where a boss usually is with forty slimes on screen. The
+## wind-up is the telegraph the whole fight is read from. This pins it as a
+## colour change, so a refactor of gen_art's pose pipeline cannot quietly go
+## back to "the same drawing, resized" and leave every assertion green.
+func _test_boss_pose_colour() -> void:
+	for id: String in BossDB.DEFS:
+		var tex: Texture2D = load(String(BossDB.get_def(id)["body"]))
+		if tex == null:
+			continue
+		var img := tex.get_image()
+		img.convert(Image.FORMAT_RGBA8)
+		var fw := img.get_width() / Boss.POSE_COUNT
+		var idle := _mean_opaque(img, Rect2i(Boss.POSE_IDLE * fw, 0, fw, img.get_height()))
+		var wind := _mean_opaque(img, Rect2i(Boss.POSE_WINDUP * fw, 0, fw, img.get_height()))
+		# The wind-up is pulled warm: more red, less blue, than the same boss
+		# at rest.
+		_check(wind.r > idle.r + 0.06 and wind.b < idle.b,
+			("%s winds up in the same colour it idles in (idle %s, wind-up %s) - "
+				% [id, str(idle), str(wind)])
+			+ "the telegraph is readable only by proportion")
+
+
+## Mean colour of the opaque pixels in `rect`. Sampled on a stride: this is a
+## coarse colour comparison, not a measurement, and the boss sheets are large.
+func _mean_opaque(img: Image, rect: Rect2i) -> Color:
+	var r := 0.0
+	var g := 0.0
+	var b := 0.0
+	var n := 0
+	for y in range(rect.position.y, rect.end.y, 3):
+		for x in range(rect.position.x, rect.end.x, 3):
+			var c := img.get_pixel(x, y)
+			if c.a < 0.8:
+				continue
+			r += c.r
+			g += c.g
+			b += c.b
+			n += 1
+	if n == 0:
+		return Color.BLACK
+	return Color(r / n, g / n, b / n)
+
+
 func _test_boss_stats() -> void:
 	for id: String in BossDB.DEFS:
 		var key := "boss_" + id

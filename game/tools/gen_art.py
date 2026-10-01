@@ -1324,6 +1324,54 @@ BOSS_POSES = (
 )
 
 
+## Per-pose colour. Mirrors the POSE_* indices in actors/bosses/boss.gd.
+POSE_WINDUP_INDEX = 1
+POSE_STRIKE_INDEX = 2
+POSE_FLINCH_INDEX = 3
+
+
+def _pose_treatment(frame: Image.Image, pose: int) -> Image.Image:
+    """Give each boss pose its own colour, not just its own proportions.
+
+    Every pose used to be the same drawing resized - the wind-up a squash, the
+    strike a stretch. Proportion reads fine when you are looking straight at the
+    boss and not at all out of the corner of your eye, which is where a boss
+    usually is at wave 40 with forty slimes on screen. The wind-up is the
+    telegraph the whole fight is read from, so it is the one that most needs to
+    be readable peripherally, and colour is.
+
+    Tonal rather than redrawn, deliberately. An authored pose that moved the
+    body would move the eye socket with it, and Boss.set_pose positions the eyes
+    - a separate sprite - assuming a uniform resize; the Ancient Oak would end
+    up looking at its own shoulder. Treating the resized frame leaves every
+    silhouette exactly where BOSS_POSES put it, so the eye arithmetic, the feet
+    anchor and the hurtbox are all untouched. Alpha is saved and restored for
+    the same reason as everywhere else in this file.
+    """
+    if pose not in (POSE_WINDUP_INDEX, POSE_STRIKE_INDEX, POSE_FLINCH_INDEX):
+        return frame
+    keep = frame.getchannel("A").copy()
+    r, g, b, _a = frame.split()
+    if pose == POSE_WINDUP_INDEX:
+        # Charging: pulled toward the warm orange the slam telegraph is drawn
+        # in, so the body and the ground marker say the same thing at once.
+        r = r.point(lambda v: min(255, int(v * 1.22 + 26)))
+        g = g.point(lambda v: min(255, int(v * 1.04 + 8)))
+        b = b.point(lambda v: int(v * 0.78))
+    elif pose == POSE_STRIKE_INDEX:
+        # The release: a hard lift in value for the frame the hit lands.
+        r = r.point(lambda v: min(255, int(v * 1.12 + 18)))
+        g = g.point(lambda v: min(255, int(v * 1.12 + 18)))
+        b = b.point(lambda v: min(255, int(v * 1.12 + 18)))
+    else:
+        # Flinch: a slight pale wash. Kept subtle, because boss.gd's flash
+        # shader also fires on a hit and the two stack.
+        r = r.point(lambda v: min(255, int(v * 0.92 + 30)))
+        g = g.point(lambda v: min(255, int(v * 0.92 + 30)))
+        b = b.point(lambda v: min(255, int(v * 0.92 + 34)))
+    return Image.merge("RGBA", (r, g, b, keep))
+
+
 def save_posed(a: "Art", name: str) -> None:
     """Save `a` as a horizontal pose strip, one frame per BOSS_POSES entry.
 
@@ -1351,7 +1399,7 @@ def save_posed(a: "Art", name: str) -> None:
         scaled = img.resize((nw, nh), Image.LANCZOS)
         frame = Image.new("RGBA", (w, h), (0, 0, 0, 0))
         frame.paste(scaled, ((w - nw) // 2, h - nh))   # anchored at the feet
-        sheet.paste(frame, (i * w, 0))
+        sheet.paste(_pose_treatment(frame, i), (i * w, 0))
     OUT.mkdir(parents=True, exist_ok=True)
     sheet.save(OUT / name)
 
