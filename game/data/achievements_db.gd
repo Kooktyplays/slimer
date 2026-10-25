@@ -16,25 +16,26 @@ const KIND_FEAT := "feat"           ## done in a single run
 ## stat keys these read from Save.stats, beyond the ones that already existed
 const BOSS_STAT_KEYS: Array[String] = [
 	"boss_bramble", "boss_toad", "boss_wisp", "boss_oak", "boss_sovereign",
+	"boss_gardener",
 ]
 
 const DEFS := {
 	# --- bosses -------------------------------------------------------------
 	"first_blood": {
 		"name": "First Blood",
-		"desc": "Defeat any boss.",
+		"desc": "Put down something the forest grew on purpose.",
 		"icon": "icon_nova",
 		"kind": KIND_PROGRESS,
 	},
 	"grove_tyrant": {
 		"name": "Grove Tyrant",
-		"desc": "Defeat a major boss.",
+		"desc": "Put down one of the big ones.",
 		"icon": "icon_heart",
 		"kind": KIND_PROGRESS,
 	},
 	"clean_sweep": {
 		"name": "Clean Sweep",
-		"desc": "Defeat every boss in the forest at least once.",
+		"desc": "Meet all of them, and leave none of them standing.",
 		"icon": "icon_shield",
 		"kind": KIND_PROGRESS,
 	},
@@ -42,13 +43,13 @@ const DEFS := {
 	# --- survival, normal ---------------------------------------------------
 	"deep_woods": {
 		"name": "Deep Woods",
-		"desc": "Reach wave 20.",
+		"desc": "Get deep enough that the light changes.",
 		"icon": "icon_dash",
 		"kind": KIND_FEAT,
 	},
 	"the_long_dark": {
 		"name": "The Long Dark",
-		"desc": "Survive 100 waves.",
+		"desc": "Keep going long after the forest has run out of new ideas.",
 		"icon": "icon_timeslow",
 		"kind": KIND_FEAT,
 	},
@@ -56,13 +57,13 @@ const DEFS := {
 	# --- survival, nightmare ------------------------------------------------
 	"no_gods": {
 		"name": "No Gods, No Slimes",
-		"desc": "Reach wave 40 on Nightmare.",
+		"desc": "Get forty deep with everything awake from the first wave.",
 		"icon": "icon_rapidfire",
 		"kind": KIND_FEAT,
 	},
 	"unmaker": {
 		"name": "Unmaker",
-		"desc": "Survive 100 waves on Nightmare.",
+		"desc": "A hundred waves, with none of it holding back.",
 		"icon": "icon_lightning",
 		"kind": KIND_FEAT,
 	},
@@ -70,19 +71,19 @@ const DEFS := {
 	# --- mastery ------------------------------------------------------------
 	"pacifist_run": {
 		"name": "Light Touch",
-		"desc": "Reach wave 10 without buying a single upgrade.",
+		"desc": "Ten waves, and never once stopped to spend.",
 		"icon": "icon_ammo",
 		"kind": KIND_FEAT,
 	},
 	"hoarder": {
 		"name": "Hoarder Hoarder",
-		"desc": "Earn 50,000 coins in total.",
+		"desc": "Take fifty thousand coins off the forest, all told.",
 		"icon": "icon_coin",
 		"kind": KIND_PROGRESS,
 	},
 	"exterminator": {
 		"name": "Exterminator",
-		"desc": "Kill 10,000 slimes in total.",
+		"desc": "Ten thousand of them, all told.",
 		"icon": "icon_grenade",
 		"kind": KIND_PROGRESS,
 	},

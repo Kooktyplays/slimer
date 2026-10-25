@@ -43,7 +43,8 @@ func _burst() -> void:
 	FX.explosion(global_position, _burst_radius, Color(0.75, 0.8, 1.0))
 	Audio.play("explosion", -6.0)
 	Game.shake(4.0, 0.3)
-	var hit := Combat.explode(global_position, _burst_radius, _burst_damage, 300.0)
+	var hit := Combat.explode(global_position, _burst_radius, _burst_damage, 300.0,
+		true, Combat.SOURCE_ABILITY)
 	var p := Combat.player()
 	if p != null and p.has_method("on_damage_dealt"):
 		p.call("on_damage_dealt", _burst_damage * hit)

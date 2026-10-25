@@ -20,16 +20,50 @@ extends Node
 ## losing races it should win, and a test that fails on the bot's marksmanship
 ## reports the wrong thing. Raise this when the bot gets better, not to make
 ## the number look nicer.
-const TARGET_WAVE := 22
+## Far enough to reach the ending.
+##
+## Was 22, which stopped three waves short of the finale - so the whole victory
+## path was asserted about and never actually run. The extra waves cost about
+## 15% more sim time, which is the price of the ending being tested at all.
+const TARGET_WAVE := 26
 const MAX_FRAMES := 260_000
 const SIM_DAMAGE_ASSIST := 12.0
 ## 240 simulated seconds with no wave change. Deliberately generous: a wave 25
 ## crowd or a repeat boss legitimately runs minutes, and a tight window here
 ## turns "the bot is not very good" into a reported softlock.
 const STALL_FRAMES := 14400
+## Runaway canary on a full 26-wave run. Deliberately loose.
+##
+## It was 80,000, chosen as "about twice the observed maximum" from a sample of
+## two. Thirty-odd runs later that was plainly wrong: the real distribution is a
+## tight 33,000-42,000 body with a long right tail, and the tail is legitimate.
+## The two runs that broke 80,000 had best combos of 146 and 72 against a
+## typical 48 - a chain held that long genuinely earns that much, because
+## COMBO_MONEY_MUL tops out at 1.9x and elites pay 3x, and a lucky run gets both.
+##
+## A ceiling that fires on two runs in sixteen for reasons that are not bugs is
+## worse than no ceiling at all: it teaches whoever sees it that a red suite is
+## normal. So this now sits far above anything variance produces and only
+## catches the shape of bug it was written for - a multiplier compounding into
+## itself, which is orders of magnitude, not percentages. The Vampire's
+## kill-spread once paid 17,201 when nothing else did; that is the class of
+## thing this exists to notice.
+##
+## Note the player's BALANCE is not the concern either way. Every run measured,
+## passing or failing, finished holding double-digit coins: the shop is the
+## constraint on spending, not income.
+const MAX_EARNED := 250_000
 
 var _frames := 0
 var _failures: Array[String] = []
+## Biomes the run actually descended into. The forest is torn down and rebuilt
+## at every depth boundary, with the player reparented across the rebuild - the
+## single most breakable thing in the biome work, and the only place it can be
+## caught headlessly is here, in a run that crosses four of those boundaries.
+var _biomes_seen: Array[String] = []
+var _ultimates_fired := 0
+var _finale_seen := false
+var _best_combo := 0
 var _notes: Array[String] = []
 
 var _last_wave := 0
@@ -56,6 +90,11 @@ var _bot_stuck := 0
 var _no_kill_frames := 0
 var _last_enemy_count := 0
 var _last_boss_hp := INF
+## Frames the player has been dead while the run kept going. See _process.
+var _dead_frames := 0
+## Set when the harness kills the player ON PURPOSE, so the death-reset test
+## does not trip the softlock guard above.
+var _deaths_expected := 0
 var _target_index := 0
 
 
@@ -67,6 +106,13 @@ func _ready() -> void:
 		_waves_seen.append(w)
 		_last_wave = w
 		_last_progress_frame = _frames)
+	Events.finale_cleared.connect(func(_nightmare: bool) -> void:
+		_finale_seen = true)
+	Events.combo_changed.connect(func(count: int, _tier: int) -> void:
+		_best_combo = maxi(_best_combo, count))
+	Events.biome_changed.connect(func(id: String, _n: String) -> void:
+		if not _biomes_seen.has(id):
+			_biomes_seen.append(id))
 	Events.boss_spawned.connect(func(_b: Node2D, _n: String, major: bool) -> void:
 		if major:
 			_major_waves_seen.append(Game.wave())
@@ -106,13 +152,20 @@ func _boot() -> void:
 	# The three are also chosen so every slot always has something to do, rather
 	# than one sitting on a dead target.
 	Save.loadout = ["surge", "nova", "grenade"]
+
+	# Pick a class, and rotate it by day so every one of the five gets exercised
+	# across runs rather than four of them never being instantiated. A class
+	# whose ultimate crashes on use would otherwise sit undiscovered until a
+	# player found it.
+	Save.character = ClassesDB.ORDER[
+		int(Time.get_unix_time_from_system() / 86400.0) % ClassesDB.ORDER.size()]
 	Save.unlocks = ["ab_surge"]
 	# Seed the global RNG too. Game.start_run seeds its own generator, but
 	# spawn placement, bullet spread and drop rolls use the global one, so
 	# without this the run differs every time and a failure cannot be
 	# reproduced.
 	seed(987654)
-	Game.start_run(987654)
+	Game.start_run(987654, false, Save.character)
 
 	# Damage assist. This test exists to prove the *loop* holds - waves
 	# advance, bosses die, shops open and close, death resets - not to prove a
@@ -122,8 +175,29 @@ func _boot() -> void:
 	# reason.
 	Game.run.gun["damage"] = float(Game.run.gun["damage"]) * SIM_DAMAGE_ASSIST
 
+	# Restore health INSIDE the damage path, not only after it. Both of
+	# Player's damage paths emit player_damaged before they check for death, so
+	# refilling here means the death check that follows sees a full bar.
+	#
+	# The per-frame top-up below was not enough on its own, at any threshold -
+	# 0.75, then 0.95, then unconditional. The design guarantees that no SINGLE
+	# boss attack can kill a full-health player, and that holds; but a slam, a
+	# contact poison tick and a contact hit can all land in one physics frame,
+	# and _process only runs after that frame is over. Three sources summing
+	# past max_hp inside one step killed the bot from full health at wave 25,
+	# with the top-up never getting a turn.
+	if not Events.player_damaged.is_connected(_on_player_damaged):
+		Events.player_damaged.connect(_on_player_damaged)
+
 	_last_progress_frame = _frames
 	_started = true
+
+
+## See the connection in _begin. Gated on _deaths_expected so the deliberate
+## kill at the end of the run - the death-reset test - still goes through.
+func _on_player_damaged(_amount: float, _from: Vector2) -> void:
+	if _deaths_expected == 0 and Game.run != null:
+		Game.run.hp = Game.run.max_hp
 
 
 func _process(_delta: float) -> void:
@@ -134,7 +208,79 @@ func _process(_delta: float) -> void:
 		_fail("hit the frame ceiling without reaching wave %d" % TARGET_WAVE)
 		_finish()
 		return
+	# A dead player with the run still going is a softlock, and it must be
+	# reported at the moment it happens rather than four minutes later.
+	#
+	# Found by the stall watchdog reporting "player=(2350,1933) hp=0
+	# alive=false" at wave 25: the player had died, Game never left State.RUN,
+	# and the whole wave went on swarming a corpse. From 14,400 frames away the
+	# symptom was indistinguishable from an unkillable boss. Caught here, the
+	# state at the instant of death is still on screen, which is the only thing
+	# that identifies which guard swallowed the transition.
+	if _deaths_expected == 0 and Game.state == Game.State.DEATH:
+		_dead_frames += 1
+		if _dead_frames > 60:
+			# Fail fast and say what happened. The death transition itself works
+			# fine; what the harness has no answer for is the death SCREEN,
+			# which waits for a choice nothing here makes. Left to the stall
+			# watchdog this reads as "wave 25 is wedged" four minutes later, and
+			# looks exactly like an unkillable boss.
+			_fail(("the bot was killed on wave %d - the run is sitting on the "
+				+ "death screen. The top-up above is meant to make that "
+				+ "impossible, so either it is too low or something bypasses it.")
+				% _last_wave)
+			_dump_state()
+			_finish()
+			return
+	else:
+		_dead_frames = 0
 	if _frames - _last_progress_frame > STALL_FRAMES:
+		# Say WHAT is stuck, not just that something is. A wedged boss wave and
+		# a wedged shop look identical from the wave counter alone, and the
+		# difference is the whole diagnosis.
+		var boss_note := ""
+		for n: Node in get_tree().get_nodes_in_group("boss"):
+			if is_instance_valid(n) and n.has_method("health_fraction"):
+				var pl := Combat.player()
+				var dist := (pl.global_position.distance_to(n.global_position)
+					if pl != null else -1.0)
+				boss_note = " boss %s at %.0f%% of %.0f hp, active=%s dying=%s %.0fpx away" % [
+					n.get("id"), float(n.call("health_fraction")) * 100.0,
+					float(n.get("max_hp")), str(n.get("active")),
+					str(n.get("dying")), dist]
+		# And say what the surviving ENEMIES are. A wave that will not end
+		# because one slime is unkillable looked exactly like a wave that will
+		# not end because nothing spawned, and the difference is again the
+		# whole diagnosis. Read off Combat's registry rather than the "enemies"
+		# group: a pooled enemy is only added to that group once, in _ready,
+		# and die() removes it, so every recycled enemy is missing from it.
+		var enemy_note := ""
+		for e: Node2D in Combat.enemies():
+			var hb := e.get_node_or_null("Hurtbox") as Area2D
+			enemy_note += " | %s hp=%.0f/%.0f elite=%s layer=%d mon=%s %.0fpx" % [
+				str(e.get("type_id")), float(e.get("hp")),
+				float(e.get("max_hp")), str(e.get("elite_mod")),
+				(hb.collision_layer if hb != null else -1),
+				str(hb.monitorable) if hb != null else "n/a",
+				e.global_position.distance_to(Combat.player_position())]
+		# And the player, because "every enemy is 2px from the player" has two
+		# completely different causes and they look identical from here.
+		# Combat.player_position() returns Vector2.ZERO when the reference is
+		# invalid, and Enemy._target_position() feeds that straight into every
+		# _think() - so a lost player herds the entire wave to the world origin
+		# and reports them all as standing on top of you.
+		var pl := Combat.player()
+		var player_note := " player=none(registry lost - enemies are walking to the world origin)"
+		if pl != null:
+			player_note = " player=%s hp=%.0f alive=%s" % [
+				str(pl.global_position.round()),
+				(Game.run.hp if Game.run != null else -1.0),
+				str(pl.get("alive"))]
+		var shop_note := " shop=%s" % ("open" if _run_node() != null
+			and _run_node().get("shop") != null else "none")
+		var vic_note := " victory=%s" % ("up" if _run_node() != null
+			and _run_node().get("victory") != null else "none")
+		_note("stall detail:" + player_note + boss_note + enemy_note + shop_note + vic_note)
 		_fail("no wave progress for %d frames (stuck on wave %d, phase %d)"
 			% [STALL_FRAMES, _last_wave, Game.phase])
 		_dump_state()
@@ -160,12 +306,47 @@ func _tick_waves() -> void:
 		return
 
 	_peak_enemies = maxi(_peak_enemies, Combat.enemy_count())
+
+	# Spend the ultimate the moment it is ready. This is the only automated
+	# thing that ever calls one, so an ultimate that errors or hangs shows up
+	# here rather than in someone's hands.
+	if Game.run != null and Game.run.ultimate_ready():
+		var p := Combat.player()
+		if p != null and p.has_method("get") and p.get("abilities") != null:
+			if bool(p.abilities.call("use_ultimate")):
+				_ultimates_fired += 1
 	_pool_peak = maxi(_pool_peak, Pools.total_live())
 
 	# Keep the run alive: this test is about the loop not wedging, not about
 	# whether an AI can out-play wave 26.
-	if Game.run.hp < Game.run.max_hp * 0.75:
+	#
+	# Topped up to FULL every frame, not to a threshold. It was 0.75, then 0.95,
+	# and both still let the bot be killed at wave 25: a boss slam there is 38
+	# base against a damage_scale that caps at 2.4, and contact poison ticks
+	# through a separate path in the same frame. Any threshold is a margin that
+	# a late-game hit can clear in one go.
+	#
+	# So the bot is effectively immortal here, deliberately. This harness exists
+	# to prove the LOOP holds - waves advance, bosses die, shops open and close,
+	# death resets - and a bot that dies at wave 25 proves nothing about any of
+	# that. The death path is still exercised, on purpose, by the death-reset
+	# test at the end.
+	#
+	# When it did die it never looked like a death: Game leaves State.RUN
+	# correctly, the death screen comes up, and it waits for a choice nothing
+	# here makes - so the stall watchdog reported "wave 25 is wedged" four
+	# minutes later and it read as an unkillable boss. That was the single
+	# biggest source of sim flake all along.
+	if Game.run.hp < Game.run.max_hp:
 		Game.run.hp = Game.run.max_hp
+
+	# The ending pauses the game and waits for a choice. Always CONTINUE, so
+	# the sim proves the loop carries on past the finale rather than only that
+	# the finale fires - continuing is the whole design of this ending, and an
+	# untested continue is where it would break.
+	var vic: Variant = run.get("victory")
+	if vic != null and is_instance_valid(vic):
+		vic.emit_signal("continued")
 
 	# close the shop as soon as it opens
 	if Game.phase == Game.Phase.SHOP:
@@ -337,11 +518,30 @@ func _begin_death_test(player: Player) -> void:
 		"money": Game.run.money,
 		"damage": float(Game.run.gun["damage"]),
 	}
-	_note("reached wave %d with %d money, %.0f gun damage, %d upgrades bought"
-		% [_last_wave, Game.run.money, _pre_death["damage"],
-			_pre_death["upgrades"].size()])
+	# Money EARNED, not the balance left over. The balance says how much the
+	# bot failed to spend; earnings are what says whether the economy has run
+	# away - which is the number that matters now that the combo multiplies
+	# payouts, and the number that would have shown the Vampire's 17,201.
+	_note("reached wave %d with %d money (%d earned), %.0f gun damage, "
+		% [_last_wave, Game.run.money, Game.run.money_earned,
+			_pre_death["damage"]]
+		+ "%d upgrades bought" % _pre_death["upgrades"].size())
+	if Game.run.money_earned > MAX_EARNED:
+		# Name what it bought. The first guess for a runaway is always the combo
+		# multiplier, and on this economy that guess was wrong: trimming the top
+		# of COMBO_MONEY_MUL from 2.4 to 1.9 moved the outlier from 95,641 to
+		# 96,082, which is no movement at all. Whatever compounds is in this
+		# list, so print it rather than guessing again.
+		var bought: Array[String] = []
+		for id: String in _pre_death["upgrades"]:
+			bought.append(id)
+		_fail("the run earned %d, over the %d ceiling. Best combo %d, %d kills, "
+			% [Game.run.money_earned, MAX_EARNED, _best_combo,
+				Game.run.kills]
+			+ "upgrades: %s" % ", ".join(bought))
 	for action: String in ["move_up", "move_down", "move_left", "move_right"]:
 		Input.action_release(action)
+	_deaths_expected += 1
 	player.take_damage(1_000_000.0)
 
 
@@ -392,6 +592,10 @@ func _finish() -> void:
 	print("abilities used:   move x%d, slot 1 x%d, slot 2 x%d"
 		% [_abilities_fired[0], _abilities_fired[1], _abilities_fired[2]])
 	print("potions consumed: %s" % (str(_potions) if not _potions.is_empty() else "none"))
+	print("class:            %s (%d ultimates fired, best combo %d)"
+		% [ClassesDB.display_name(Game.run.class_id) if Game.run != null else "?",
+			_ultimates_fired, _best_combo])
+	print("biomes descended: %s" % (str(_biomes_seen) if not _biomes_seen.is_empty() else "none"))
 	print("peak enemies:     %d (cap %d)" % [_peak_enemies, Balance.MAX_CONCURRENT_ENEMIES])
 	print("peak pooled live: %d" % _pool_peak)
 	print("orphan nodes:     %d" % Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
@@ -413,6 +617,39 @@ func _finish() -> void:
 func _check_sequence() -> void:
 	if _last_wave < TARGET_WAVE:
 		_fail("only reached wave %d of %d" % [_last_wave, TARGET_WAVE])
+
+	# A 22-wave run that never charged its ultimate once means the charge rate
+	# is wrong, or the condition is never fed. Either way the class does not
+	# work, and it would be invisible without this.
+	if _ultimates_fired < 1:
+		_fail("the ultimate never charged in %d waves - class %s"
+			% [_last_wave, Game.run.class_id if Game.run != null else "?"])
+	if _best_combo < 5:
+		_fail("the best combo across the whole run was %d" % _best_combo)
+
+	# The ending has to actually fire. A run that walked past wave 25 without
+	# it means the finale never triggered, which no amount of asserting about
+	# the schedule would have caught.
+	if _last_wave > Balance.FINALE_WAVE and not _finale_seen:
+		_fail("reached wave %d without the finale at %d ever firing"
+			% [_last_wave, Balance.FINALE_WAVE])
+	# ...and the run must carry on afterwards, because continuing is the whole
+	# design of this ending.
+	if _finale_seen and _last_wave <= Balance.FINALE_WAVE:
+		_fail("the run stopped at the finale instead of continuing past it")
+
+	# The forest must have descended once per depth boundary crossed, and the
+	# run must still be standing afterwards. Reaching wave 22 in Greenwood
+	# would mean the rebuild silently never fired; reaching it with a dead
+	# player reference would mean the reparent lost them.
+	var expected_biomes: Array[String] = []
+	for depth in range(2, Game.depth_for_wave(_last_wave) + 1):
+		var id := BiomeDB.id_for_depth(depth)
+		if not expected_biomes.has(id):
+			expected_biomes.append(id)
+	if _biomes_seen != expected_biomes:
+		_fail("descended into %s, expected %s"
+			% [str(_biomes_seen), str(expected_biomes)])
 
 	# waves must be consecutive with no gaps or repeats
 	for i in _waves_seen.size():

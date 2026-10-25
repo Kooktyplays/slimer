@@ -9,7 +9,11 @@ Outputs 44.1 kHz 16-bit mono WAVs to assets/sfx/. Godot imports .wav directly.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import zlib
 import math
+import sys
 import wave
 from pathlib import Path
 
@@ -436,12 +440,160 @@ def music_layers():
     save("layer_escalation", buf, peak=0.62)
 
 
+# --------------------------------------------------------------------------
+# Anything added from here on goes LAST, and new sounds should keep doing that.
+#
+# `rng` is seeded once and shared by every generator, so inserting a sound in
+# the middle shifts the noise stream for everything after it: adding `deflect`
+# to impacts() rewrote 25 unrelated .wav files and quietly changed sounds
+# players already know. Appending costs nothing and churns nothing.
+# --------------------------------------------------------------------------
+def additions():
+    # A hit that does nothing: hard, bright and short, with no flesh in it.
+    # Deliberately unlike "hit" - a player has to hear that a Warded shrugged
+    # off their cooldown without reading the damage numbers.
+    save("deflect", drive(mix(
+        decay(highpass(noise(0.06), 4200), 0.010) * 0.7,
+        decay(tone(0.12, 2100), 0.024) * 0.42,
+        decay(sweep(0.10, 3200, 1700, "tri"), 0.018) * 0.30), 1.6))
+
+
+MANIFEST = ROOT / "tools" / "sfx_manifest.json"
+
+
+def write_manifest() -> None:
+    """Rewrite sfx_manifest.json from whatever is currently on disk.
+
+    Deliberately behind a flag rather than part of main(). The manifest exists so
+    the logic suite fails when a .wav changes unintentionally, and a generator
+    that refreshed it on every run would assert nothing at all - it would simply
+    record the damage and pass.
+
+    Run `gen_sfx.py --manifest` only when a change to an existing sound is
+    intended, and say which sounds changed in the commit message.
+    """
+    rows = {f.stem: hashlib.sha256(f.read_bytes()).hexdigest()
+            for f in sorted(OUT.glob("*.wav"))}
+    payload = json.loads(MANIFEST.read_text()) if MANIFEST.exists() else {}
+    payload["sounds"] = rows
+    MANIFEST.write_text(json.dumps(payload, indent="\t", sort_keys=True) + "\n")
+    print(f"manifest: {len(rows)} sounds -> {MANIFEST.relative_to(ROOT)}")
+
+
+# --------------------------------------------------------------------------
+# additions from here on are position-independent
+# --------------------------------------------------------------------------
+def named_rng(name: str) -> np.random.Generator:
+    """A generator keyed by NAME rather than by call order.
+
+    The module-level `rng` above is shared by every generator, so a sound's
+    identity is its position in this file and inserting one anywhere but the end
+    re-draws the noise stream for everything after it. That rule is real - adding
+    `deflect` once silently rewrote 25 unrelated wavs - but it is also a trap
+    that gets worse with every sound added.
+
+    Anything using this instead is immune: its noise depends only on its own
+    name, so it can be moved, reordered or removed without touching another
+    file. Every sound added from here on should use it.
+
+    zlib.crc32, NOT hash(). Python salts str hashing per process, so hash() here
+    would make the output differ between runs of this script - the exact
+    property this file exists to have.
+    """
+    return np.random.default_rng(zlib.crc32(name.encode()) & 0xFFFFFFFF)
+
+
+def _noise(dur: float, g: np.random.Generator) -> np.ndarray:
+    """noise(), but from an explicit generator."""
+    return g.random(int(SR * dur)) * 2.0 - 1.0
+
+
+def _reverb(sig: np.ndarray, rt60: float = 0.9, wet: float = 0.35) -> np.ndarray:
+    """A small room, as a finite sum of comb taps.
+
+    Four combs at mutually prime delays plus two allpass smears, each expanded
+    as a truncated tap sum rather than run as a recursive filter - so it stays
+    pure numpy with no per-sample Python loop, unlike lowpass() above.
+
+    Used only on the sounds added below. Applying it to the existing ones would
+    rewrite them, which is the thing the manifest exists to prevent.
+    """
+    out = sig.copy()
+    for delay_ms, gain in ((29.7, 0.68), (37.1, 0.62), (41.3, 0.58), (43.7, 0.54)):
+        d = int(SR * delay_ms / 1000.0)
+        acc = np.zeros(len(sig) + d * 8)
+        g = 1.0
+        for k in range(1, 9):
+            if g < 0.001:
+                break
+            g = gain ** k * math.exp(-3.0 * k * delay_ms / 1000.0 / max(rt60, 0.05))
+            acc[d * k:d * k + len(sig)] += sig * g
+        out = out + acc[:len(out)] * 0.25
+    return mix(sig, out * wet)
+
+
+def boss_moves():
+    """One sound per boss attack, instead of six sharing `boss_attack`.
+
+    Six of the fifteen boss attacks played the same cue: the slam, the radial,
+    the charge, the spiral, the Toadfather's tongue and the Oak's rootquake. A
+    boss with four distinct telegraphs that all sound identical is a boss whose
+    tells you have to learn visually and cannot learn at all with the screen
+    busy - which is most of a boss fight at wave 40.
+
+    boss_attack itself stays on disk as the fallback for anything unmapped.
+    """
+    g = named_rng("boss_move_slam")
+    save("boss_move_slam", _reverb(drive(mix(
+        decay(sweep(0.7, 150, 28, "sine"), 0.24) * 1.0,
+        decay(lowpass(_noise(0.7, g), 520), 0.20) * 0.8,
+        decay(highpass(_noise(0.35, g), 2200), 0.05) * 0.35), 2.4), 1.1, 0.40))
+
+    g = named_rng("boss_move_radial")
+    save("boss_move_radial", _reverb(drive(mix(
+        decay(sweep(0.55, 240, 620, "tri"), 0.22) * 0.8,
+        decay(sweep(0.55, 244, 628, "tri"), 0.22) * 0.5,
+        decay(highpass(_noise(0.5, g), 1400), 0.16) * 0.5), 1.9), 0.8, 0.32))
+
+    g = named_rng("boss_move_charge")
+    save("boss_move_charge", _reverb(drive(mix(
+        decay(sweep(0.85, 90, 430, "saw"), 0.40) * 0.9,
+        decay(lowpass(_noise(0.85, g), 1100), 0.34) * 0.6), 2.2), 0.7, 0.28))
+
+    g = named_rng("boss_move_spiral")
+    ticks = np.zeros(int(SR * 0.9))
+    for k in range(7):
+        at = int(SR * 0.10 * k)
+        blip = decay(tone(0.09, 420 * (1.0 + 0.16 * k), "tri"), 0.022)
+        ticks[at:at + len(blip)] += blip * (0.9 - 0.06 * k)
+    save("boss_move_spiral", _reverb(drive(mix(
+        ticks, decay(lowpass(_noise(0.9, g), 800), 0.3) * 0.25), 1.7), 1.0, 0.36))
+
+    g = named_rng("boss_move_tongue")
+    save("boss_move_tongue", _reverb(drive(mix(
+        decay(lowpass(highpass(_noise(0.22, g), 700), 3000), 0.035) * 1.0,
+        decay(sweep(0.30, 680, 90, "sine"), 0.070) * 0.7), 2.0), 0.6, 0.24))
+
+    g = named_rng("boss_move_quake")
+    rumble = decay(sweep(1.5, 46, 22, "sine"), 0.65)
+    rattle = np.zeros(int(SR * 1.5))
+    for k in range(9):
+        at = int(SR * (0.06 + 0.15 * k))
+        burst = decay(lowpass(_noise(0.10, g), 900), 0.025)
+        rattle[at:at + len(burst)] += burst * (0.55 - 0.04 * k)
+    save("boss_move_quake", _reverb(drive(mix(
+        rumble * 1.0, rattle * 0.8), 2.3), 1.4, 0.42))
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     for label, fn in (
         ("gun", gun), ("impacts", impacts), ("pickups", pickups),
         ("abilities", abilities), ("bosses", bosses), ("ui/flow", ui_and_flow),
-        ("music layers", music_layers),
+        ("music layers", music_layers), ("additions", additions),
+        # LAST, always. See named_rng - these are position-independent, but the
+        # ones above are not, and anything inserted before them rewrites them.
+        ("boss moves", boss_moves),
     ):
         fn()
         print(f"  {label}")
@@ -451,4 +603,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--manifest" in sys.argv:
+        write_manifest()
+    else:
+        main()

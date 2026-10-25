@@ -19,7 +19,11 @@ script the run scene owns.
 - `-- tests` — logic suite
 - `-- sim` — headless 22-wave playthrough. Refuses to run with Dash equipped:
   that is the permanent guard on the bug that made Dash mandatory
-- `-- perf` — p95 frame time against the 16.6 ms budget
+- `-- perf` — p95 frame time against the 16.6 ms budget. Run it **without**
+  `--fixed-fps 60`. It measures wall-clock frame time, so pinning the engine
+  to 60fps makes every sample exactly 16.67 ms and the test fails its own
+  budget on every commit, including ones that pass at 6.94 ms. The sim is the
+  opposite and needs the flag, which is an easy pair to get backwards.
 - `-- visual` — screenshot pass with behaviour assertions. Runs **windowed**,
   not headless, and needs the window focused; a background window is throttled
   and the real-time assertions get flaky

@@ -34,7 +34,9 @@ func _ready() -> void:
 		# entering the run scene directly (editor / harness) - make one
 		Game.start_run(0)
 
-	layout = forest.build(Game.run.seed_value)
+	layout = forest.build(Game.run.seed_value,
+		BiomeDB.id_for_depth(Game.depth_for_wave(Game.run.wave + 1)))
+	Combat.terrain = layout
 
 	waves = WaveController.new()
 	waves.name = "Waves"
@@ -59,6 +61,7 @@ func _ready() -> void:
 
 	Pools.prewarm(PICKUP_SCENE, 60)
 	Events.enemy_died.connect(_on_enemy_died)
+	Events.pickup_collected.connect(_on_pickup_charge)
 	Events.hit_stop.connect(_apply_hit_stop)
 	Events.shop_closed.connect(_on_shop_closed)
 	Events.wave_cleared.connect(_on_wave_cleared)
@@ -102,6 +105,10 @@ func _process(delta: float) -> void:
 		if Game.run != null:
 			Game.run.health_potion_guard = maxf(
 				0.0, Game.run.health_potion_guard - delta)
+			Game.run.tick_combo(delta)
+	Combat.tick_slow(delta)
+
+	_tick_terrain(delta)
 
 	if _pending_wave:
 		_intermission -= delta
@@ -136,6 +143,8 @@ func _on_wave_finished(wave: int) -> void:
 func _on_boss_cleared(_boss: Node2D) -> void:
 	if Game.state != Game.State.RUN:
 		return
+	if Game.run != null:
+		Game.run.add_ultimate_charge(ClassesDB.CHARGE_ELITES, 4.0)
 	# sweep up any adds the boss left behind before the shop opens
 	waves.clear_all_enemies()
 	# ...and bank the payout before anything can read the balance. This has to
@@ -143,6 +152,18 @@ func _on_boss_cleared(_boss: Node2D) -> void:
 	# opens the shop itself - see Game.notify_wave_cleared.
 	_bank_loose_coins()
 	Game.notify_wave_cleared()
+
+	# The ending, once per run. Shown before the shop, because the shop is the
+	# game carrying on and this is the moment it stops to acknowledge you.
+	if Game.run != null and not Game.run.finale_cleared \
+			and Game.is_finale_wave(Game.run.wave):
+		Game.run.finale_cleared = true
+		Save.stats["runs_completed"] = int(Save.stats.get("runs_completed", 0)) + 1
+		Save.save_game()
+		Events.finale_cleared.emit(Game.run.nightmare)
+		_show_victory()
+		return
+
 	_open_shop()
 
 
@@ -180,6 +201,41 @@ func _queue_next_wave() -> void:
 
 
 # ---------------------------------------------------------------------------
+# the ending
+# ---------------------------------------------------------------------------
+var victory: Control = null
+
+
+func _show_victory() -> void:
+	if victory != null and is_instance_valid(victory):
+		return
+	victory = preload("res://ui/victory_screen.gd").new()
+	hud_layer.add_child(victory)
+	# Deliberately NOT paused. The shop does not pause either - the arena is
+	# empty by construction at this point, the boss is dead and its adds are
+	# swept - and pausing here stopped the headless sim from ever pressing
+	# continue, which wedged the run on the wave it was meant to celebrate.
+	victory.connect("continued", func() -> void:
+		_close_victory()
+		# straight back into the loop the run was already in
+		_open_shop())
+	victory.connect("ended", func() -> void:
+		_close_victory()
+		# Ends the run the ordinary way, so the results screen, the Essence
+		# award and the death handling all behave exactly as they always do -
+		# a second path to "the run is over" would be a second thing to keep
+		# working.
+		if is_instance_valid(player):
+			player.take_damage(1_000_000.0))
+
+
+func _close_victory() -> void:
+	if victory != null and is_instance_valid(victory):
+		victory.queue_free()
+	victory = null
+
+
+# ---------------------------------------------------------------------------
 # shop
 # ---------------------------------------------------------------------------
 func _open_shop() -> void:
@@ -194,20 +250,173 @@ func _on_shop_closed() -> void:
 	if shop != null and is_instance_valid(shop):
 		shop.queue_free()
 	shop = null
+	_maybe_descend()
 	_queue_next_wave()
+
+
+# ---------------------------------------------------------------------------
+# terrain hazards
+# ---------------------------------------------------------------------------
+## What the biome's standing water does to whoever walks into it.
+##
+## Every hazard is a different *meaning* for geometry the generator already
+## produces, rather than a new system: `layout.ponds` is the same list of
+## {center, radius} in all five biomes, and the biome decides whether that is
+## water to wade through, embers to avoid, or sap that poisons. Which is also
+## why each one is legible - the pools are painted in the biome's own water
+## texture, so the hazard is visible well before it is felt.
+##
+## The Hollow is the exception: its hazard is the dark itself, which is a
+## screen effect rather than a place you can stand.
+const TERRAIN_SLOW := 0.62
+## Damage per second while standing in a hazard pool. Sized so a pool can be
+## crossed but not camped in: at 9 dps a run through Ashfall's embers costs a
+## few health, and standing in one is a steady drain you can watch happen.
+const TERRAIN_DPS_FIRE := 9.0
+const TERRAIN_DPS_BRAMBLE := 6.0
+
+
+func _tick_terrain(_delta: float) -> void:
+	if player == null or not is_instance_valid(player) or layout == null:
+		return
+	var hazard := String(forest.biome_def.get("hazard", BiomeDB.HAZARD_NONE))
+	# Cleared every frame and re-set only while actually standing in something,
+	# so walking out of a pool stops the effect on the same frame.
+	player.terrain_speed_mul = 1.0
+	player.terrain_dps = 0.0
+	if hazard == BiomeDB.HAZARD_NONE or hazard == BiomeDB.HAZARD_GLOOM:
+		return
+
+	var at := player.global_position
+	var inside := false
+	for pond: Dictionary in layout.ponds:
+		if at.distance_to(pond["center"]) <= float(pond["radius"]):
+			inside = true
+			break
+	if not inside:
+		return
+
+	match hazard:
+		BiomeDB.HAZARD_WATER:
+			player.terrain_speed_mul = TERRAIN_SLOW
+		BiomeDB.HAZARD_FIRE:
+			player.terrain_dps = TERRAIN_DPS_FIRE
+		BiomeDB.HAZARD_BRAMBLE:
+			player.terrain_dps = TERRAIN_DPS_BRAMBLE
+
+
+# ---------------------------------------------------------------------------
+# descending
+# ---------------------------------------------------------------------------
+## Regenerate the forest when the next wave belongs to a deeper biome.
+##
+## The timing is not a coincidence: Balance.WAVES_PER_DEPTH and MINI_BOSS_EVERY
+## are both 5, so every depth boundary is a boss wave followed by a shop. By
+## the time the shop closes the arena is empty by construction - the boss is
+## dead, _on_boss_cleared swept its adds and banked every coin - so the whole
+## rebuild happens behind a screen the player was already reading.
+##
+## Regenerating rather than recolouring is the point. The forest is supposed to
+## be a place that rearranges itself so it cannot be learned; a new palette over
+## identical geometry would say the opposite.
+func _maybe_descend() -> void:
+	if Game.run == null or Game.state != Game.State.RUN:
+		return
+	var next_biome := BiomeDB.id_for_depth(Game.depth_for_wave(Game.run.wave + 1))
+	if next_biome == forest.biome:
+		return
+
+	# Park every pooled node first. Pickups still lying in the forest are
+	# children of the layer about to be freed, and a pool holding a freed node
+	# hands that node out again on the next acquire. release_all() exists for
+	# exactly this - a world teardown that the pools have to survive.
+	Pools.release_all()
+
+	# The player is a child of forest.sorted_layer, which the rebuild frees.
+	# Reparenting rather than respawning keeps the run: health, abilities,
+	# cooldowns and every upgrade bought so far all live on this node.
+	var keep_player := is_instance_valid(player) and player.get_parent() != null
+	if keep_player:
+		player.get_parent().remove_child(player)
+
+	# Seeded from the run seed *and* the depth, so a run is still reproducible
+	# from the one number the results screen shows.
+	layout = forest.build(Game.run.seed_value + Game.depth_for_wave(
+		Game.run.wave + 1) * 104729, next_biome)
+	Combat.terrain = layout
+
+	if keep_player:
+		forest.sorted_layer.add_child(player)
+		player.global_position = layout.nearest_open(layout.spawn_point)
+		player.velocity = Vector2.ZERO
+
+	# Re-point everything that cached the old layout or the old parent node.
+	# Both setups are pure reference assignment - they reset no wave state.
+	waves.setup(layout, forest.sorted_layer, effects)
+	bosses.call("setup", layout, forest.sorted_layer, effects)
+
+	var def := BiomeDB.get_def(next_biome)
+	Events.biome_changed.emit(next_biome, String(def["name"]))
+	if keep_player:
+		FX.floating_text(player.global_position + Vector2(0, -140),
+			String(def["name"]).to_upper(), Color(0.85, 0.9, 1.0))
+	Audio.play("boss_phase", -4.0)
 
 
 # ---------------------------------------------------------------------------
 # drops
 # ---------------------------------------------------------------------------
+func _on_pickup_charge(_kind: String, _at: Vector2) -> void:
+	if Game.run != null:
+		Game.run.add_ultimate_charge(ClassesDB.CHARGE_PICKUPS, 1.0)
+
+
 func _on_enemy_died(enemy: Node2D, at: Vector2) -> void:
 	if Game.run == null:
 		return
 	Game.run.kills += 1
 
+	# The chain, and its payoff. The tier is the one number that drives all of
+	# it - shake, hit stop, audio pitch, the coin multiplier and the HUD - so
+	# none of them can disagree about how well the player is doing.
+	var was_tier := Game.run.combo_tier()
+	Game.run.add_combo()
+	var tier := Game.run.combo_tier()
+	var tier_up := tier > was_tier
+	# Two classes read this moment: the Engineer off the chain itself, the
+	# Warden off what died. add_ultimate_charge ignores anything that is not
+	# this class's own condition, so both can be fed unconditionally.
+	Game.run.add_ultimate_charge(ClassesDB.CHARGE_COMBO, float(Game.run.combo))
+
+	# Crimson Hour: a kill spreads to whatever was standing next to it.
+	if player != null and is_instance_valid(player) and player.is_contagious():
+		FX.burst(at, Color(0.9, 0.3, 0.4), 12, 1.4)
+		Combat.explode(at, 210.0, 55.0, 120.0, true, Combat.SOURCE_ABILITY)
+	if bool(enemy.get("is_elite")):
+		Game.run.add_ultimate_charge(ClassesDB.CHARGE_ELITES, 1.0)
+	# Every kill shakes. This used to be gated above tier 0, which meant the
+	# single most common thing the player does had no camera response at all
+	# and the feedback only started once a chain was already running.
+	Game.shake(Balance.SHAKE_KILL_BASE + Balance.SHAKE_KILL_PER_TIER * tier
+		+ (Balance.SHAKE_COMBO_TIER_UP if tier_up else 0.0),
+		0.10 + 0.03 * tier)
+	# Hit stop marks the chain LEVELLING UP, not every kill at a high tier.
+	# On every kill this stutters a dense wave from end to end and makes the
+	# frame-deterministic sim depend on wall-clock; see HIT_STOP_COMBO_TIER.
+	if tier_up and tier >= Balance.HIT_STOP_COMBO_TIER:
+		Events.hit_stop.emit(Balance.HIT_STOP_KILL)
+	if tier > 0 and Game.run.combo % 5 == 0:
+		Audio.play_throttled("crit", 0.06, -14.0 + 2.0 * tier, 0.10 * tier)
+
 	var money := int(enemy.get("money_value"))
 	if money > 0:
-		_drop_coins(at, money, bool(enemy.get("hoards")))
+		# The chain's payoff, applied before the coins are split so a live
+		# chain visibly showers more of them - a bonus credited silently to
+		# the counter would be the same money and none of the feedback. A
+		# Thief's haul is held out of it; see Balance.combo_payout.
+		_drop_coins(at,
+			Balance.combo_payout(money, int(enemy.get("stolen_value")), tier),
+			bool(enemy.get("hoards")))
 	_maybe_drop_potion(at, enemy)
 
 

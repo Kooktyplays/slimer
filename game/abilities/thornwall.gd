@@ -19,6 +19,9 @@ var _fill: Polygon2D = null
 
 
 func setup(at: Vector2, angle: float, def: Dictionary) -> void:
+	# The Devourer eats these. One group rather than two type checks,
+	# so a third zoning ability later is one line.
+	add_to_group("zoning")
 	global_position = at
 	rotation = angle
 	_life = float(def["duration"])

@@ -84,12 +84,16 @@ func launch(at: Vector2, dir: Vector2, cfg: Dictionary) -> void:
 	(_shape.shape as CircleShape2D).radius = _radius
 	_query_shape.radius = _radius
 
+	# DEADFALL is in both masks, and only in these two places in the whole game.
+	# _resolve already treats any StaticBody2D as terrain and expires the bullet
+	# with the usual spark, so a deadfall needs no special case there - it is
+	# simply another thing a shot can stop against.
 	if from_player:
 		collision_layer = Layers.PLAYER_BULLET
-		_query.collision_mask = Layers.ENEMY | Layers.WORLD
+		_query.collision_mask = Layers.ENEMY | Layers.WORLD | Layers.DEADFALL
 	else:
 		collision_layer = Layers.ENEMY_BULLET
-		_query.collision_mask = Layers.PLAYER | Layers.WORLD
+		_query.collision_mask = Layers.PLAYER | Layers.WORLD | Layers.DEADFALL
 	collision_mask = _query.collision_mask
 
 	# Check the spawn point itself before moving. This is the point-blank fix:
@@ -156,12 +160,19 @@ func _resolve(collider: Object, rid: RID, at: Vector2) -> bool:
 		return false
 	_hit.append(rid)
 
-	body.call("take_damage", damage, is_crit, at, knockback)
+	body.call("take_damage", damage, is_crit, at, knockback, Combat.SOURCE_BULLET)
 	FX.impact(at, Color(1, 1, 1) if not is_crit else Color(1.0, 0.85, 0.4), 0.85)
+	# The two most-repeated sounds in the game - a fully upgraded gun lands
+	# eighteen of these a second - so they get the widest jitter of anything.
+	# Audio.play applies a matching loudness wobble off the same figure, which
+	# together is what stops a sustained burst reading as one held buzz.
+	# Deliberately NOT positional: these are feedback about the player's own
+	# shot connecting, and panning them would push confirmation of your own
+	# trigger pull off to one side of your head.
 	if is_crit:
-		Audio.play_throttled("crit", 0.05, -10.0, 0.12)
+		Audio.play_throttled("crit", 0.05, -10.0, 0.22)
 	else:
-		Audio.play_throttled("hit", 0.045, -13.0, 0.14)
+		Audio.play_throttled("hit", 0.045, -13.0, 0.24)
 
 	if _hit.size() > pierce:
 		_expire()

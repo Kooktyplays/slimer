@@ -31,10 +31,23 @@ var _reload_bar: ColorRect
 var _reload_holder: Control
 var _slots: Array = []
 var _vignette: ColorRect
+## The Hollow's dark. A second vignette under the health one, because that one
+## is already driven by low health and damage flashes and the two would fight
+## over a single intensity. Pulled wider and kept off the middle of the screen:
+## the shader's own note is that the centre is where the player is fighting and
+## tinting it trades information for atmosphere, which is exactly the trade a
+## "reduced sight" biome must not make.
+var _gloom: ColorRect
 var _boss_panel: Control
 var _boss_name: Label
-var _boss_fill: ColorRect
 var _boss_phase: Label
+## One pair per phase. Built to BossDB.max_phases() up front so arriving at a
+## boss never allocates mid-fight, then shown to suit whatever phase count the
+## boss actually reports.
+var _boss_seg_back: Array[ColorRect] = []
+var _boss_seg_fill: Array[ColorRect] = []
+var _boss_seg_count := 0
+var _boss_fill_colour := UITheme.RED
 var _toast_holder: VBoxContainer
 var _hint_label: Label
 
@@ -68,7 +81,7 @@ func bind(p: Player, w: WaveController) -> void:
 	else:
 		# bound during the calm beat before wave 1 - "WAVE 0" is not a thing
 		_wave_label.text = "GET READY"
-		_depth_label.text = "FOREST DEPTH 1"
+		_depth_label.text = "GREENWOOD  \u00b7  DEPTH 1"
 
 
 func _connect_events() -> void:
@@ -99,6 +112,8 @@ func _build() -> void:
 	_build_top_bar()
 	_build_ammo()
 	_build_abilities()
+	_build_ultimate()
+	_build_combo()
 	_build_boss_bar()
 	_build_toasts()
 
@@ -112,7 +127,37 @@ func _build_vignette() -> void:
 	mat.set_shader_parameter("intensity", 0.0)
 	mat.set_shader_parameter("tint", Color(0.85, 0.10, 0.12))
 	_vignette.material = mat
+
+	_gloom = ColorRect.new()
+	_gloom.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_gloom.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var gmat := ShaderMaterial.new()
+	gmat.shader = VIGNETTE_SHADER
+	gmat.set_shader_parameter("intensity", 0.0)
+	gmat.set_shader_parameter("tint", Color(0.04, 0.05, 0.10))
+	gmat.set_shader_parameter("inner", 0.45)
+	gmat.set_shader_parameter("outer", 1.35)
+	_gloom.material = gmat
+	add_child(_gloom)          # under the health vignette, added next
+
 	add_child(_vignette)
+	Events.biome_changed.connect(func(id: String, display_name: String) -> void:
+		set_gloom(String(BiomeDB.get_def(id)["hazard"]) == BiomeDB.HAZARD_GLOOM)
+		var def := BiomeDB.get_def(id)
+		show_toast("%s — %s" % [display_name.to_upper(),
+			String(def.get("subtitle", ""))], Color(0.82, 0.88, 1.0)))
+
+
+## Fade the dark in or out. Tweened rather than snapped: descending into The
+## Hollow should feel like the light going, not like a setting changing.
+func set_gloom(on: bool) -> void:
+	if _gloom == null:
+		return
+	var mat := _gloom.material as ShaderMaterial
+	var t := create_tween()
+	t.tween_method(func(v: float) -> void:
+		mat.set_shader_parameter("intensity", v),
+		float(mat.get_shader_parameter("intensity")), 0.72 if on else 0.0, 1.1)
 
 
 func _build_health() -> void:
@@ -217,7 +262,7 @@ func _build_top_bar() -> void:
 	_wave_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(_wave_label)
 
-	_depth_label = UITheme.label("FOREST DEPTH 1", 19, UITheme.TEXT_DIM)
+	_depth_label = UITheme.label("GREENWOOD  \u00b7  DEPTH 1", 19, UITheme.TEXT_DIM)
 	_depth_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_depth_label.position = Vector2(-140, 64)
 	_depth_label.size = Vector2(280, 24)
@@ -300,37 +345,214 @@ func _build_abilities() -> void:
 		_slots.append(slot)
 
 
+## The ultimate meter, sat to the right of the three ability slots.
+##
+## Deliberately a different shape from an ability slot - those are square and
+## keyed, this is a bar that fills - because an ultimate is not a fourth
+## ability. It is the thing you are working toward for the whole run.
+var _ult_root: Control = null
+var _ult_fill: ColorRect = null
+var _ult_label: Label = null
+var _ult_ready := false
+
+
+func _build_ultimate() -> void:
+	_ult_root = Control.new()
+	_ult_root.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	_ult_root.position = Vector2(320, -252)
+	_ult_root.custom_minimum_size = Vector2(210, 74)
+	_ult_root.size = Vector2(210, 74)
+	_ult_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_ult_root)
+
+	var back := ColorRect.new()
+	back.color = Color(0, 0, 0, 0.42)
+	back.position = Vector2(0, 44)
+	back.size = Vector2(210, 18)
+	_ult_root.add_child(back)
+
+	_ult_fill = ColorRect.new()
+	_ult_fill.position = Vector2(2, 46)
+	_ult_fill.size = Vector2(0, 14)
+	_ult_root.add_child(_ult_fill)
+
+	_ult_label = UITheme.label("", 17, UITheme.TEXT_DIM, 4)
+	_ult_label.position = Vector2(0, 20)
+	_ult_label.size = Vector2(210, 22)
+	_ult_root.add_child(_ult_label)
+
+	Events.ultimate_charge_changed.connect(_on_ultimate_charge)
+	_on_ultimate_charge(Game.run.ultimate_charge if Game.run != null else 0.0)
+
+
+func _on_ultimate_charge(fraction: float) -> void:
+	if _ult_fill == null or Game.run == null:
+		return
+	var def := ClassesDB.get_def(Game.run.class_id)
+	var tint: Color = def["tint"]
+	_ult_fill.size.x = 206.0 * clampf(fraction, 0.0, 1.0)
+	var ready := fraction >= 1.0
+	_ult_fill.color = tint if ready else Color(tint.r, tint.g, tint.b, 0.55)
+	if ready and not _ult_ready:
+		# Only on the transition, not every frame it stays full.
+		Audio.play_ui("unlock", -6.0)
+		FX.floating_text(player.global_position + Vector2(0, -130),
+			"%s READY" % String(def["ultimate_name"]).to_upper(), tint) \
+			if player != null and is_instance_valid(player) else null
+	_ult_ready = ready
+	_ult_label.text = ("%s  [%s]" % [String(def["ultimate_name"]).to_upper(),
+		InputBinds.label_for_action(Save.keybinds, "ultimate", Game.input_device).to_upper()]) if ready \
+		else String(def["ultimate_name"]).to_upper()
+	_ult_label.add_theme_color_override("font_color",
+		tint if ready else UITheme.TEXT_DIM)
+
+
+## Combo counter. Only on screen while a chain is alive, so it is a reward for
+## doing something rather than a permanent piece of furniture.
+var _combo_label: Label = null
+
+
+func _build_combo() -> void:
+	_combo_label = UITheme.label("", 30, UITheme.TEXT, 6)
+	_combo_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
+	_combo_label.position = Vector2(-260, -40)
+	_combo_label.size = Vector2(220, 44)
+	_combo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_combo_label.visible = false
+	add_child(_combo_label)
+	Events.combo_changed.connect(_on_combo)
+
+
+## One per combo tier, so this has to be RunState.COMBO_TIER_MAX + 1 long.
+## It is read through a clampi, which means a short table does not crash - the
+## counter just silently stops changing colour at the top, which is exactly
+## where the escalation is supposed to be loudest.
+const COMBO_TIER_COLOURS: Array[Color] = [
+	Color(0.80, 0.85, 0.80), Color(0.75, 0.95, 0.70),
+	Color(1.00, 0.85, 0.35), Color(1.00, 0.55, 0.35),
+	Color(1.00, 0.36, 0.42), Color(1.00, 0.62, 1.00),
+]
+
+
+func _on_combo(count: int, tier: int) -> void:
+	if _combo_label == null:
+		return
+	# Below the first tier there is nothing to celebrate yet, and a counter that
+	# flickers on at every single kill is noise rather than feedback.
+	if count < 4:
+		_combo_label.visible = false
+		return
+	_combo_label.visible = true
+	_combo_label.text = "%d×" % count
+	_combo_label.add_theme_color_override("font_color",
+		COMBO_TIER_COLOURS[clampi(tier, 0, COMBO_TIER_COLOURS.size() - 1)])
+	var t := create_tween()
+	t.tween_property(_combo_label, "scale", Vector2.ONE * (1.0 + 0.05 * tier), 0.06)
+	t.tween_property(_combo_label, "scale", Vector2.ONE, 0.12)
+
+
+## The boss bar: one segment per phase, across most of the screen.
+##
+## It was one continuous 920px fill with a "PHASE 2 / 3" caption, which asked
+## the player to hold the phase count in their head and divide. The phases are
+## already evenly spaced health thresholds, so a segment per phase is the same
+## information drawn as what it is - how many more times this fight is going to
+## change, and how far into the current one you are.
+##
+## Segment boundaries come from Boss.phase_segment_fill so they cannot drift
+## from _check_phase. A bar that promises a change slightly early or late is
+## worse than no bar.
+const BOSS_BAR_W := 1440.0
+const BOSS_BAR_H := 26.0
+const BOSS_BAR_Y := 40.0
+const BOSS_SEG_GAP := 6.0
+const BOSS_SEG_INSET := 3.0
+const BOSS_SEG_BACK := Color(0.06, 0.09, 0.07, 0.90)
+## Phases already fought through. Dark enough to read as spent at a glance
+## without going invisible - the shape of the whole bar is what says how long
+## the fight is.
+const BOSS_SEG_SPENT := Color(0.05, 0.06, 0.05, 0.82)
+
+
 func _build_boss_bar() -> void:
 	_boss_panel = Control.new()
 	_boss_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	_boss_panel.position = Vector2(-460, 132)
-	_boss_panel.size = Vector2(920, 76)
+	_boss_panel.position = Vector2(-BOSS_BAR_W * 0.5, 132)
+	_boss_panel.size = Vector2(BOSS_BAR_W, 76)
 	_boss_panel.visible = false
 	_boss_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Pivot centred so the phase-change pulse grows from the middle instead of
+	# shoving a 1440px bar sideways off the screen.
+	_boss_panel.pivot_offset = Vector2(BOSS_BAR_W * 0.5, 38)
 	add_child(_boss_panel)
 
 	_boss_name = UITheme.label("BOSS", 30, UITheme.TEXT)
-	_boss_name.size = Vector2(920, 34)
+	_boss_name.size = Vector2(BOSS_BAR_W, 34)
 	_boss_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_boss_panel.add_child(_boss_name)
 
-	var back := ColorRect.new()
-	back.color = Color(0.06, 0.09, 0.07, 0.9)
-	back.position = Vector2(0, 40)
-	back.size = Vector2(920, 26)
-	_boss_panel.add_child(back)
+	for _i in BossDB.max_phases():
+		var back := ColorRect.new()
+		back.color = BOSS_SEG_BACK
+		back.position = Vector2(0, BOSS_BAR_Y)
+		back.size = Vector2(0, BOSS_BAR_H)
+		_boss_panel.add_child(back)
+		_boss_seg_back.append(back)
 
-	_boss_fill = ColorRect.new()
-	_boss_fill.color = UITheme.RED
-	_boss_fill.position = Vector2(3, 43)
-	_boss_fill.size = Vector2(914, 20)
-	_boss_panel.add_child(_boss_fill)
+		var fill := ColorRect.new()
+		fill.color = UITheme.RED
+		fill.position = Vector2(BOSS_SEG_INSET, BOSS_BAR_Y + BOSS_SEG_INSET)
+		fill.size = Vector2(0, BOSS_BAR_H - BOSS_SEG_INSET * 2.0)
+		_boss_panel.add_child(fill)
+		_boss_seg_fill.append(fill)
 
+	# Kept even though the segments now say the same thing: on a 4-phase repeat
+	# boss the caption is what reads at a glance, and counting segments while
+	# something is charging at you is not reading.
 	_boss_phase = UITheme.label("", 16, UITheme.TEXT)
-	_boss_phase.position = Vector2(0, 41)
-	_boss_phase.size = Vector2(920, 22)
+	_boss_phase.position = Vector2(0, BOSS_BAR_Y + 1.0)
+	_boss_phase.size = Vector2(BOSS_BAR_W, 22)
 	_boss_phase.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_boss_panel.add_child(_boss_phase)
+
+
+## Lay the segments out for a boss with `count` phases and show that many.
+func _layout_boss_segments(count: int) -> void:
+	_boss_seg_count = clampi(count, 1, _boss_seg_back.size())
+	var seg_w := (BOSS_BAR_W - BOSS_SEG_GAP * (_boss_seg_count - 1)) \
+		/ float(_boss_seg_count)
+	for i in _boss_seg_back.size():
+		var shown := i < _boss_seg_count
+		_boss_seg_back[i].visible = shown
+		_boss_seg_fill[i].visible = shown
+		if not shown:
+			continue
+		var x := i * (seg_w + BOSS_SEG_GAP)
+		_boss_seg_back[i].position.x = x
+		_boss_seg_back[i].size.x = seg_w
+		_boss_seg_fill[i].position.x = x + BOSS_SEG_INSET
+		_boss_seg_fill[i].size.x = seg_w - BOSS_SEG_INSET * 2.0
+
+
+## Redraw the segments from the boss's health. Segments run left to right as
+## the last phase down to phase 1, because phase 1 sits at the top of the
+## health pool and the bar drains from the right.
+func _update_boss_segments(frac: float, phase: int) -> void:
+	var current := _boss_seg_count - phase
+	for i in _boss_seg_count:
+		var seg_frac := Boss.phase_segment_fill(frac, _boss_seg_count, i)
+		var inner := _boss_seg_back[i].size.x - BOSS_SEG_INSET * 2.0
+		_boss_seg_fill[i].size.x = inner * seg_frac
+		_boss_seg_fill[i].visible = seg_frac > 0.001
+		# The phase being fought right now is the bright one; the ones still to
+		# come are dimmer, so "how much of this phase is left" reads separately
+		# from "how much fight is left". Segments past the current one are
+		# empty anyway, so only i < current needs dimming.
+		_boss_seg_fill[i].color = (_boss_fill_colour if i == current
+			else Color(_boss_fill_colour.r, _boss_fill_colour.g,
+				_boss_fill_colour.b, 0.55))
+		_boss_seg_back[i].color = (BOSS_SEG_SPENT if i > current
+			else BOSS_SEG_BACK)
 
 
 func _build_toasts() -> void:
@@ -409,7 +631,7 @@ func _process(delta: float) -> void:
 		_enemies_label.text = ("%d remaining" % n) if n > 0 else ""
 
 	if _boss != null and is_instance_valid(_boss) and not _boss.dying:
-		_boss_fill.size.x = 914.0 * _boss.health_fraction()
+		_update_boss_segments(_boss.health_fraction(), _boss.phase)
 	elif _boss_panel.visible and (_boss == null or not is_instance_valid(_boss)):
 		_hide_boss()
 
@@ -444,7 +666,10 @@ func _on_money_changed(total: int, delta: int) -> void:
 
 func _on_wave_started(wave: int, depth: int) -> void:
 	_wave_label.text = "WAVE %d" % wave
-	_depth_label.text = "FOREST DEPTH %d" % depth
+	# The label has printed a bare depth number since launch, promising a
+	# change that never arrived. Naming the biome is the promise being kept.
+	_depth_label.text = "%s  \u00b7  DEPTH %d" % [
+		String(BiomeDB.for_depth(depth)["name"]).to_upper(), depth]
 	var t := create_tween()
 	t.tween_property(_wave_label, "scale", Vector2.ONE * 1.28, 0.14) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
@@ -467,8 +692,9 @@ func _on_boss_spawned(boss: Node2D, display_name: String, is_major: bool) -> voi
 	_boss_panel.modulate.a = 0.0
 	_boss_name.text = display_name.to_upper()
 	_boss_name.modulate = UITheme.GOLD if is_major else UITheme.TEXT
-	_boss_fill.color = Color(0.86, 0.24, 0.30) if is_major else UITheme.RED
-	_boss_fill.size.x = 914.0
+	_boss_fill_colour = Color(0.86, 0.24, 0.30) if is_major else UITheme.RED
+	_layout_boss_segments(_boss.phase_count)
+	_update_boss_segments(1.0, 1)
 	_boss_phase.text = "PHASE 1 / %d" % _boss.phase_count
 	_boss_fade = create_tween()
 	_boss_fade.tween_property(_boss_panel, "modulate:a", 1.0, 0.5)
@@ -480,8 +706,11 @@ func _on_boss_phase(boss: Node2D, phase: int) -> void:
 	if boss != _boss:
 		return
 	_boss_phase.text = "PHASE %d / %d" % [phase, _boss.phase_count]
+	# The segment just emptied goes dark here rather than waiting for the next
+	# frame, so the bar and the phase callout land together.
+	_update_boss_segments(_boss.health_fraction(), phase)
 	var t := create_tween()
-	t.tween_property(_boss_panel, "scale", Vector2(1.03, 1.15), 0.12)
+	t.tween_property(_boss_panel, "scale", Vector2(1.02, 1.15), 0.12)
 	t.tween_property(_boss_panel, "scale", Vector2.ONE, 0.2)
 
 

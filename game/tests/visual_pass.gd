@@ -36,6 +36,26 @@ func _run() -> void:
 	await _settle(0.5)
 	await _shot("loadout")
 
+	# --- 2b. the class select screen ---------------------------------------
+	#
+	# Opened through the loadout screen's own button rather than by parenting a
+	# panel somewhere convenient - a screen that only renders when the test
+	# hangs it off the right node is not a screen the player can reach.
+	var loadout := _find_script_node("res://ui/loadout_screen.gd")
+	_expect(loadout != null, "could not find the loadout screen to open classes from")
+	if loadout != null:
+		loadout.call("_open_class_select")
+		await _settle(0.7)
+		var picker: Node = loadout.get("_class_panel")
+		_expect(picker != null, "the class screen did not open")
+		await _shot("class_select")
+		if picker != null:
+			picker.call("_step", 1)
+			await _settle(0.5)
+			await _shot("class_select_next")
+			picker.call("_confirm")
+		await _settle(0.4)
+
 	# --- 3. meta / permanent upgrades --------------------------------------
 	Save.essence = 900
 	Game.go_to_meta()
@@ -66,15 +86,41 @@ func _run() -> void:
 	var waves: WaveController = run.waves
 	var player: Node2D = run.player
 	var i := 0
+	# Spread over however many types there are, not a hardcoded 18: the roster
+	# grew to eight and the last six were being drawn on top of the first six.
+	var total := EnemyTypes.ORDER.size() * 3
 	for id: String in EnemyTypes.ORDER:
 		for n in 3:
-			var a := TAU * (i / 18.0)
+			var a := TAU * (float(i) / float(total))
 			var at: Vector2 = player.global_position + Vector2.RIGHT.rotated(a) \
 				* randf_range(230.0, 470.0)
 			waves.spawn_at(id, at, 16, "shielded" if n == 2 else "")
 			i += 1
 	await _settle(1.4)
 	await _shot("wave_all_colours")
+
+	# --- 5b. every biome ---------------------------------------------------
+	# Walked rather than described: five palettes that all look like a forest
+	# would pass every assertion in the suite and still be one biome.
+	for depth in range(2, BiomeDB.ORDER.size() + 1):
+		Game.run.wave = (depth - 1) * Balance.WAVES_PER_DEPTH
+		run.call("_maybe_descend")
+		await _settle(0.8)
+		_expect(run.forest.biome == BiomeDB.id_for_depth(depth),
+			"depth %d did not descend into %s" % [depth, BiomeDB.id_for_depth(depth)])
+		_expect(is_instance_valid(run.player),
+			"the player did not survive the rebuild into %s" % run.forest.biome)
+		_expect(run.player.get_parent() == run.forest.sorted_layer,
+			"the player was not reparented into the new forest")
+		_expect(run.layout.is_open(run.player.global_position),
+			"the player landed inside an obstacle in %s" % run.forest.biome)
+		await _shot("biome_%s" % run.forest.biome)
+
+	# back to the shallows for the rest of the pass
+	Game.run.wave = 1
+	run.call("_maybe_descend")
+	await _settle(0.6)
+	player = run.player
 
 	# --- 6. combat: shoot for a bit ----------------------------------------
 	for frame in 40:
@@ -440,6 +486,27 @@ func _run() -> void:
 	await _settle(2.4)
 	await _shot("major_boss")
 
+	# --- 9b. the boss bar, mid-fight ---------------------------------------
+	#
+	# A boss at full health shows every segment full, which proves nothing
+	# about a segmented bar - it looks exactly like the single fill it
+	# replaced. Damaged into a later phase, one screenshot carries all three
+	# states the bar has to draw: spent, draining, and not yet reached.
+	var boss: Node2D = run.bosses.current
+	if boss != null and is_instance_valid(boss):
+		var n: int = boss.get("phase_count")
+		# Just inside the second phase, so segment 0 is always untouched and
+		# at least one segment is always spent, whatever phase count this
+		# boss rolled.
+		var target := (float(n) - 1.5) / float(n)
+		boss.set("hp", float(boss.get("max_hp")) * target)
+		boss.call("_check_phase")
+		await _settle(1.4)
+		_expect(int(boss.get("phase")) >= 2,
+			"damaging the boss to %.0f%% health did not advance it past "
+				% (target * 100.0) + "phase 1 - the bar has nothing to show")
+		await _shot("boss_phase_bar")
+
 	# --- 10. shop -----------------------------------------------------------
 	Game.run.money = 1400
 	if run.bosses.current != null:
@@ -479,6 +546,19 @@ func _run() -> void:
 		for f: String in _failures:
 			print("  " + f)
 		get_tree().quit(1)
+
+
+## Find a live node whose script is `path`, anywhere in the tree.
+func _find_script_node(path: String) -> Node:
+	var stack: Array[Node] = [get_tree().root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		var sc: Variant = n.get_script()
+		if sc != null and String(sc.resource_path) == path:
+			return n
+		for c: Node in n.get_children():
+			stack.append(c)
+	return null
 
 
 func _run_node() -> Node:

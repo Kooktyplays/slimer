@@ -60,6 +60,11 @@ var rng := RandomNumberGenerator.new()
 
 # --- output -----------------------------------------------------------------
 var seed_value: int = 0
+## Which biome this layout was generated for. Drives the prop tables and the
+## pond count; the geometry rules are the same in every biome, because a
+## clearing has to stay a place you can fight in no matter what colour it is.
+var biome: String = BiomeDB.GREENWOOD
+var biome_def: Dictionary = BiomeDB.get_def(BiomeDB.GREENWOOD)
 var bounds := Rect2(Vector2.ZERO, WORLD_SIZE)
 var cols: int = 0
 var rows: int = 0
@@ -79,9 +84,11 @@ var failure: String = ""
 # ---------------------------------------------------------------------------
 # entry point
 # ---------------------------------------------------------------------------
-static func generate(seed_v: int) -> ForestGenerator:
+static func generate(seed_v: int, biome_id: String = BiomeDB.GREENWOOD) -> ForestGenerator:
 	var g := ForestGenerator.new()
 	g.seed_value = seed_v
+	g.biome = biome_id
+	g.biome_def = BiomeDB.get_def(biome_id)
 	g._build()
 	return g
 
@@ -104,6 +111,7 @@ func _build() -> void:
 		if _repair_and_validate():
 			failure = ""
 			_choose_spawn_zones()
+			_place_grass()
 			return
 	# Every attempt failed: fall back to a bare arena, which is ugly but always
 	# playable. Tests treat reaching this as a failure.
@@ -122,6 +130,8 @@ func _reset() -> void:
 	clearings.clear()
 	loot_points.clear()
 	spawn_zones.clear()
+	grass_patches.clear()
+	conceal_grid = PackedByteArray()
 	grid = PackedByteArray()
 	grid.resize(cols * rows)
 	grid.fill(OPEN)
@@ -211,7 +221,10 @@ func _carve_paths() -> void:
 
 
 func _place_ponds() -> void:
-	var want := rng.randi_range(POND_MIN, POND_MAX)
+	# Per biome: Fenland is mostly standing water, Ashfall has almost none.
+	# POND_MIN/MAX stay as the fallback for a biome that declares nothing.
+	var range_: Vector2i = biome_def.get("ponds", Vector2i(POND_MIN, POND_MAX))
+	var want := rng.randi_range(range_.x, range_.y)
 	var inset := BORDER + POND_RADIUS.y
 	var tries := 0
 	while ponds.size() < want and tries < 400:
@@ -252,10 +265,10 @@ func _scatter_water_edge(center: Vector2, radius: float) -> void:
 # ---------------------------------------------------------------------------
 func _scatter_props() -> void:
 	_scatter_border()
-	_scatter_layer(TREE_SPACING, PropCatalog.FOREST_TREES, "forest")
-	_scatter_layer(SCATTER_SPACING, PropCatalog.FOREST_SCATTER, "forest")
-	_scatter_layer(DETAIL_SPACING, PropCatalog.CLEARING_SCATTER, "clearing")
-	_scatter_layer(DETAIL_SPACING * 1.35, PropCatalog.DETAIL_SCATTER, "path")
+	_scatter_layer(TREE_SPACING, biome_def["trees"], "forest")
+	_scatter_layer(SCATTER_SPACING, biome_def["scatter"], "forest")
+	_scatter_layer(DETAIL_SPACING, biome_def["clearing"], "clearing")
+	_scatter_layer(DETAIL_SPACING * 1.35, biome_def["detail"], "path")
 	_add_prop("shop_lantern", shop_point + Vector2(0, -150))
 	_add_prop("campfire", shop_point)
 
@@ -269,18 +282,18 @@ func _scatter_border() -> void:
 	while x < WORLD_SIZE.x:
 		for band in range(0, int(depth / step)):
 			var inset := band * step + rng.randf_range(-20.0, 20.0)
-			_add_prop(PropCatalog.pick(rng, PropCatalog.FOREST_TREES),
+			_add_prop(PropCatalog.pick(rng, biome_def["trees"]),
 				Vector2(x + rng.randf_range(-24, 24), inset))
-			_add_prop(PropCatalog.pick(rng, PropCatalog.FOREST_TREES),
+			_add_prop(PropCatalog.pick(rng, biome_def["trees"]),
 				Vector2(x + rng.randf_range(-24, 24), WORLD_SIZE.y - inset))
 		x += step
 	var y := 40.0
 	while y < WORLD_SIZE.y:
 		for band in range(0, int(depth / step)):
 			var inset := band * step + rng.randf_range(-20.0, 20.0)
-			_add_prop(PropCatalog.pick(rng, PropCatalog.FOREST_TREES),
+			_add_prop(PropCatalog.pick(rng, biome_def["trees"]),
 				Vector2(inset, y + rng.randf_range(-24, 24)))
-			_add_prop(PropCatalog.pick(rng, PropCatalog.FOREST_TREES),
+			_add_prop(PropCatalog.pick(rng, biome_def["trees"]),
 				Vector2(WORLD_SIZE.x - inset, y + rng.randf_range(-24, 24)))
 		y += step
 	_scatter_outer_treeline()
@@ -309,7 +322,7 @@ func _scatter_outer_treeline() -> void:
 			if rng.randf() < 0.30:
 				y += step
 				continue
-			_add_decor_prop(PropCatalog.pick(rng, PropCatalog.FOREST_TREES),
+			_add_decor_prop(PropCatalog.pick(rng, biome_def["trees"]),
 				Vector2(x + rng.randf_range(-30, 30), y + rng.randf_range(-30, 30)))
 			y += step
 		x += step
@@ -387,6 +400,118 @@ func _add_prop(id: String, pos: Vector2) -> void:
 # ---------------------------------------------------------------------------
 func _idx(cx: int, cy: int) -> int:
 	return cy * cols + cx
+
+
+## Concealment grid, one byte per CELL exactly like `grid`: 1 where the cell is
+## inside tall grass. Empty until patches exist, in which case conceals() is
+## false everywhere.
+var conceal_grid := PackedByteArray()
+## Patches of tall grass, as {center, radius}. Emitted so the patches can be
+## reasoned about; the per-frame question is answered by conceal_grid instead.
+var grass_patches: Array[Dictionary] = []
+
+const GRASS_PATCHES := Vector2i(6, 9)
+const GRASS_RADIUS := Vector2(110.0, 175.0)
+## No grass this close to where the player starts or to the shop. Arriving
+## should never mean walking straight into something you cannot see.
+const GRASS_KEEP_CLEAR := 460.0
+
+
+## Lay down tall grass, mark which cells it conceals, and scatter the stalks.
+##
+## Runs LAST on a successful build, and on its own RandomNumberGenerator. The
+## main rng's stream decides every other prop in the forest in sequence, so
+## drawing from it anywhere earlier would rearrange all of them - every forest
+## the game has ever generated for a given seed would come out different. Done
+## this way, grass is purely additive: the trees, rocks, ponds and paths for a
+## seed are exactly what they were before grass existed.
+##
+## Grass never goes in a clearing (clearings are where fights are meant to be
+## readable), never on a path (paths are how you travel), never in a pond, and
+## never near the spawn or the shop. It does not block anything and never
+## touches `grid` - concealment is a fact about the ground, not about whether
+## you can stand on it.
+func _place_grass() -> void:
+	grass_patches.clear()
+	conceal_grid = PackedByteArray()
+	conceal_grid.resize(cols * rows)
+	conceal_grid.fill(0)
+
+	var g := RandomNumberGenerator.new()
+	g.seed = seed_value * 31 + 7919
+	var want := g.randi_range(GRASS_PATCHES.x, GRASS_PATCHES.y)
+	var tries := 0
+	while grass_patches.size() < want and tries < want * 40:
+		tries += 1
+		var p := Vector2(
+			g.randf_range(BORDER + 200.0, WORLD_SIZE.x - BORDER - 200.0),
+			g.randf_range(BORDER + 200.0, WORLD_SIZE.y - BORDER - 200.0))
+		var r := g.randf_range(GRASS_RADIUS.x, GRASS_RADIUS.y)
+		if not is_open(p):
+			continue
+		if p.distance_to(spawn_point) < GRASS_KEEP_CLEAR \
+				or p.distance_to(shop_point) < GRASS_KEEP_CLEAR:
+			continue
+		if _in_any_clearing(p, r * 0.5) or _on_path(p, r * 0.6) or _in_pond(p, r):
+			continue
+		var crowded := false
+		for other: Dictionary in grass_patches:
+			if p.distance_to(other["center"]) < r + float(other["radius"]) + 60.0:
+				crowded = true
+				break
+		if crowded:
+			continue
+		grass_patches.append({"center": p, "radius": r})
+
+	for patch: Dictionary in grass_patches:
+		var c: Vector2 = patch["center"]
+		var r: float = patch["radius"]
+		_rasterise_patch(c, r)
+		# Stalks, densest at the middle. Drawn from `g` too, for the same
+		# reason the patches are.
+		var stalks := int(r * r / 900.0)
+		for _i in stalks:
+			var a := g.randf() * TAU
+			var d := sqrt(g.randf()) * r
+			var at := c + Vector2.RIGHT.rotated(a) * d
+			if not is_open(at):
+				continue
+			props.append({
+				"id": "tall_grass", "pos": at,
+				"scale": g.randf_range(0.85, 1.2),
+				"flip": g.randf() < 0.5,
+				"sway_phase": g.randf() * TAU,
+			})
+
+
+## Mark the open cells inside one patch as concealing. Open only: a cell that is
+## a tree is not somewhere an enemy can stand to be hidden.
+func _rasterise_patch(c: Vector2, r: float) -> void:
+	var lo := cell_of(c - Vector2(r, r))
+	var hi := cell_of(c + Vector2(r, r))
+	for cy in range(lo.y, hi.y + 1):
+		for cx in range(lo.x, hi.x + 1):
+			var idx := cy * cols + cx
+			if grid[idx] != OPEN:
+				continue
+			if cell_center(cx, cy).distance_to(c) <= r:
+				conceal_grid[idx] = 1
+
+
+func _in_any_clearing(p: Vector2, margin: float) -> bool:
+	for cl: Dictionary in clearings:
+		if p.distance_to(cl["center"]) < float(cl["radius"]) + margin:
+			return true
+	return false
+
+
+func conceals(p: Vector2) -> bool:
+	if conceal_grid.is_empty():
+		return false
+	var c := cell_of(p)
+	if c.x < 0 or c.y < 0 or c.x >= cols or c.y >= rows:
+		return false
+	return conceal_grid[c.y * cols + c.x] != 0
 
 
 func cell_of(p: Vector2) -> Vector2i:

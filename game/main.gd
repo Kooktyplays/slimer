@@ -27,6 +27,10 @@ var _settings_menu: Control = null
 
 
 func _ready() -> void:
+	# Before anything builds a Label. ThemeDB.fallback_font is read when a
+	# control measures its text, so installing it after a screen exists leaves
+	# that screen sized for the old face.
+	UITheme.install_font()
 	# Main must keep running while paused so it can still read Escape.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	# ...but process_mode is INHERITED. Without the line below, ScreenHolder

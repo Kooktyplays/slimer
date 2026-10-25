@@ -1,6 +1,6 @@
 class_name AbilitiesDB
 extends RefCounted
-## The fifteen special abilities, in two classes.
+## The fourteen special abilities, in two classes.
 ##
 ## A **movement** ability lives in its own slot and is always available. That
 ## separation exists because it had to: when Dash competed for a general slot it
@@ -22,7 +22,7 @@ const SLOT_COUNT := 3
 const DEFS := {
 	"dash": {
 		"name": "Dash",
-		"desc": "Blink through enemies and bullets. Brief invulnerability.",
+		"desc": "Gone from where you were. For a moment nothing can reach you.",
 		"icon": "icon_dash",
 		"sound": "dash",
 		"cooldown": 3.2,
@@ -35,7 +35,7 @@ const DEFS := {
 	},
 	"grenade": {
 		"name": "Grenade",
-		"desc": "Lob an explosive at the cursor. Heavy area damage.",
+		"desc": "Throw it and stand back. 90 damage, 190 across.",
 		"icon": "icon_grenade",
 		"sound": "explosion",
 		"cooldown": 7.0,
@@ -49,7 +49,7 @@ const DEFS := {
 	},
 	"shield": {
 		"name": "Bulwark",
-		"desc": "A barrier absorbs the next 120 damage for 6 seconds.",
+		"desc": "Something between you and the next 120 damage. Six seconds.",
 		"icon": "icon_shield",
 		"sound": "shield",
 		"cooldown": 14.0,
@@ -62,7 +62,7 @@ const DEFS := {
 	},
 	"timeslow": {
 		"name": "Torpor",
-		"desc": "Slow every enemy and enemy bullet to 35% for 4 seconds.",
+		"desc": "The forest drops to a third of itself for four seconds. Bullets too.",
 		"icon": "icon_timeslow",
 		"sound": "timeslow",
 		"cooldown": 18.0,
@@ -75,7 +75,7 @@ const DEFS := {
 	},
 	"nova": {
 		"name": "Nova",
-		"desc": "Detonate around yourself, damaging and flinging back everything near.",
+		"desc": "Everything close leaves in a hurry, and hurt.",
 		"icon": "icon_nova",
 		"sound": "nova",
 		"cooldown": 11.0,
@@ -89,7 +89,7 @@ const DEFS := {
 	},
 	"heal": {
 		"name": "Bloom",
-		"desc": "Restore 35% of maximum health instantly.",
+		"desc": "A third of you, back, at once.",
 		"icon": "icon_heal",
 		"sound": "heal",
 		"cooldown": 26.0,
@@ -101,7 +101,7 @@ const DEFS := {
 	},
 	"lightning": {
 		"name": "Stormcall",
-		"desc": "Chain lightning arcs between up to 7 nearby enemies.",
+		"desc": "It jumps. Up to seven of them, if seven are standing close enough.",
 		"icon": "icon_lightning",
 		"sound": "lightning",
 		"cooldown": 9.0,
@@ -115,7 +115,7 @@ const DEFS := {
 	},
 	"rapidfire": {
 		"name": "Frenzy",
-		"desc": "Triple fire rate and free reloads for 5 seconds.",
+		"desc": "Three times the rate and nothing to reload, for five seconds.",
 		"icon": "icon_rapidfire",
 		"sound": "rapidfire",
 		"cooldown": 20.0,
@@ -128,7 +128,7 @@ const DEFS := {
 	},
 	"orbital": {
 		"name": "Satellites",
-		"desc": "Three orbs circle you for 12 seconds, damaging what they touch.",
+		"desc": "Three of them, circling, for twelve seconds. Walk through the crowd.",
 		"icon": "icon_orbital",
 		"sound": "orbital",
 		"cooldown": 22.0,
@@ -143,7 +143,7 @@ const DEFS := {
 	},
 	"decoy": {
 		"name": "Effigy",
-		"desc": "Drop a lure that pulls enemies for 7 seconds, then bursts.",
+		"desc": "Something more interesting than you, for seven seconds. Then it goes off.",
 		"icon": "icon_decoy",
 		"sound": "decoy",
 		"cooldown": 16.0,
@@ -156,22 +156,9 @@ const DEFS := {
 		"burst_radius": 200.0,
 		"taunt_range": 620.0,
 	},
-	"lifesteal": {
-		"name": "Leech",
-		"desc": "For 8 seconds, 18% of the damage you deal comes back as health.",
-		"icon": "icon_lifesteal",
-		"sound": "lifesteal",
-		"cooldown": 24.0,
-		"charges": 1,
-		"class": CLASS_GENERAL,
-		"default": false,
-		"essence": 280,
-		"fraction": 0.18,
-		"duration": 8.0,
-	},
 	"surge": {
 		"name": "Surge",
-		"desc": "Sprint at nearly double speed for 3.5 seconds. No invulnerability.",
+		"desc": "Nearly twice the speed for 3.5 seconds, and nothing to hide behind.",
 		"icon": "icon_surge",
 		"sound": "dash",
 		"cooldown": 9.0,
@@ -213,7 +200,7 @@ const DEFS := {
 	},
 	"cinders": {
 		"name": "Cinders",
-		"desc": "Set the ground alight at the cursor. Burns whatever stands in it.",
+		"desc": "The ground burns where you put it, and goes on burning.",
 		"icon": "icon_cinders",
 		"sound": "explosion",
 		"cooldown": 13.0,
@@ -233,8 +220,47 @@ const DEFS := {
 const ORDER: Array[String] = [
 	"dash", "surge", "vault",
 	"grenade", "nova", "shield", "heal", "lightning", "timeslow",
-	"thornwall", "rapidfire", "cinders", "orbital", "decoy", "lifesteal",
+	"thornwall", "rapidfire", "cinders", "orbital", "decoy",
 ]
+
+
+## Which def keys each ability upgrade kind scales.
+##
+## These live here, not in AbilityController, because two things need them and
+## they must not disagree: the controller folds them into the numbers an
+## ability uses, and the shop asks whether an upgrade would do anything at all
+## before offering it. A "+30% damage" upgrade was on sale for Dash, which has
+## no damage, because the producer and the consumer of that list were different
+## code that never compared notes. One list, read by both.
+const POWER_KEYS: Array[String] = ["damage", "burst_damage", "blast_damage"]
+const AREA_KEYS: Array[String] = ["radius", "length", "jump_range",
+	"orbit_radius", "burst_radius", "taunt_range"]
+
+
+## AREA_KEYS plus the one that depends on what the ability does.
+##
+## `duration` means two different things in this table. On an ability that also
+## has a `distance`, it is the TRAVEL TIME - Dash and Vault both fly at
+## distance/duration - so stretching it covers the same ground more slowly
+## while quietly handing out 25% more invulnerability, which is not what
+## "+25% area" sells. Those scale their distance instead, so Widened actually
+## makes the leap longer. Everywhere else, including Surge, `duration` is how
+## long the effect lasts and is exactly the right thing to scale.
+static func area_keys(id: String) -> Array[String]:
+	var out := AREA_KEYS.duplicate()
+	out.append("distance" if get_def(id).has("distance") else "duration")
+	return out
+
+
+## True if `id` has at least one of `keys` to scale. An upgrade that would
+## multiply nothing is a dead purchase, and the shop uses this to stop
+## selling one.
+static func scales_any(id: String, keys: Array[String]) -> bool:
+	var def := get_def(id)
+	for key: String in keys:
+		if def.has(key):
+			return true
+	return false
 
 
 static func get_def(id: String) -> Dictionary:

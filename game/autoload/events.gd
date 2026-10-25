@@ -10,6 +10,19 @@ extends Node
 signal enemy_spawned(enemy: Node2D)
 signal enemy_damaged(enemy: Node2D, amount: float, is_crit: bool, at: Vector2)
 signal enemy_died(enemy: Node2D, at: Vector2)
+## The run has descended into a new biome and the forest has been rebuilt.
+signal biome_changed(biome_id: String, display_name: String)
+## A Mimic has dropped its disguise. Separate from enemy_spawned because the
+## moment that matters for a Mimic is the reveal, not the spawn.
+signal enemy_revealed(enemy: Node2D)
+## Combo count and its 0-3 tier. Emitted on every change, including the break.
+signal combo_changed(count: int, tier: int)
+## Ultimate charge, 0..1. Emitted on every change, including the spend.
+signal ultimate_charge_changed(fraction: float)
+## Fired when an ultimate actually goes off, for the HUD flourish and the tutor.
+signal ultimate_fired(class_id: String, ultimate_id: String)
+## The run reached and cleared its finale. Fires once per run.
+signal finale_cleared(on_nightmare: bool)
 signal player_damaged(amount: float, from: Vector2)
 signal player_healed(amount: float)
 signal player_died()
@@ -37,6 +50,10 @@ signal run_ended(stats: Dictionary)
 
 # --- upgrades / abilities ---------------------------------------------------
 signal gun_upgraded(stat: String, new_value: float)
+## Any shop purchase that applied, ability upgrades included. The ability
+## controller listens so a bought cooldown or charge is re-read into the live
+## slot - without this the purchase changes a number nothing looks at again.
+signal upgrade_purchased(id: String)
 signal ability_used(slot: int, id: String)
 signal ability_ready(slot: int, id: String)
 signal ability_equipped(slot: int, id: String)

@@ -14,6 +14,10 @@ extends CharacterBody2D
 ##   ranged   (purple) - holds a preferred distance and shoots
 ##   skittish (yellow) - runs away, pays out big if you catch it
 ##   bomber   (orange) - closes and detonates
+##   ward     (violet) - unflinching, immune to abilities: shoot it
+##   turtle   (grey)   - hunkers behind a shell, immune to bullets: use a cooldown
+##   thief    (teal)   - takes your coins and runs; kill it to get them back
+##   mimic    (pale)   - sits disguised as a pickup until you walk into it
 
 const FLASH_SHADER := preload("res://assets/shaders/flash.gdshader")
 const PROJECTILE := preload("res://weapons/projectile.tscn")
@@ -25,14 +29,42 @@ const FACE_ANGRY := preload("res://assets/sprites/gen/eyes_angry.png")
 const LOD_NEAR := 900.0
 const LOD_FAR_INTERVAL := 0.1
 
+## The colour a deflected hit flashes. One colour for both immune types, so it
+## reads as "that did nothing" rather than as a second thing to decode.
+const DEFLECT_COLOR := Color(0.85, 0.88, 0.95)
+const DEFLECT_TEXT_INTERVAL := 0.7
+
+var _last_deflect_text := -1.0
+
 @onready var _body: Sprite2D = $Visual/Body
 @onready var _face: Sprite2D = $Visual/Body/Face
 @onready var _crown: Sprite2D = $Visual/Body/Crown
+@onready var _badge: Sprite2D = $Visual/Body/Badge
 @onready var _visual: Node2D = $Visual
 @onready var _shadow: Sprite2D = $Shadow
 @onready var _shape: CollisionShape2D = $Shape
 @onready var _hurtbox: Area2D = $Hurtbox
 @onready var _hurtbox_shape: CollisionShape2D = $Hurtbox/Shape
+
+## The body sheet, as laid out by gen_art.py: four walk frames, one flinch,
+## three of dying. Named rather than counted at each use, because the walk has
+## to index off WALK_FRAMES and not off hframes - page the hop phase across the
+## whole strip and a slime plays its own death animation every time it lands.
+##
+## The strip is HORIZONTAL and must stay that way: _apply_hit_shapes sizes the
+## hurtbox from texture.get_height(), so a vertical strip silently resizes
+## every hit shape in the game. There is an assertion for it.
+const WALK_FRAMES := 4
+const FRAME_FLINCH := 4
+const DEATH_FRAMES: Array[int] = [5, 6, 7]
+const BODY_FRAMES := 8
+## How long the flinch frame is held. Short enough that it never fights the
+## walk cycle for a slime that is still moving.
+const FLINCH_TIME := 0.10
+## Time per death frame. Three of them, so a corpse is on screen ~0.21s.
+const DEATH_FRAME_TIME := 0.07
+## Soil, for the Burrower going under and coming back up.
+const C_SOIL := Color(0.42, 0.31, 0.19)
 
 ## Where Visual/Body sits inside Visual, before Visual's own scale is applied.
 ## Mirrors enemy.tscn. The drawn offset is this times the slime's visual scale,
@@ -56,6 +88,8 @@ var speed := 110.0
 var contact_damage := 8.0
 var money_value := 5
 var shield := 0.0
+## A Combat.SOURCE_* tag this enemy takes no damage from, or "" for none.
+var immune_to := ""
 ## Final collision radius in world pixels, matched to the drawn sprite.
 var hit_radius := 30.0
 ## True for the Hoarder. Read by run.gd to drop the payout as a burst of coins
@@ -78,6 +112,116 @@ var _desired := Vector2.ZERO
 var _flank_sign := 1.0
 var _material: ShaderMaterial
 var _spawn_anim := 0.0
+
+## Carapace shell. Up = hunkered and bullet-proof, down = moving and open.
+## The shell is what makes the type killable by a gun build at all - see the
+## note on GREY in enemy_types.gd.
+var _shell_up := false
+var _shell_timer := 0.0
+## Cached in configure(): _physics_process runs for every live enemy every
+## frame, and at 68 concurrent that is 68 dictionary lookups and string
+## compares a frame to ask a question whose answer cannot change.
+var _is_turtle := false
+
+## Phasing elites flicker out of reach on a cycle. Cycling rather than being a
+## random dodge chance so the window is something the player can time, and so
+## it can never be untargetable indefinitely.
+var _phased := false
+var _phase_timer := 0.0
+
+## Visual alpha is COMPOSED, never written directly.
+##
+## Three things fade an enemy: the Phasing elite going out of reach, the
+## Burrower going underground, and concealment in tall grass. They used to write
+## _visual.modulate.a themselves - the Phasing elite through a tween, the
+## Burrower directly - and a third writer would have made them fight, with
+## whichever ran last winning. Each now owns one channel, eased per frame, and
+## the drawn alpha is the lowest of them.
+##
+## Per-frame floats rather than tweens, and that is not a style preference. A
+## tween owned by a pooled node can outlive the recycle and repaint a live
+## enemy - enemy.gd records that trap three separate times - and the Phasing
+## tween was the last one left doing it.
+const PHASE_ALPHA := 0.25
+const BURROW_ALPHA := 0.28
+## How far concealment fades a hidden enemy. Low enough that a slime sitting in
+## the grass is easy to miss at a glance, high enough that it is never fully
+## gone - a player who looks carefully should always be able to find it, which
+## is the difference between "hidden" and "cheated".
+const CONCEAL_ALPHA := 0.32
+## Slower than this counts as standing still, for concealment.
+const CONCEAL_STILL_SPEED := 22.0
+## Alpha units per second. 4.2 swings the Phasing elite's full 0.75 range in
+## about 0.18s, which is what its tween did.
+const ALPHA_RATE := 4.2
+var _phase_a := 1.0
+var _burrow_a := 1.0
+var _conceal_a := 1.0
+const PHASE_OUT := 0.9
+const PHASE_IN := 1.8
+
+## Set each think by a nearby Warding elite, with an expiry rather than a flag
+## the granter has to remember to clear - the granter usually dies, and a
+## permanently warded pack would be a wave that a whole build cannot answer.
+var _ward_until := 0.0
+
+## Thief. How much of the player's money it is carrying; killing it gives that
+## back on top of its own payout, so the chase is worth committing to.
+##
+## Public because run.gd has to subtract it before applying the combo payout
+## multiplier. Stolen coins ride on money_value so that killing a Thief hands
+## the money straight back - multiply the whole payout and the player gets back
+## *more than was taken*, which turns "let it steal, then kill it on a chain"
+## into a money printer.
+var stolen_value := 0
+const THIEF_ESCAPE_DISTANCE := 1500.0
+
+## Husk. Down but not dead: it has run out of health once, is lying on the
+## ground playing its last death frame, and will get back up.
+##
+## It stays REGISTERED, visible and shootable the whole time. That is the
+## counterplay - finish it off while it is down - and it is also the safety
+## property: an untargetable body that still counted would be a wave that can
+## never end, which is the shape of the Phasing bug and of the Spitter wedge.
+var _husk_down := false
+var _husk_spent := false
+var _husk_timer := 0.0
+## Burrower. Underground and untargetable, on a cycle that always comes back up.
+var _burrowed := false
+var _burrow_timer := 0.0
+## Knot. The other half of the pair and the line drawn between them.
+var _knot_partner: Enemy = null
+var _knot_line: Line2D = null
+var _knot_hit_at := 0.0
+## Devourer. Throttles how often it looks for zoning to eat.
+var _eat_timer := 0.0
+
+## Counts down while the flinch frame is showing; the walk cycle leaves the
+## body frame alone until it hits zero.
+var _flinch_timer := 0.0
+## Which death frame a corpse is on, or -1 while it is alive. Death runs on a
+## timer in _animate rather than a tween, because a tween on a pooled node can
+## outlive the recycle and repaint a live enemy's frame.
+var _death_frame := -1
+var _death_timer := 0.0
+
+## Mimic. Wearing a pickup's sprite and standing still. It reveals on
+## proximity, on being shot, or when finisher_mode turns on - that last one is
+## what stops a Mimic nobody walked near from hanging the wave forever.
+var _disguised := false
+const MIMIC_TEXTURES: Array[String] = [
+	"res://assets/sprites/gen/coin_strip.png",
+	"res://assets/sprites/gen/potion_red.png",
+	"res://assets/sprites/gen/potion_blue.png",
+	"res://assets/sprites/gen/potion_purple.png",
+]
+var _ward_tick := 0.0
+## How often a Warding elite refreshes its aura. The grant lasts longer than
+## the interval, so the aura is continuous while costing one area query every
+## 0.15 s instead of one every frame - at 68 enemies that is the difference
+## between a rounding error and a measurable cost.
+const WARD_REFRESH := 0.15
+const WARD_GRANT := 0.4
 
 ## Stuck handling. Enemies steer straight at their target with no pathfinding,
 ## which is fine in the open and fails in a pocket between two rocks: the
@@ -135,6 +279,31 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	money_value = int(round(randi_range(def["money"].x, def["money"].y)
 		* Balance.money_scale(wave)))
 	hoards = bool(def.get("hoards", false))
+	immune_to = String(def.get("immune_to", ""))
+	# Start shelled, but stagger the cycle so a pack does not open and close in
+	# unison - that would turn a group into one big binary window.
+	_is_turtle = String(def["behavior"]) == "turtle"
+	_shell_up = true
+	_shell_timer = float(def.get("shell_up", 0.0)) * randf_range(0.35, 1.0)
+	_phased = false
+	_phase_timer = PHASE_IN * randf_range(0.3, 1.0)
+	_ward_until = 0.0
+	_ward_tick = 0.0
+	# Both of these MUST be restored here, not just in _ready. Enemies are
+	# pooled: a Phasing elite that died while phased would otherwise be handed
+	# back out as an ordinary slime with its hurtbox layer still cleared and
+	# its sprite still faded - permanently untargetable, and a wave that can
+	# never end.
+	_hurtbox.collision_layer = Layers.ENEMY
+	_visual.modulate.a = 1.0
+	_phase_a = 1.0
+	_burrow_a = 1.0
+	_conceal_a = 1.0
+	stolen_value = 0
+	# Undisguise first, unconditionally. Enemies are pooled, and a Mimic handed
+	# back out as an ordinary slime still wearing a coin sprite would be the
+	# same class of bug the Phasing elite had.
+	_disguised = false
 
 	var visual_scale := float(def["scale"])
 	shield = 0.0
@@ -152,13 +321,31 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 				contact_damage *= 1.25
 			"splitter":
 				max_hp *= 1.1
+			"volatile":
+				# Slightly frail: it is dangerous when it dies, not while alive,
+				# and stacking both would just be a better Brute.
+				max_hp *= 0.8
+			"vampiric":
+				contact_damage *= 1.15
+			"phasing":
+				# It is untargetable a third of the time, so it does not also
+				# need the full elite health pool on top.
+				max_hp *= 0.75
+			"warding":
+				# The aura is the threat. Left at elite baseline.
+				pass
 
 	hp = max_hp
 	_body.texture = load(EnemyTypes.texture_path(id))
+	_body.hframes = BODY_FRAMES
 	_face.texture = FACE_ANGRY if is_elite else FACE_NORMAL
 	_crown.visible = is_elite
 	if is_elite:
 		_crown.texture = load(EnemyTypes.crown_path(id))
+	# The shape that says what this one does, for players who cannot read the
+	# colour - and for everyone, on the two types where the colour is subtle.
+	_badge.texture = load(EnemyTypes.badge_path(id))
+	refresh_badge()
 	_visual.scale = Vector2.ONE * visual_scale
 	_shadow.scale = Vector2.ONE * visual_scale * 0.9
 	hit_radius = float(def["radius"]) * (Balance.ELITE_SCALE if is_elite else 1.0)
@@ -177,8 +364,33 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 	_stuck_time = 0.0
 	_unstuck_timer = 0.0
 	_last_position = global_position
+	if String(def["behavior"]) == "mimic":
+		_disguise()
+	_flinch_timer = 0.0
+	_death_frame = -1
+	_death_timer = 0.0
+	# Pooled state for the second-wave behaviours. All of these leave the node
+	# in a state that would be wrong on a recycle - a husk still "down", a
+	# burrower still untargetable - so they are cleared on every acquire as well
+	# as in _pool_reset.
+	_husk_down = false
+	_husk_spent = false
+	_husk_timer = 0.0
+	_burrowed = false
+	_burrow_timer = float(def.get("burrow_up", 2.4))
+	_knot_partner = null
+	_knot_hit_at = 0.0
+	_eat_timer = 0.0
+	if _knot_line != null:
+		_knot_line.visible = false
 	visible = true
 	set_physics_process(true)
+	set_process(false)
+	# Re-join the group. add_to_group in _ready only ever ran once per node and
+	# die() removes it, so every enemy that had been through the pool was
+	# counted by Combat while being invisible to anything reading the group.
+	# add_to_group is idempotent, so this is safe on a first spawn too.
+	add_to_group("enemies")
 	Combat.register_enemy(self)
 	Events.enemy_spawned.emit(self)
 
@@ -186,6 +398,25 @@ func configure(id: String, wave: int, elite: String = "") -> void:
 # ---------------------------------------------------------------------------
 # per-frame
 # ---------------------------------------------------------------------------
+## Corpses only. Runs on a timer rather than a tween because a tween owned by
+## a pooled node can outlive the recycle and repaint a live enemy's frame - the
+## same trap the time-scale leak fell into.
+func _process(delta: float) -> void:
+	if _death_frame < 0:
+		return
+	_death_timer -= delta
+	if _death_timer > 0.0:
+		return
+	_death_frame += 1
+	if _death_frame >= DEATH_FRAMES.size():
+		_death_frame = -1
+		set_process(false)
+		Pools.release(self)
+		return
+	_death_timer = DEATH_FRAME_TIME
+	_body.frame = DEATH_FRAMES[_death_frame]
+
+
 func _physics_process(delta: float) -> void:
 	if dying:
 		return
@@ -194,7 +425,18 @@ func _physics_process(delta: float) -> void:
 	# Ranged attack cooldown, counted once per frame on real elapsed time so it
 	# does not depend on how often _think() happens to run.
 	_attack_timer = maxf(0.0, _attack_timer - scaled)
+	if _is_turtle:
+		_tick_shell(scaled)
+	_tick_alpha(delta)
+	match String(def["behavior"]):
+		"husk": _tick_husk(scaled)
+		"burrow": _tick_burrow(scaled)
+		"knot": _tick_knot(scaled)
+		"devour": _tick_devour(scaled)
+	if is_elite:
+		_tick_elite(scaled)
 
+	_sync_hunt_mask()
 	_think_timer -= delta
 	var target := _target_position()
 	var near := global_position.distance_squared_to(Combat.player_position()) < LOD_NEAR * LOD_NEAR
@@ -219,6 +461,21 @@ func _physics_process(delta: float) -> void:
 	_update_stuck(scaled)
 	_tick_contact(scaled, target)
 	_animate(delta)
+
+
+## Drop forest collision while the wave is escalating, and put it straight back
+## when it is not.
+##
+## Synced from the live flag every frame rather than toggled on the transition,
+## because enemies are pooled: one that is parked or recycled across the moment
+## hunt_mode changes would otherwise keep whichever mask it happened to hold,
+## and an enemy handed out with mask 0 walks through trunks for the rest of the
+## run. That is the Phasing-elite bug, which cleared a layer to go untargetable
+## and came back permanently unhittable.
+func _sync_hunt_mask() -> void:
+	var want := 0 if Combat.hunt_mode else Layers.WORLD
+	if collision_mask != want:
+		collision_mask = want
 
 
 func _update_stuck(delta: float) -> void:
@@ -268,13 +525,16 @@ const CATCHUP_MULTIPLIER := 2.1
 
 
 func _current_speed() -> float:
+	# An escalated straggler closes faster, because the point of escalating is
+	# that the wave ends soon rather than eventually.
+	var hunt := Balance.STRAGGLER_HUNT_SPEED if Combat.hunt_mode else 1.0
 	if String(def["behavior"]) == "skittish":
-		return speed
+		return speed * hunt
 	var d := global_position.distance_to(Combat.player_position())
 	if d <= CATCHUP_DISTANCE:
-		return speed
+		return speed * hunt
 	var over := clampf((d - CATCHUP_DISTANCE) / 900.0, 0.0, 1.0)
-	return speed * lerpf(1.0, CATCHUP_MULTIPLIER, over)
+	return speed * lerpf(1.0, CATCHUP_MULTIPLIER, over) * hunt
 
 
 ## Enemies chase a decoy in preference to the player - that's the whole point
@@ -297,6 +557,16 @@ func _think(target: Vector2) -> void:
 		_desired = dir
 		if String(def["behavior"]) == "ranged":
 			_try_shoot(dist, dir)
+		# A Burrower must not be allowed to spend the end of a wave underground.
+		# It is untargetable down there, so the last one alive could hold the
+		# wave open through its whole cycle, over and over. Mop-up surfaces it
+		# and keeps it up.
+		if _burrowed:
+			_surface()
+		# ...and a Husk stays put while it is down, because it is a body on the
+		# ground. It still revives on its own clock, so this cannot wedge.
+		if _husk_down:
+			_desired = Vector2.ZERO
 		return
 
 	match String(def["behavior"]):
@@ -337,6 +607,59 @@ func _think(target: Vector2) -> void:
 			if dist < float(def["fuse_range"]) and _fuse_timer < 0.0:
 				_start_fuse()
 
+		"ward":
+			# Straight at you and nothing else. No flanking, no spacing, no
+			# flinching - the point is that it keeps coming while your
+			# cooldowns do nothing to it.
+			_desired = dir
+
+		"turtle":
+			# Shelled means planted. Standing still is the tell: you can read
+			# whether bullets will work right now from across the screen,
+			# without reading its colour.
+			_desired = Vector2.ZERO if _shell_up else dir
+
+		"thief":
+			# Straight at you until it has your money, then straight away with
+			# it. The flee leg is the Hoarder's, so there is one implementation
+			# of running away rather than two.
+			if stolen_value <= 0:
+				_desired = dir
+			else:
+				_desired = (-dir + dir.orthogonal() * 0.4 * _flank_sign).normalized()
+				if dist > THIEF_ESCAPE_DISTANCE:
+					_escape()
+
+		"husk":
+			# Down means down. Everything else about it is an ordinary chaser.
+			_desired = Vector2.ZERO if _husk_down else dir
+
+		"burrow":
+			# It keeps closing while underground - that is the threat, since you
+			# cannot shoot it on the way in - but slower, because a burrower that
+			# crossed the arena untouchable would just be a teleport.
+			_desired = dir * (0.6 if _burrowed else 1.0)
+
+		"knot":
+			# Straight in, but each half drifts to one side so the pair spreads
+			# and the line between them sweeps an arc rather than staying a
+			# point. A tether you can stand next to is not a hazard.
+			_desired = (dir + dir.orthogonal() * 0.35 * _flank_sign).normalized()
+
+		"devour":
+			_desired = dir
+
+		"mimic":
+			# Bait until it is not. Reveals on proximity, and on finisher_mode
+			# regardless of distance - without that second condition a Mimic
+			# nobody wandered near would keep a wave alive forever.
+			if _disguised:
+				_desired = Vector2.ZERO
+				if dist < float(def["disguise_range"]) or Combat.finisher_mode:
+					_reveal()
+			else:
+				_desired = dir
+
 		_:
 			_desired = dir
 
@@ -376,6 +699,12 @@ func _apply_hit_shapes(visual_scale: float) -> void:
 	capsule.height = maxf(bottom - top, hit_radius * 2.0)
 	_hurtbox_shape.shape = capsule
 	_hurtbox_shape.position = Vector2(0, (top + bottom) * 0.5)
+
+
+## Re-read the enemy-marker setting. Called on every live enemy when the
+## setting is toggled, so the change is visible immediately.
+func refresh_badge() -> void:
+	_badge.visible = bool(Save.settings.get("enemy_badges", true))
 
 
 ## Where the slime is actually drawn, relative to its physics origin. Abilities
@@ -432,7 +761,7 @@ func _spawn_bullet(dir: Vector2) -> void:
 		"color": def["tint"],
 		"scale": 1.15,
 	})
-	Audio.play_throttled("enemy_shoot", 0.07, -17.0, 0.2)
+	Audio.play_at_throttled("enemy_shoot", hit_center(), 0.07, -17.0, 0.2)
 	Events.enemy_shot_fired.emit(self)
 	_squash(1.25)
 
@@ -454,7 +783,7 @@ func _tick_contact(delta: float, _target: Vector2) -> void:
 			return
 
 	_contact_timer = maxf(0.0, _contact_timer - delta)
-	if contact_damage <= 0.0 or _contact_timer > 0.0:
+	if _disguised or contact_damage <= 0.0 or _contact_timer > 0.0:
 		return
 	var p := Combat.player()
 	if p == null:
@@ -469,6 +798,15 @@ func _tick_contact(delta: float, _target: Vector2) -> void:
 			p.call("apply_poison",
 				contact_damage * Balance.CONTACT_POISON_FRACTION,
 				Balance.CONTACT_POISON_DURATION)
+		if String(def["behavior"]) == "thief" and stolen_value <= 0:
+			_steal()
+		if elite_mod == "vampiric":
+			# Off damage *dealt*, so it is answered by not being touched rather
+			# than by out-damaging it. Capped at max_hp, so this can stall a
+			# kill but never reverse one past full.
+			hp = minf(max_hp, hp + contact_damage * 0.75)
+			FX.floating_text(hit_center() + Vector2(0, -46), "+",
+				Color(0.9, 0.35, 0.45))
 		_contact_timer = 0.85
 		_squash(1.35)
 
@@ -480,7 +818,7 @@ func _detonate() -> void:
 	if is_elite:
 		damage *= Balance.ELITE_DAMAGE_MULTIPLIER
 	FX.explosion(global_position, radius)
-	Audio.play("explosion", -6.0)
+	Audio.play_at("explosion", global_position, -6.0)
 	Game.shake(Balance.SHAKE_EXPLOSION * 0.7, 0.3)
 	Combat.explode_on_player(global_position, radius, damage)
 	# bloaters also hurt each other, which is what makes a cluster of them
@@ -500,8 +838,20 @@ func _animate(delta: float) -> void:
 	var bounce := absf(sin(_hop))
 	var base: float = float(def["scale"]) * (Balance.ELITE_SCALE if is_elite else 1.0)
 
-	# the pack's slime squashes on landing and stretches at the top of its hop
-	var squash := 1.0 + bounce * 0.10 - 0.05
+	# The walk cycle. Frame 0 is the neutral silhouette at the top of the arc
+	# and frame 3 is fully compressed on the ground, so the strip is indexed
+	# straight off the hop phase and the two can never drift apart.
+	if not _disguised and _flinch_timer <= 0.0 and _death_frame < 0:
+		_body.frame = clampi(int((1.0 - bounce) * float(WALK_FRAMES)),
+			0, WALK_FRAMES - 1)
+	elif _flinch_timer > 0.0:
+		_flinch_timer -= delta
+		_body.frame = FRAME_FLINCH
+
+	# A trace of the old procedural squash is kept, but only a trace: it used to
+	# be +/-5% and it is now the frames' job. Running both at full strength
+	# deforms the sprite twice.
+	var squash := 1.0 + bounce * 0.04 - 0.02
 	_visual.scale = Vector2(base * (2.0 - squash), base * squash)
 	_visual.position.y = -bounce * (4.0 + (10.0 if moving else 0.0))
 	_shadow.scale = Vector2.ONE * base * (0.95 - bounce * 0.12)
@@ -530,8 +880,18 @@ func _squash(amount: float) -> void:
 # damage and death
 # ---------------------------------------------------------------------------
 func take_damage(amount: float, is_crit: bool = false, from: Vector2 = Vector2.ZERO,
-		knockback: float = 0.0) -> void:
+		knockback: float = 0.0, source: String = Combat.SOURCE_OTHER) -> void:
 	if dying:
+		return
+
+	# Warded shrugs off abilities, Carapace shrugs off bullets. The deflect has
+	# to be as loud as a hit or the player reads "I missed" instead of "that
+	# does not work on this one", and goes on missing.
+	if _disguised:
+		_reveal()
+
+	if _is_immune(source):
+		_deflect(from)
 		return
 
 	var applied := amount
@@ -543,11 +903,22 @@ func take_damage(amount: float, is_crit: bool = false, from: Vector2 = Vector2.Z
 		if shield <= 0.0:
 			FX.ring(global_position, 70.0, Color(0.5, 0.8, 1.0), 0.3, 0.4)
 			_material.set_shader_parameter("flash_color", Color.WHITE)
+	else:
+		# clears the tint a deflect leaves behind, so a hit that lands looks
+		# like a hit that lands
+		_material.set_shader_parameter("flash_color", Color.WHITE)
 	hp -= applied
 	_flash = 1.0
 	_material.set_shader_parameter("flash", 1.0)
+	# The flinch frame, on top of the flash. Not on a deflect - _deflect is
+	# deliberately loud in a different way, because "that does not work on this
+	# one" and "that hurt" have to read as different events or the player keeps
+	# firing at a Carapace thinking they are missing.
+	if not _disguised:
+		_flinch_timer = FLINCH_TIME
+		_body.frame = FRAME_FLINCH
 
-	if knockback > 0.0 and from != Vector2.ZERO:
+	if knockback > 0.0 and from != Vector2.ZERO and not bool(def.get("unflinching", false)):
 		var away := (global_position - from).normalized()
 		# heavier enemies are harder to shove
 		var resist: float = 1.0 / maxf(1.0, float(def["hp"]) / 40.0)
@@ -565,27 +936,449 @@ func take_damage(amount: float, is_crit: bool = false, from: Vector2 = Vector2.Z
 		speed = float(def["speed"]) * Balance.speed_scale(spawn_wave) * 1.85
 
 	if hp <= 0.0:
+		# A Husk does not die the first time. It goes down and gets back up,
+		# and it is only finished when it runs out while already down - which is
+		# what makes "put it down twice" the counterplay rather than a tax.
+		if String(def["behavior"]) == "husk" and not _husk_spent and not _husk_down:
+			_go_down()
+			return
 		die(true)
 
 
-func die(award: bool = true) -> void:
+# ---------------------------------------------------------------------------
+# thief and mimic
+# ---------------------------------------------------------------------------
+## Take a bite out of the player's purse.
+##
+## Bounded by what they actually have, so a Thief can never push the balance
+## negative, and what it carries is added to its own payout - killing it hands
+## the money straight back, which is what makes the chase worth breaking off
+## for.
+func _steal() -> void:
+	if Game.run == null:
+		return
+	var want: Vector2i = def.get("steal", Vector2i(20, 40))
+	var take := mini(randi_range(want.x, want.y), Game.run.money)
+	if take <= 0:
+		return
+	# lose_money, not a bare subtraction: theft has to come off lifetime
+	# earnings too, or the coins handed back when this dies are counted as
+	# fresh income and the results screen reports money the player never made.
+	take = Game.run.lose_money(take)
+	if take <= 0:
+		return
+	stolen_value = take
+	money_value += take
+	FX.floating_text(hit_center() + Vector2(0, -60), "-%d" % take,
+		Color(1.0, 0.5, 0.4))
+	Audio.play("coin", -6.0)
+	_squash(1.4)
+
+
+## It got away with it. Despawns without a payout, which is the whole cost of
+## letting one escape.
+##
+## die(false) still emits enemy_died, so the wave controller decrements its
+## live count and the wave can end - a Thief that simply stopped existing
+## would leave the wave waiting for it forever.
+func _escape() -> void:
+	FX.burst(hit_center(), def["tint"], 10, 1.0)
+	FX.floating_text(hit_center() + Vector2(0, -60), "got away",
+		Color(0.8, 0.75, 0.7))
+	money_value = 0
+	die(false, false)
+
+
+## Drop the costume.
+##
+## The face and badge come back here rather than being visible all along: a
+## Mimic wearing its shape marker would not be a Mimic. That is a deliberate
+## exception to the markers rule, and a narrow one - the badges promise that
+## an enemy presenting as an enemy can be read without colour, and a disguised
+## Mimic is not presenting as one. The instant it is a threat, it is marked.
+func _reveal() -> void:
+	if not _disguised:
+		return
+	_disguised = false
+	_body.texture = load(EnemyTypes.texture_path(type_id))
+	_body.hframes = BODY_FRAMES
+	_body.frame = 0
+	_face.visible = true
+	_crown.visible = is_elite
+	refresh_badge()
+	_visual.scale = Vector2.ONE * float(def["scale"]) \
+		* (Balance.ELITE_SCALE if is_elite else 1.0)
+	FX.burst(hit_center(), def["tint"], 16, 1.3)
+	FX.ring(hit_center(), hit_radius * 2.2, Color(1.0, 0.9, 0.5), 0.35, 0.2)
+	Audio.play_at("enemy_death", global_position, -8.0, 0.4)
+	Game.shake(3.0, 0.2)
+	Events.enemy_revealed.emit(self)
+
+
+## Put the costume on. Called at the end of configure(), after the hit shapes
+## have been sized off the real slime texture - the Mimic is a slime in a
+## costume and has to stay hittable at its own size, so shooting a suspicious
+## coin works.
+func _disguise() -> void:
+	_disguised = true
+	var pick: String = MIMIC_TEXTURES[randi() % MIMIC_TEXTURES.size()]
+	_body.texture = load(pick)
+	_body.hframes = 6 if pick.ends_with("coin_strip.png") else 1
+	_body.frame = 0
+	_face.visible = false
+	_crown.visible = false
+	_badge.visible = false
+	# Pickups are drawn far smaller than a slime.
+	_visual.scale = Vector2.ONE * 0.85
+
+
+## Open and close the Carapace's shell. Both transitions are visible: it stops
+## dead when it shells up and lurches forward when it opens, so the window a
+## gun build has to shoot is legible from motion alone.
+func _tick_shell(delta: float) -> void:
+	_shell_timer -= delta
+	if _shell_timer > 0.0:
+		return
+	_shell_up = not _shell_up
+	_shell_timer = float(def.get("shell_up" if _shell_up else "shell_down", 1.5))
+	_squash(1.22 if _shell_up else 0.82)
+	if _shell_up:
+		FX.ring(hit_center(), hit_radius * 1.5, DEFLECT_COLOR, 0.25, 0.35)
+
+
+func _tick_alpha(delta: float) -> void:
+	var step := ALPHA_RATE * delta
+	_phase_a = move_toward(_phase_a, PHASE_ALPHA if _phased else 1.0, step)
+	# The burrow eases twice as fast: going under is a dive, not a fade.
+	_burrow_a = move_toward(_burrow_a, BURROW_ALPHA if _burrowed else 1.0, step * 2.0)
+	_conceal_a = move_toward(_conceal_a, CONCEAL_ALPHA if _concealed() else 1.0, step)
+	_visual.modulate.a = minf(_phase_a, minf(_burrow_a, _conceal_a))
+
+
+## Is this enemy hidden in tall grass right now?
+func _concealed() -> bool:
+	return (_can_conceal() and Combat.conceals(global_position)
+		and velocity.length() < CONCEAL_STILL_SPEED)
+
+
+## The rules that keep concealment from ever costing the player a wave.
+##
+## Concealment is visual only - it never touches the hurtbox, never removes the
+## enemy from Combat's registry and never reaches enemies_in_radius, explode or
+## enemy_count. Any one of those would be a way for a wave not to end, or for
+## the HUD to disagree with the world. And it switches off entirely in mop-up:
+## once finisher_mode or hunt_mode is on, the last few enemies are the ones the
+## player has to FIND, and hiding them is the exact failure the straggler
+## escalation was built to prevent.
+func _can_conceal() -> bool:
+	return (not Combat.finisher_mode and not Combat.hunt_mode and not dying
+		and not _disguised)
+
+
+## HUSK. Drop, play dead, get back up once.
+##
+## Deliberately NOT routed through die(): that unregisters from Combat, emits
+## enemy_died - paying out coins, combo and the wave's live count - and starts a
+## 0.21s pooling deadline. A husk that went through it would pay twice and would
+## be handed back to the pool mid-revive. It simply stops moving and shows its
+## last death frame instead, and stays on the books the whole time.
+func _go_down() -> void:
+	_husk_down = true
+	_husk_timer = float(def.get("revive_delay", 2.6))
+	hp = 1.0
+	_desired = Vector2.ZERO
+	velocity = Vector2.ZERO
+	_body.frame = DEATH_FRAMES[DEATH_FRAMES.size() - 1]
+	_visual.position.y = 0.0
+	Audio.play_at("enemy_death", global_position, -12.0, 0.3)
+	FX.burst(hit_center(), def["tint"], 8, 0.7)
+
+
+func _tick_husk(delta: float) -> void:
+	if not _husk_down:
+		return
+	_husk_timer -= delta
+	if _husk_timer > 0.0:
+		return
+	# Up again, at a fraction of its health, and it cannot do this twice.
+	_husk_down = false
+	_husk_spent = true
+	hp = maxf(1.0, max_hp * float(def.get("revive_fraction", 0.5)))
+	_body.frame = 0
+	_flash = 1.0
+	_material.set_shader_parameter("flash", 1.0)
+	FX.ring(hit_center(), hit_radius * 2.0, def["tint"], 0.35, 0.3)
+	Audio.play_at("boss_phase", global_position, -14.0, 0.2)
+
+
+## BURROWER. Untargetable underground, on a cycle that always surfaces.
+##
+## The hurtbox layer is what makes it untargetable, and clearing that layer is
+## exactly how the Phasing elite once produced permanently unhittable slimes -
+## so it is restored here, in configure() and in _pool_reset(), and finisher
+## mode forces a surface so the last one alive cannot ride its cycle forever.
+func _tick_burrow(delta: float) -> void:
+	_burrow_timer -= delta
+	if _burrow_timer > 0.0:
+		return
+	if _burrowed:
+		_surface()
+	else:
+		_burrowed = true
+		_burrow_timer = float(def.get("burrow_down", 1.9))
+		_hurtbox.collision_layer = 0
+		_badge.visible = false
+		FX.burst(global_position, C_SOIL, 10, 0.8)
+
+
+func _surface() -> void:
+	if not _burrowed:
+		return
+	_burrowed = false
+	_burrow_timer = float(def.get("burrow_up", 2.4))
+	_hurtbox.collision_layer = Layers.ENEMY
+	refresh_badge()
+	FX.burst(global_position, C_SOIL, 14, 1.0)
+
+
+## KNOT. Two of them, and the line between them burns.
+func _tick_knot(delta: float) -> void:
+	if not is_instance_valid(_knot_partner) or _knot_partner.dying:
+		_knot_partner = null
+	if _knot_partner == null:
+		_find_knot_partner()
+	if _knot_line != null:
+		_knot_line.visible = false
+	if _knot_partner == null:
+		return
+
+	var a := hit_center()
+	var b: Vector2 = _knot_partner.hit_center()
+	if a.distance_to(b) > float(def.get("tether_range", 620.0)):
+		return
+
+	# Drawn by the LOWER instance id only, so a pair draws one line rather than
+	# two stacked on each other - and so only one of them can charge the player
+	# for crossing it.
+	if get_instance_id() > _knot_partner.get_instance_id():
+		return
+	_draw_tether(a, b)
+
+	var p := Combat.player()
+	if p == null:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now < _knot_hit_at:
+		return
+	if Geometry2D.get_closest_point_to_segment(p.global_position, a, b) \
+			.distance_to(p.global_position) > 26.0:
+		return
+	_knot_hit_at = now + 0.6
+	if p.has_method("take_damage"):
+		p.call("take_damage", float(def.get("tether_damage", 16.0))
+			* Balance.damage_scale(spawn_wave, Game.is_nightmare()))
+
+
+func _find_knot_partner() -> void:
+	for other: Node2D in Combat.enemies():
+		if other == self or not (other is Enemy):
+			continue
+		var e := other as Enemy
+		if String(e.def["behavior"]) != "knot" or e.dying:
+			continue
+		if e._knot_partner != null and e._knot_partner != self:
+			continue
+		_knot_partner = e
+		e._knot_partner = self
+		return
+
+
+func _draw_tether(a: Vector2, b: Vector2) -> void:
+	if _knot_line == null:
+		_knot_line = Line2D.new()
+		_knot_line.width = 7.0
+		_knot_line.top_level = true
+		_knot_line.z_index = -1
+		_knot_line.default_color = Color(def["tint"], 0.85)
+		add_child(_knot_line)
+	_knot_line.visible = true
+	_knot_line.points = PackedVector2Array([a, b])
+
+
+## DEVOURER. Eats the ground you were relying on.
+func _tick_devour(delta: float) -> void:
+	_eat_timer -= delta
+	if _eat_timer > 0.0:
+		return
+	_eat_timer = 0.35
+	var reach := float(def.get("eat_range", 130.0))
+	for node: Node in get_tree().get_nodes_in_group("zoning"):
+		var n := node as Node2D
+		if not is_instance_valid(n) or n.global_position.distance_to(global_position) > reach:
+			continue
+		FX.burst(n.global_position, def["tint"], 14, 1.2)
+		Audio.play_at("enemy_death", n.global_position, -10.0, 0.25)
+		n.queue_free()
+		_squash(1.3)
+		return
+
+
+## Elite behaviour that runs on a clock rather than on an event.
+func _tick_elite(delta: float) -> void:
+	match elite_mod:
+		"phasing":
+			_phase_timer -= delta
+			if _phase_timer <= 0.0:
+				_phased = not _phased
+				_phase_timer = PHASE_OUT if _phased else PHASE_IN
+				# The hurtbox is what bullets look for, so dropping its layer
+				# is what actually makes it untargetable rather than merely
+				# invulnerable - shots pass through instead of pinging off.
+				_hurtbox.collision_layer = 0 if _phased else Layers.ENEMY
+				# The fade is _tick_alpha's job now; see _phase_a.
+				if not _phased:
+					FX.ring(hit_center(), hit_radius * 1.4,
+						Color(0.75, 0.7, 0.95), 0.25, 0.3)
+		"warding":
+			_ward_tick -= delta
+			if _ward_tick <= 0.0:
+				_ward_tick = WARD_REFRESH
+				_ward_neighbours()
+
+
+## Lend ability-immunity to everything nearby, on a short expiry.
+##
+## Pushed onto neighbours rather than read from them: the check in _is_immune
+## runs on every single hit, and walking the enemy list there would put an
+## area query in the hottest path in the game. Refreshing on the think tick
+## costs one query per Warding elite instead.
+func _ward_neighbours() -> void:
+	var until := Time.get_ticks_msec() / 1000.0 + WARD_GRANT
+	for e: Node2D in Combat.enemies_in_radius(hit_center(),
+			EnemyTypes.WARD_AURA_RADIUS):
+		if e == self or e.is_in_group("boss"):
+			continue
+		e.set("_ward_until", until)
+	# Drawn every couple of seconds rather than every frame: the player has to
+	# be able to see which slime is doing this, without a strobe.
+	if _flash <= 0.0 and randf() < 0.02:
+		FX.ring(hit_center(), EnemyTypes.WARD_AURA_RADIUS,
+			Color(0.7, 0.6, 0.95, 0.5), 0.6, 0.25)
+
+
+## Whether `source` bounces off this enemy right now.
+##
+## Warded's immunity is permanent; Carapace's holds only while the shell is up.
+func _is_immune(source: String) -> bool:
+	# Phasing is out of reach of everything while it is out - it is a window to
+	# time, not a source to counter.
+	if _phased:
+		return true
+	# A Warding elite lends its neighbours the Warded slime's trick. Bullets
+	# still work, which is what stops an aura from being unanswerable: the
+	# player always has a gun.
+	if source == Combat.SOURCE_ABILITY \
+			and Time.get_ticks_msec() / 1000.0 < _ward_until:
+		return true
+	if immune_to.is_empty() or source != immune_to:
+		return false
+	return _shell_up if _is_turtle else true
+
+
+## What a hit looks like when it does nothing. Deliberately not silent: an
+## unanswered hit that shows no feedback at all is indistinguishable from a
+## bullet that missed.
+func _deflect(from: Vector2) -> void:
+	var at := hit_center()
+	var edge := at
+	if from != Vector2.ZERO:
+		edge = at + (from - at).normalized() * hit_radius
+	FX.impact(edge, DEFLECT_COLOR, 0.7)
+	# The spark fires on every deflected hit, the word does not. A held trigger
+	# on a Carapace is ~8 hits a second, and eight "IMMUNE" labels a second
+	# stops being information and becomes a wall of text over the fight.
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _last_deflect_text > DEFLECT_TEXT_INTERVAL:
+		_last_deflect_text = now
+		FX.floating_text(at + Vector2(0, -60), "IMMUNE", DEFLECT_COLOR)
+	Audio.play_at_throttled("deflect", hit_center(), 0.08, -12.0, 0.15)
+	_material.set_shader_parameter("flash_color", DEFLECT_COLOR)
+	_flash = 0.6
+	_material.set_shader_parameter("flash", 0.6)
+
+
+## `leave_corpse` plays the three death frames before the recycle. Only
+## _escape() turns it off: a Thief that got away did not die, and a splat where
+## it left would say it did.
+func die(award: bool = true, leave_corpse: bool = true) -> void:
 	if dying:
 		return
 	dying = true
 	set_physics_process(false)
 	Combat.unregister_enemy(self)
 	remove_from_group("enemies")
+	# A corpse must not be shootable, and the hurtbox is the only thing that
+	# ever was - the body's own collision_layer is 0 by design, so nothing can
+	# bump into one either. _pool_reset puts this back; leaving it cleared
+	# across a recycle is exactly how the Phasing elite came back unhittable.
+	_hurtbox.collision_layer = 0
 
 	var at := global_position
 	if award:
 		FX.burst(at, def["tint"], 14 if not is_elite else 22, 1.0 if not is_elite else 1.5)
-		Audio.play_throttled("enemy_death", 0.05, -11.0, 0.18)
+		Audio.play_at_throttled("enemy_death", at, 0.05, -11.0, 0.18)
+		if elite_mod == "volatile":
+			# Deferred for the same reason as _split: death usually arrives
+			# from a bullet's body_entered, mid physics flush.
+			_detonate_volatile.call_deferred(at, spawn_wave)
 		if elite_mod == "splitter":
 			# deferred for the same reason as _spawn_bullet: death usually
 			# arrives from a bullet's body_entered, mid physics flush
 			_split.call_deferred(at, type_id, spawn_wave)
+	# Emitted here, at the same instant it always was, and *after* Combat has
+	# already forgotten this enemy. Nothing downstream waits on the death
+	# animation: the combo, the coins and the wave's live count all land now,
+	# so a corpse can never hold a wave open.
 	Events.enemy_died.emit(self, at)
-	Pools.release(self)
+
+	# A disguised Mimic is wearing a coin's texture, which has no death frames
+	# in it at all.
+	if leave_corpse and not _disguised and _body.texture != null:
+		_death_frame = 0
+		_death_timer = DEATH_FRAME_TIME
+		_body.frame = DEATH_FRAMES[0]
+		# Settle it on the ground at rest. _physics_process has stopped, so the
+		# hop offset and squash would otherwise freeze wherever they were and
+		# leave a corpse hanging in mid-air.
+		_visual.position.y = 0.0
+		_visual.scale = Vector2.ONE * (float(def["scale"])
+			* (Balance.ELITE_SCALE if is_elite else 1.0))
+		# _process is off for live enemies - 68 of them calling an empty
+		# _process every frame is 68 calls to do nothing - so it is switched on
+		# only for the fifth of a second a corpse needs it. Pools.release turns
+		# it back off.
+		set_process(true)
+	else:
+		Pools.release(self)
+
+
+## Volatile elites leave a blast behind them, which turns every kill into a
+## question of where you were standing when you took it.
+##
+## Takes its arguments explicitly because it runs deferred, by which point this
+## enemy has been recycled and its fields have moved on - the same reason
+## _split does.
+func _detonate_volatile(at: Vector2, for_wave: int) -> void:
+	var radius := 200.0
+	var damage := 22.0 * Balance.damage_scale(for_wave, Game.is_nightmare())
+	FX.explosion(at, radius, Color(1.0, 0.55, 0.3))
+	Audio.play_at("explosion", global_position, -7.0)
+	Game.shake(Balance.SHAKE_EXPLOSION * 0.6, 0.25)
+	Combat.explode_on_player(at, radius, damage)
+	# It hurts the pack too, exactly like a Bloater, which is what makes a
+	# volatile in a crowd an opportunity as well as a threat. Untagged, so it
+	# lands on Warded and Carapace alike.
+	Combat.explode(at, radius, damage * 0.5, 220.0, true, Combat.SOURCE_OTHER)
 
 
 ## Splitter elites break into two ordinary slimes of the same colour.
@@ -619,3 +1412,23 @@ func _pool_reset() -> void:
 	_knockback = Vector2.ZERO
 	_visual.rotation = 0.0
 	_visual.modulate.a = 1.0
+	_phase_a = 1.0
+	_burrow_a = 1.0
+	_conceal_a = 1.0
+	# Animation state, and the hurtbox a corpse cleared. configure() sets all
+	# of these again, but a parked enemy that is mid-death-frame with no
+	# hurtbox is one acquire away from being a live enemy nothing can shoot.
+	_flinch_timer = 0.0
+	_death_frame = -1
+	_death_timer = 0.0
+	_husk_down = false
+	_husk_spent = false
+	_burrowed = false
+	_knot_partner = null
+	if _knot_line != null:
+		_knot_line.visible = false
+	_body.frame = 0
+	_hurtbox.collision_layer = Layers.ENEMY
+	# And the forest mask, for the same reason: parked is the one state
+	# _sync_hunt_mask never runs in.
+	collision_mask = Layers.WORLD

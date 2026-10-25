@@ -4,6 +4,24 @@ extends Control
 ## Deliberately slow: a beat of silence, the wave you reached, then the button.
 ## Snapping straight to a results table would rob the death of its weight.
 
+## One of these under the wave number, picked at random.
+##
+## There used to be exactly one death message, and it was "YOU GOT SLIMED" in
+## ninety-two point red - which is a joke from a different game than the one the
+## victory screen and the class blurbs are written for. Dying is the thing the
+## player will see most often in a roguelike; it was the only screen in the game
+## with nothing to say.
+const LINES: Array[String] = [
+	"it closes over the place where you were",
+	"nothing here was ever going to let you leave",
+	"the trees do not move aside for this",
+	"you were already dead. this is only the rest of it",
+	"something further in has stopped paying attention",
+	"the ground takes it back",
+	"you get up from this. you always get up from this",
+]
+
+
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -26,9 +44,11 @@ func _build() -> void:
 	col.modulate.a = 0.0
 	center.add_child(col)
 
-	col.add_child(UITheme.title("YOU GOT SLIMED", 92, UITheme.RED))
+	col.add_child(UITheme.title("THE FOREST KEEPS YOU", 92, UITheme.RED))
 	col.add_child(UITheme.title(
-		"the forest closes over wave %d" % Game.wave(), 24, UITheme.TEXT_DIM))
+		"wave %d" % Game.wave(), 24, UITheme.TEXT_DIM))
+	col.add_child(UITheme.title(LINES[randi() % LINES.size()], 22,
+		UITheme.TEXT_DIM))
 	col.add_child(UITheme.spacer(46))
 
 	var cont := UITheme.button("CONTINUE", 28)

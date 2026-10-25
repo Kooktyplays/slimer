@@ -55,7 +55,9 @@ func start_wave(wave_number: int) -> void:
 	alive_count = 0
 	_finished_emitted = false
 	active = true
-	Combat.finisher_mode = false
+	# Clears hunt_mode and its clock too: a wave that had to escalate must
+	# not hand the next one enemies that already ignore the forest.
+	Combat.tick_finisher(0.0, false, 0)
 
 	# Open with a visible cluster instead of a slow trickle, so a wave starts
 	# as an event rather than an ambient drip.
@@ -82,9 +84,12 @@ func _process(delta: float) -> void:
 	if not active:
 		return
 
-	# once nothing more is coming and only a few are left, they all commit
-	Combat.finisher_mode = (budget_remaining <= 0.0
-		and Combat.enemy_count() <= FINISHER_THRESHOLD)
+	# once nothing more is coming and only a few are left, they all commit -
+	# and if committing is not enough to end the wave, they escalate. The
+	# arithmetic is Combat's so it can be asserted without a live wave.
+	var count := Combat.enemy_count()
+	Combat.tick_finisher(delta,
+		budget_remaining <= 0.0 and count <= FINISHER_THRESHOLD, count)
 
 	if budget_remaining > 0.0:
 		spawn_accumulator += delta * Balance.spawn_rate(wave, Game.is_nightmare())

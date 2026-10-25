@@ -21,7 +21,7 @@ All thirteen have been replaced with original art authored in
 
 | Replaced | Now |
 | --- | --- |
-| `slime_body.png` — source of all six enemy colours | `gen/slime_body.png`, drawn with enough value contrast between its four tones to survive hue rotation |
+| `slime_body.png` — source of all eight enemy colours | `gen/slime_body.png`, drawn with enough value contrast between its four tones to survive hue rotation |
 | `slime_face.png` | `gen/slime_face.png` |
 | `boo_body.png`, `boo_face.png` | `gen/boo_body.png`, `gen/boo_face.png` — a pale spirit, deliberately cool against a warm forest so the player never loses themselves in a crowd |
 | `pistol.png` | `gen/pistol.png` |

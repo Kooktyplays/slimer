@@ -10,7 +10,19 @@ extends RefCounted
 ## Everything here is static, so it must be reset at the start of each run -
 ## `reset()` is called by run.gd.
 
+## Where a hit came from. Two enemy types are immune to one source each, so
+## every damaging call has to say which it is.
+##
+## SOURCE_OTHER is the default on purpose: it always lands. A Bloater's blast
+## is neither a bullet nor an ability, and if it inherited either tag a cluster
+## of Bloaters would quietly become a universal answer to whichever type it was
+## tagged as. Only the two real sources override it.
+const SOURCE_OTHER := "other"
+const SOURCE_BULLET := "bullet"
+const SOURCE_ABILITY := "ability"
+
 static var enemy_time_scale: float = 1.0
+static var _slow_left: float = 0.0
 
 ## True once a wave has spawned everything it is going to and only a handful
 ## of enemies are left. In that state every survivor commits to the player -
@@ -21,15 +33,61 @@ static var enemy_time_scale: float = 1.0
 ## whose whole appeal is continuous pressure.
 static var finisher_mode: bool = false
 
+## Seconds finisher_mode has been on without the enemy count moving.
+static var finisher_stall: float = 0.0
+## True once a finishing wave has failed to end for long enough that something
+## is wrong rather than slow.
+##
+## finisher_mode is only advice: it points a straggler at the player. It cannot
+## help one that is obeying it and still cannot arrive - a Spitter pressed
+## against a trunk, or anything knocked somewhere it cannot path back from. The
+## sim wedged on exactly that, a full-health Spitter holding 389px for 14,400
+## frames, and from the wave counter it was indistinguishable from a wave that
+## never spawned.
+##
+## An escalated straggler ignores the forest and moves faster. That is a real
+## cost - a slime briefly walking through a trunk - and it is the smaller one,
+## because a wave that cannot end cannot be recovered from at all.
+static var hunt_mode: bool = false
+static var _finisher_count: int = -1
+
+## The forest the current wave is fought in, for concealment queries. Set by
+## run.gd whenever the forest is (re)built; null between runs and in tests that
+## never build one, in which case nothing is ever concealed.
+static var terrain: ForestGenerator = null
+
 static var _enemies: Array[Node2D] = []
 static var _player: Node2D = null
 
 
 static func reset() -> void:
 	enemy_time_scale = 1.0
+	_slow_left = 0.0
 	finisher_mode = false
+	finisher_stall = 0.0
+	hunt_mode = false
+	_finisher_count = -1
 	_enemies.clear()
 	_player = null
+	terrain = null
+
+
+## Advance the end-of-wave escalation clock. Called once per frame by the wave
+## controller, which owns `finishing`; the arithmetic lives here so it can be
+## asserted without standing up a whole wave.
+##
+## Any change in the count is progress and restarts the clock, so a wave that is
+## being cleared slowly never escalates - only one that is not being cleared at
+## all.
+static func tick_finisher(delta: float, finishing: bool, count: int) -> void:
+	finisher_mode = finishing
+	if not finishing or count != _finisher_count:
+		_finisher_count = count
+		finisher_stall = 0.0
+		hunt_mode = false
+		return
+	finisher_stall += delta
+	hunt_mode = finisher_stall >= Balance.STRAGGLER_HUNT_AFTER
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +104,19 @@ static func unregister_enemy(e: Node2D) -> void:
 
 static func set_player(p: Node2D) -> void:
 	_player = p
+
+
+## Is `p` inside tall grass? One array index on the generator's concealment
+## grid, so it is cheap enough to ask for every enemy every frame.
+##
+## Purely a question about the ground. Whether a given enemy is HIDDEN is
+## Enemy._concealed()'s decision, because that also depends on whether it is
+## moving and on whether the wave is in mop-up - and those rules are the ones
+## that keep concealment from ever holding a wave open.
+static func conceals(p: Vector2) -> bool:
+	if terrain == null:
+		return false
+	return terrain.conceals(p)
 
 
 static func player() -> Node2D:
@@ -117,7 +188,8 @@ static func nearest_enemy(to: Vector2, max_distance: float = INF,
 ## Damage everything in a circle, with optional falloff and knockback.
 ## Returns the number of enemies hit.
 static func explode(center: Vector2, radius: float, damage: float,
-		knockback: float = 0.0, falloff: bool = true) -> int:
+		knockback: float = 0.0, falloff: bool = true,
+		source: String = SOURCE_OTHER) -> int:
 	var hit := 0
 	for e: Node2D in enemies_in_radius(center, radius):
 		var dist := hit_center(e).distance_to(center)
@@ -125,7 +197,7 @@ static func explode(center: Vector2, radius: float, damage: float,
 		if falloff:
 			scale = lerpf(1.0, 0.42, clampf(dist / maxf(radius, 1.0), 0.0, 1.0))
 		if e.has_method("take_damage"):
-			e.call("take_damage", damage * scale, false, center, knockback)
+			e.call("take_damage", damage * scale, false, center, knockback, source)
 		hit += 1
 	return hit
 
@@ -148,8 +220,21 @@ static func explode_on_player(center: Vector2, radius: float, damage: float) -> 
 # ---------------------------------------------------------------------------
 ## Slow every enemy and enemy bullet for `duration` seconds. Uses a tween on
 ## the caller so it survives the ability node going away.
-static func apply_slow(host: Node, factor: float, duration: float) -> void:
-	enemy_time_scale = factor
-	var t := host.create_tween()
-	t.tween_interval(duration)
-	t.tween_callback(func() -> void: enemy_time_scale = 1.0)
+static func apply_slow(_host: Node, factor: float, duration: float) -> void:
+	# Deepest slow wins, longest duration wins, and it expires on its own clock.
+	# This used to be a tween that set enemy_time_scale back to 1.0 no matter
+	# what: a second Torpor cast inside the first had the whole world snap back
+	# to full speed the moment the first one's tween finished, with seconds
+	# still showing on the second. The same shape as the Swift Potion bug.
+	enemy_time_scale = minf(enemy_time_scale, factor)
+	_slow_left = maxf(_slow_left, duration)
+
+
+## Ticked from run.gd, beside the combo window, because this is a static and
+## has no _process of its own.
+static func tick_slow(delta: float) -> void:
+	if _slow_left <= 0.0:
+		return
+	_slow_left = maxf(0.0, _slow_left - delta)
+	if _slow_left <= 0.0:
+		enemy_time_scale = 1.0

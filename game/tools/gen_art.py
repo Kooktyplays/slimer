@@ -17,6 +17,8 @@ from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
+import font as font_tool
+
 ROOT = Path(__file__).resolve().parent.parent
 SPRITES = ROOT / "assets" / "sprites"
 OUT = SPRITES / "gen"
@@ -50,6 +52,7 @@ class C:
     GOLD_L = (255, 226, 122)
     BONE = (232, 226, 205)
     WHITE = (255, 255, 255)
+    INK = (22, 26, 32)          # badge outlines: dark enough to hold on any body
     SHADOW = (0, 0, 0)
     ESSENCE_D = (98, 62, 178)
     ESSENCE_M = (146, 102, 234)
@@ -134,6 +137,106 @@ class Art:
             color,
         )
 
+    def rim(self, color, dx=-2.0, dy=-3.0, alpha=120):
+        """A light band along one edge of the silhouette, inside the alpha.
+
+        The edge is `A - shift(A)`; intersecting that with `A` keeps it inside
+        the shape. This is the cheapest thing in the whole pack that makes an
+        object read as lit rather than as a flat fill, and it applies to every
+        sprite without touching any of their geometry.
+
+        The alpha channel is saved and restored around the paste, so the
+        silhouette is byte-identical afterwards. That is not defensive
+        programming - the slime's crown, face, badge and hit radius are all
+        offsets measured against its neutral frame, and `_test_animation`
+        asserts that frame's bounding box never moves.
+
+        The shifted copy is PASTED into a blank rather than made with
+        ImageChops.offset, because offset wraps: the slime fills its canvas edge
+        to edge at rest, so a wrapped shift would draw the left edge's rim down
+        the right-hand side.
+        """
+        a = self.img.getchannel("A")
+        shifted = Image.new("L", a.size, 0)
+        shifted.paste(a, (int(dx * SS), int(dy * SS)))
+        band = ImageChops.multiply(ImageChops.subtract(a, shifted), a)
+        layer = Image.new("RGBA", self.img.size, (*color, 255))
+        keep = a.copy()
+        self.img.paste(layer, (0, 0), band.point(lambda v: v * alpha // 255))
+        self.img.putalpha(keep)
+
+    def light_dither(self, shape_fn, color, level=0.5):
+        """As light(), but the tone boundary breaks into an ordered pattern.
+
+        The Bayer cell is SS pixels across so it survives finish(). Drawing a
+        1px dither on a 4x supersampled canvas and then LANCZOS-downsampling
+        averages it straight back into the smooth gradient it was meant to
+        replace, which is the whole trap here.
+
+        Deterministic - a fixed matrix, no RNG - so it cannot shift any other
+        sprite's output.
+        """
+        layer = Image.new("RGBA", self.img.size, (0, 0, 0, 0))
+        sub = Art.__new__(Art)
+        sub.w, sub.h, sub.img = self.w, self.h, layer
+        sub.d = ImageDraw.Draw(layer)
+        shape_fn(sub, color)
+
+        bayer = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]
+        cut = int(level * 16)
+        cell = Image.new("L", (4 * SS, 4 * SS), 0)
+        cd = ImageDraw.Draw(cell)
+        for by in range(4):
+            for bx in range(4):
+                if bayer[by][bx] < cut:
+                    cd.rectangle([bx * SS, by * SS, (bx + 1) * SS - 1,
+                                  (by + 1) * SS - 1], fill=255)
+        tile = Image.new("L", self.img.size, 0)
+        for ty in range(0, self.img.size[1], 4 * SS):
+            for tx in range(0, self.img.size[0], 4 * SS):
+                tile.paste(cell, (tx, ty))
+
+        mask = ImageChops.multiply(
+            ImageChops.multiply(self.img.getchannel("A"),
+                                layer.getchannel("A")), tile)
+        keep = self.img.getchannel("A").copy()
+        self.img.paste(layer, (0, 0), mask)
+        self.img.putalpha(keep)
+
+    def speckle(self, seed, amount=0.06):
+        """Break a flat fill with a faint value-noise field.
+
+        Multiplied into what is already drawn, so it follows the existing tones
+        rather than flattening them, and the alpha is restored afterwards so the
+        silhouette cannot move.
+
+        Its own small PRNG field rather than the tileable noise used by the
+        ground tiles: this does not need to tile, and borrowing that helper
+        would couple every prop's appearance to a function written for 256px
+        seamless floors. `seed` is always explicit and never a call counter - a
+        generator whose output depends on how many times it has run is exactly
+        the bug that made gen_sfx.py append-only.
+        """
+        w, h = self.img.size
+        # Sized off the FINAL pixel dimensions, not the supersampled canvas. A
+        # field derived from the 4x canvas comes out four times coarser than
+        # intended and reads as blotches rather than as surface.
+        small = (max(6, self.w // 3), max(6, self.h // 3))
+        rng = random.Random(seed)
+        field = Image.new("L", small)
+        field.putdata([rng.randint(0, 255) for _ in range(small[0] * small[1])])
+        field = field.resize((w, h), Image.BILINEAR)
+
+        lo = int(255 * (1.0 - amount))
+        span = int(255 * 2.0 * amount)
+        scale = field.point(lambda v: lo + v * span // 255)
+        keep = self.img.getchannel("A").copy()
+        r, g, b, _a = self.img.split()
+        self.img = Image.merge("RGBA", (
+            ImageChops.multiply(r, scale), ImageChops.multiply(g, scale),
+            ImageChops.multiply(b, scale), keep))
+        self.d = ImageDraw.Draw(self.img)
+
     def dot(self, cx, cy, r, color=C.WHITE, alpha=210):
         self.circle(cx, cy, r, (*color, alpha))
 
@@ -141,7 +244,22 @@ class Art:
     def finish(self) -> Image.Image:
         return self.img.resize((self.w, self.h), Image.LANCZOS)
 
-    def save(self, name: str):
+    def save(self, name: str, rim=None, rim_alpha=110, seed=None, grain=0.05):
+        """Write the sprite, optionally shading it first.
+
+        `rim` and `seed` are here rather than at every call site because
+        lighting a prop is one decision per material, not per file - the two
+        round trees, the dead tree and the stump all want the same bark rim, and
+        spelling that out four times is how they drift apart.
+
+        Both passes preserve alpha exactly, so adding either to a prop cannot
+        move its blocker circles: PropCatalog states those in sprite-local
+        pixels measured against the drawn shape.
+        """
+        if seed is not None:
+            self.speckle(seed, grain)
+        if rim is not None:
+            self.rim(rim, alpha=rim_alpha)
         img = self.finish()
         OUT.mkdir(parents=True, exist_ok=True)
         img.save(OUT / name)
@@ -200,33 +318,238 @@ class P:
     PINE_L = (58, 152, 92)
 
 
-def gen_slime_body():
-    """The slime every enemy colour is derived from.
+# Walk-cycle squash factors, neutral first. Compression only, never stretch:
+# the neutral silhouette already touches the top of its 108x90 frame, so any
+# value above 1.0 would clip the dome flat. The "tall" half of the bounce comes
+# from the vertical hop Enemy._animate already applies - these frames supply
+# the deformation, that supplies the height.
+#
+# Ordered monotonically so the frame index maps straight off the hop phase:
+# frame 0 at the top of the arc, frame 3 on the ground.
+SLIME_WALK = (1.00, 0.96, 0.91, 0.86)
 
-    Hue-rotated into six colours by gen_enemies(), so the shading has to read
-    as shading rather than as hue - hence four tones with real value contrast
-    between them, and highlights that stay light after the rotation.
+# The flinch: one frame, held ~0.1s when something lands a hit.
+#
+# (squash, spread) rather than the walk's volume-conserving spread, and the
+# spread is deliberately BELOW 1.0 - a wince pulls in, where every walk frame
+# pushes out. That is the whole reason it reads as a reaction and not as the
+# bottom of a hop, which is what a compressed-and-spread frame would look like.
+SLIME_FLINCH = (0.90, 0.88)
+
+# The death: three frames of a slime giving up its shape, plus an alpha fade.
+#
+# Flattening carries the read and the spread stays modest, because X() scales
+# about x=54 in a 108-wide frame - the base ellipse is already 53 wide, so much
+# past 1.1 and the splat clips against the canvas edge instead of spreading.
+SLIME_DEATH = (
+    (0.62, 1.06, 1.00),
+    (0.38, 1.10, 0.68),
+    (0.20, 1.12, 0.30),
+)
+
+# What Enemy._animate and the menu backdrop have to agree with. Walk frames
+# come first so the hop phase can index straight off the front of the strip.
+SLIME_FRAMES = len(SLIME_WALK) + 1 + len(SLIME_DEATH)
+
+
+class SlimeShape:
+    """Per-type silhouette deltas for the base slime.
+
+    "Ten enemies are one slime through an HSV rotation" is the loudest tell in
+    the art, and rim light cannot fix it - recolor() rewrites RGB per pixel and
+    passes alpha through untouched, so the recolour approach structurally cannot
+    produce a per-type outline. This is where that changes.
+
+    What may vary: how far the base spreads, how irregular the edge is, the
+    wobble seed, and an optional marking drawn inside the body.
+
+    What may NOT vary: the height of the dome. The elite crown is positioned
+    against the apex, the face against it, the badge against it, and the hit
+    radii in EnemyTypes are stated in final pixels measured against it. Move the
+    apex and every elite of that colour wears a floating crown - which is why
+    there is no dome_squash here to reach for.
     """
-    a = Art(108, 90)
-    # Fills the canvas edge to edge, because the sprite this replaces did. Every
-    # offset tuned against it - the elite crown at y=-34, the face at y=-6, the
-    # hit radii in EnemyTypes - is relative to this frame, so a silhouette that
-    # sits smaller inside the same canvas leaves the crown floating above the
-    # slime's head and the face riding high on its body.
-    a.blob(54, 52, 54, 38, (*P.SLIME_M, 255), wobble=0.04, seed=11)
-    a.ellipse(54, 34, 45, 34, (*P.SLIME_M, 255))     # dome, up to the top edge
-    a.ellipse(54, 68, 53, 22, (*P.SLIME_M, 255))     # base, down to the bottom
+
+    def __init__(self, spread=1.0, wobble=0.04, seed=11, marking=""):
+        self.spread = spread
+        self.wobble = wobble
+        self.seed = seed
+        self.marking = marking
+
+
+## One shape per enemy colour. Green is the base and must stay exactly the
+## base: gen_icons crops frame 0 of slime_body.png for the app icon, the menu
+## backdrop pages the same sheet, and _test_animation asserts that frame fills
+## its canvas.
+SLIME_SHAPES = {
+    "green":  SlimeShape(),
+    "blue":   SlimeShape(spread=0.94, wobble=0.03, seed=23),            # darter: tighter
+    "red":    SlimeShape(spread=1.07, wobble=0.05, seed=31, marking="plate"),
+    "purple": SlimeShape(spread=0.97, wobble=0.06, seed=47, marking="spots"),
+    "yellow": SlimeShape(spread=1.04, wobble=0.07, seed=59, marking="spots"),
+    "orange": SlimeShape(spread=1.05, wobble=0.09, seed=67, marking="bulge"),
+    "violet": SlimeShape(spread=0.99, wobble=0.05, seed=71, marking="ring"),
+    "grey":   SlimeShape(spread=1.03, wobble=0.03, seed=83, marking="plate"),
+    "teal":   SlimeShape(spread=0.95, wobble=0.06, seed=89, marking="streak"),
+    "pale":   SlimeShape(spread=1.00, wobble=0.04, seed=97, marking="ring"),
+    "bone":   SlimeShape(spread=0.92, wobble=0.02, seed=101, marking="plate"),
+    "rust":   SlimeShape(spread=1.09, wobble=0.08, seed=103, marking="bulge"),
+    "umber":  SlimeShape(spread=1.02, wobble=0.10, seed=107, marking="streak"),
+    "indigo": SlimeShape(spread=0.96, wobble=0.05, seed=109, marking="spots"),
+}
+
+
+def _draw_slime(a: "Art", sq: float, xs: float = 0.0,
+                shape: "SlimeShape" = None) -> None:
+    """One slime into `a`, squashed by `sq` about the ground line.
+
+    Deforms around y=90 - the feet - so the base stays planted while the body
+    compresses, and around x=54 with partial volume conservation so a squashed
+    slime spreads rather than just getting shorter.
+
+    `xs` overrides that horizontal scale. The walk wants the volume-conserving
+    default; the flinch and death frames want to pull in or splay out
+    independently of how far they have compressed.
+    """
+    if shape is None:
+        shape = SLIME_SHAPES["green"]
+    if xs <= 0.0:
+        xs = 1.0 / (sq ** 0.5)
+    # The type's spread widens the BASE only. The dome keeps its own width so
+    # the apex stays put; see SlimeShape.
+    bx = xs * shape.spread
+
+    def Y(y: float) -> float:
+        return 90 - (90 - y) * sq
+
+    def X(x: float) -> float:
+        return 54 + (x - 54) * xs
+
+    def RX(r: float) -> float:
+        return r * xs
+
+    def RY(r: float) -> float:
+        return r * sq
+
+    # Fills the canvas edge to edge at sq=1.0, because the sprite this replaces
+    # did. Every offset tuned against it - the elite crown at y=-34, the face at
+    # y=-6, the badge at y=14, the hit radii in EnemyTypes - is relative to this
+    # frame, so the neutral frame has to stay exactly what it was.
+    a.blob(X(54), Y(52), RX(54) * shape.spread, RY(38), (*P.SLIME_M, 255),
+           wobble=shape.wobble, seed=shape.seed)
+    a.ellipse(X(54), Y(34), RX(45), RY(34), (*P.SLIME_M, 255))   # dome - fixed
+    a.ellipse(X(54), Y(68), RX(53) * shape.spread, RY(22), (*P.SLIME_M, 255))
     # the base darkens where it meets the ground
-    a.light(lambda s, c: s.ellipse(54, 96, 58, 30, c), (*P.SLIME_D, 255))
+    a.light(lambda s, c: s.ellipse(X(54), Y(96), RX(58), RY(30), c), (*P.SLIME_D, 255))
     # top-lit dome
-    a.light(lambda s, c: s.ellipse(46, 20, 44, 34, c), (*P.SLIME_L, 255))
-    a.light(lambda s, c: s.ellipse(40, 10, 26, 20, c), (*P.SLIME_XL, 255))
+    a.light(lambda s, c: s.ellipse(X(46), Y(20), RX(44), RY(34), c), (*P.SLIME_L, 255))
+    a.light(lambda s, c: s.ellipse(X(40), Y(10), RX(26), RY(20), c), (*P.SLIME_XL, 255))
     # One soft specular, clipped to the dome. dot() paints unclipped, so a
     # highlight placed near the top edge hangs off the silhouette and reads as a
     # bubble stuck to the slime; light() masks to what is already drawn.
-    a.light(lambda s, c: s.ellipse(38, 18, 17, 11, c), (255, 255, 255, 110))
-    a.light(lambda s, c: s.ellipse(34, 15, 7, 5, c), (255, 255, 255, 200))
-    a.save("slime_body.png")
+    a.light(lambda s, c: s.ellipse(X(38), Y(18), RX(17), RY(11), c), (255, 255, 255, 110))
+    a.light(lambda s, c: s.ellipse(X(34), Y(15), RX(7), RY(5), c), (255, 255, 255, 200))
+
+    # Surface, then rim. Both are alpha-preserving by construction, which is
+    # what lets them be added to a sprite whose exact framing is load-bearing:
+    # the crown, face and badge offsets and the hit radii in EnemyTypes are all
+    # measured against this frame, and _test_animation asserts its bounding box
+    # never moves.
+    #
+    # The speckle is barely visible on one slime and is the difference between
+    # a wall of them reading as moulded plastic or as something wet. The rim is
+    # in SLIME_XL rather than white on purpose: recolor() rewrites hue per
+    # pixel, so an in-family tone rotates with the body into all ten colours,
+    # where a white edge would stay white on every one of them and flatten the
+    # roster back out.
+    # The type's marking. Drawn INSIDE the body, after the light wash, so it
+    # survives the hue rotation as a tonal difference rather than a hue one -
+    # and so it cannot alter the silhouette the crown and badge are pinned to.
+    if shape.marking == "spots":
+        for sx, sy, sr in ((36, 46, 7), (66, 40, 5.5), (52, 62, 6)):
+            a.light(lambda s_, c, _x=sx, _y=sy, _r=sr:
+                    s_.ellipse(X(_x), Y(_y), RX(_r), RY(_r * 0.8), c),
+                    (*P.SLIME_D, 130))
+    elif shape.marking == "plate":
+        a.light(lambda s_, c: s_.ellipse(X(54), Y(30), RX(34), RY(20), c),
+                (*P.SLIME_D, 85))
+    elif shape.marking == "ring":
+        a.light(lambda s_, c: s_.ellipse(X(54), Y(48), RX(38), RY(26), c),
+                (*P.SLIME_D, 75))
+        a.light(lambda s_, c: s_.ellipse(X(54), Y(48), RX(28), RY(19), c),
+                (*P.SLIME_L, 85))
+    elif shape.marking == "streak":
+        a.light(lambda s_, c: s_.poly(
+            [(X(26), Y(58)), (X(82), Y(44)), (X(82), Y(53)), (X(26), Y(67))], c),
+            (*P.SLIME_D, 105))
+    elif shape.marking == "bulge":
+        a.light(lambda s_, c: s_.ellipse(X(54), Y(58), RX(30), RY(18), c),
+                (*P.SLIME_L, 110))
+
+    a.speckle(4801 + shape.seed, 0.042)
+    a.rim(P.SLIME_XL, dx=-2.0, dy=-3.0, alpha=150)
+
+
+def _build_slime_sheet(shape=None):
+    """The slime every enemy colour is derived from, as an 8-frame strip.
+
+    Four walk frames, then one flinch, then three of dying. Laid out in that
+    order because Enemy._animate indexes the hop phase off the front of the
+    strip; anything before the walk frames would page the wrong pose every
+    time a slime touched the ground.
+
+    Hue-rotated into eight colours by gen_enemies(), so the shading has to read
+    as shading rather than as hue - hence four tones with real value contrast
+    between them, and highlights that stay light after the rotation. recolor()
+    is size-agnostic, so animating this one slime animates the whole roster.
+
+    HORIZONTAL strip, and that is not a style choice: Enemy._apply_hit_shapes
+    sizes the hurtbox from texture.get_height(). Laid out vertically, this
+    would silently shrink every hurtbox in the game.
+    """
+    frames = []
+    for sq in SLIME_WALK:
+        f = Art(108, 90)
+        _draw_slime(f, sq, shape=shape)
+        frames.append(f.finish())
+
+    # Appended, never inserted. Both generators in this project are seeded
+    # positionally and gen_icons() crops frame 0 by fixed pixels, so the walk
+    # cycle has to stay exactly where it was at the front of the strip.
+    f = Art(108, 90)
+    _draw_slime(f, SLIME_FLINCH[0], SLIME_FLINCH[1], shape=shape)
+    frames.append(f.finish())
+
+    for sq, xs, alpha in SLIME_DEATH:
+        f = Art(108, 90)
+        _draw_slime(f, sq, xs, shape=shape)
+        img = f.finish()
+        if alpha < 1.0:
+            # Fade the whole frame rather than the fill colours, so it survives
+            # recolor() - which rebuilds RGB per pixel and passes alpha through
+            # untouched, and would otherwise throw the fade away.
+            a_ch = img.getchannel("A").point(lambda v: round(v * alpha))
+            img.putalpha(a_ch)
+        frames.append(img)
+
+    assert len(frames) == SLIME_FRAMES, (
+        "SLIME_FRAMES says %d, built %d - Enemy and the menu backdrop index "
+        "off that constant" % (SLIME_FRAMES, len(frames)))
+    sheet = Image.new("RGBA", (108 * len(frames), 90), (0, 0, 0, 0))
+    for i, f in enumerate(frames):
+        sheet.paste(f, (i * 108, 0))
+    return sheet
+
+
+def gen_slime_body():
+    """The base slime, saved as slime_body.png.
+
+    Still the canonical sheet even though every enemy colour now draws its own:
+    gen_icons crops frame 0 of this file for the app icon, and the menu backdrop
+    loads it directly. It is the green shape, unmodified.
+    """
+    OUT.mkdir(parents=True, exist_ok=True)
+    _build_slime_sheet(SLIME_SHAPES["green"]).save(OUT / "slime_body.png")
 
 
 def gen_slime_face():
@@ -257,6 +580,134 @@ def gen_player_body():
     a.light(lambda s, c: s.ellipse(34, 10, 30, 24, c), (*P.GHOST_L, 255))
     a.light(lambda s, c: s.ellipse(26, 12, 7, 6, c), (255, 255, 255, 255))
     a.save("boo_body.png")
+
+
+# Class variants of the player, by the same trick the enemy roster uses: one
+# authored sprite, hue-rotated, plus one small mark each so they are separable
+# by silhouette and not only by colour - the same rule the enemy badges follow.
+# RGB, not hue. The player sprite is a pale spirit with almost no saturation,
+# so hue-rotating it - the trick the enemy roster uses - produced five sprites
+# that were all still white. These blend toward a colour instead.
+CLASS_TINTS = {
+    "warden":    (108, 196, 128),
+    "warrior":   (232, 128,  92),
+    "vampire":   (226,  92, 124),
+    "engineer":  (238, 198,  86),
+    "herbalist": (126, 190, 234),
+}
+CLASS_TINT_STRENGTH = 0.46
+
+
+def _blend_toward(img: Image.Image, rgb, amount: float) -> Image.Image:
+    """Pull every opaque pixel toward `rgb`, keeping its own shading."""
+    src = img.convert("RGBA")
+    px = src.load()
+    out = Image.new("RGBA", src.size)
+    opx = out.load()
+    for y in range(src.height):
+        for x in range(src.width):
+            r, g, b, al = px[x, y]
+            if al == 0:
+                opx[x, y] = (0, 0, 0, 0)
+                continue
+            opx[x, y] = (
+                round(r + (rgb[0] - r) * amount),
+                round(g + (rgb[1] - g) * amount),
+                round(b + (rgb[2] - b) * amount),
+                al,
+            )
+    return out
+
+
+
+def _class_mark(a: "Art", cls: str, cx: float, col) -> None:
+    """The one distinguishing shape each class carries.
+
+    Shared by the base sprites and their skins so a skin cannot drift
+    into being a different character."""
+    if cls == "warden":                       # antlers
+        for side in (-1, 1):
+            a.line([(cx + side * 8, 16), (cx + side * 17, 4),
+                    (cx + side * 24, 8)], col, 3.0)
+    elif cls == "warrior":                    # helm bar
+        a.rrect(cx - 17, 12, cx + 17, 19, 2.5, col)
+    elif cls == "vampire":                    # high collar
+        for side in (-1, 1):
+            a.poly([(cx + side * 6, 30), (cx + side * 21, 16),
+                    (cx + side * 19, 33)], col)
+    elif cls == "engineer":                   # goggle band
+        a.rrect(cx - 20, 20, cx + 20, 26, 3.0, col)
+        a.circle(cx - 11, 23, 5.0, (*C.INK, 210))
+        a.circle(cx + 11, 23, 5.0, (*C.INK, 210))
+    elif cls == "herbalist":                  # sprig
+        a.line([(cx + 9, 18), (cx + 16, 6)], col, 2.6)
+        a.ellipse(cx + 19, 6, 5, 3, col)
+        a.ellipse(cx + 13, 10, 4, 2.5, col)
+
+def gen_player_classes():
+    """One body per class: tinted, with a distinguishing mark."""
+    body = Image.open(OUT / "boo_body.png").convert("RGBA")
+    w, h = body.size
+    for name, rgb in CLASS_TINTS.items():
+        tinted = _blend_toward(body, rgb, CLASS_TINT_STRENGTH)
+        a = Art(w, h)
+        # the mark is the same hue but much stronger, so it reads on the body
+        col = (max(0, rgb[0] - 62), max(0, rgb[1] - 62), max(0, rgb[2] - 62), 255)
+        cx = w / 2.0
+        _class_mark(a, name, cx, col)
+        mark = a.finish()
+        out = tinted.copy()
+        out.alpha_composite(mark)
+        out.save(OUT / f"player_{name}.png")
+
+
+# Skin variants: the same body and mark, re-tinted. Keyed to the ids in
+# ClassesDB.SKINS - a skin that has no entry here has no sprite, and the logic
+# suite fails on it rather than shipping a class that cannot be drawn.
+CLASS_SKINS = {
+    "warden":    {"deeproot": (74, 122, 88), "firstwatch": (176, 226, 150)},
+    "warrior":   {"ironclad": (150, 158, 172), "lastbreath": (208, 96, 74)},
+    "vampire":   {"sated": (176, 52, 86), "ashen": (198, 186, 198)},
+    "engineer":  {"brassworks": (206, 150, 68), "scrapheap": (140, 130, 108)},
+    "herbalist": {"bloomtide": (108, 200, 168), "nightshade": (108, 96, 168)},
+}
+
+
+def gen_class_skins():
+    """Re-tints of each class body. The mark is re-drawn in the skin's colour
+    so a skin reads as the same character wearing something else."""
+    body = Image.open(OUT / "boo_body.png").convert("RGBA")
+    for cls, skins in CLASS_SKINS.items():
+        for skin, rgb in skins.items():
+            tinted = _blend_toward(body, rgb, CLASS_TINT_STRENGTH)
+            a = Art(body.size[0], body.size[1])
+            col = (max(0, rgb[0] - 62), max(0, rgb[1] - 62), max(0, rgb[2] - 62), 255)
+            _class_mark(a, cls, body.size[0] / 2.0, col)
+            out = tinted.copy()
+            out.alpha_composite(a.finish())
+            out.save(OUT / f"player_{cls}_{skin}.png")
+
+
+def gen_turret():
+    """The Engineer's turret: a squat base and a barrel, in its class colour."""
+    gold = (238, 198, 86)
+    dark = (150, 118, 44)
+
+    a = Art(46, 40)
+    ground_shadow(a, 23, 33, 19, 7, alpha=60)
+    a.ellipse(23, 26, 18, 11, (*dark, 255))          # base plate
+    a.ellipse(23, 23, 15, 9, (*gold, 255))
+    a.light(lambda s, c: s.ellipse(19, 17, 12, 8, c), (255, 255, 255, 70))
+    a.circle(23, 20, 7, (*dark, 255))                # housing
+    a.circle(23, 19, 5, (*gold, 255))
+    a.save("turret_base.png")
+
+    b = Art(20, 34)
+    b.rrect(7, 4, 13, 30, 2.5, (*dark, 255))         # barrel, pointing up
+    b.rrect(8, 6, 12, 26, 2.0, (*gold, 255))
+    b.circle(10, 5, 4, (*dark, 255))                 # muzzle
+    b.circle(10, 5, 2.4, (*C.INK, 220))
+    b.save("turret_barrel.png")
 
 
 def gen_player_face():
@@ -331,7 +782,7 @@ def gen_pine_tree():
         a.poly([(64 - half, y), (64 + half, y), (64, y - 48)], (*P.PINE_M, 255))
     a.light(lambda s, c: s.ellipse(42, 46, 38, 70, c), (*P.PINE_L, 255))
     a.light(lambda s, c: s.ellipse(98, 122, 40, 48, c), (*P.PINE_D, 255))
-    a.save("pine_tree.png")
+    a.save("pine_tree.png", rim=C.LEAF_XL, rim_alpha=118, seed=3886)
 
 
 def gen_ground_shadow():
@@ -389,6 +840,21 @@ ENEMY_TINTS = {
     "yellow": (46,  1.00, 1.06),
     "purple": (280, 0.90, 0.98),
     "orange": (24,  1.02, 1.02),
+    # The adaptation pair. Both are deliberately low-saturation so they do not
+    # read as "another one of the six" - but that is also exactly why they need
+    # the shape badge below: pale violet against purple, and grey-green against
+    # green, are the two hardest reads in the roster.
+    "violet": (265, 0.42, 1.10),
+    "grey":   (120, 0.16, 0.88),
+    "teal":   (172, 0.85, 1.00),
+    "pale":   (44,  0.34, 1.06),
+    # The second wave of types. Kept clear of their neighbours in hue AND in
+    # saturation, because the roster is now fourteen colours and adjacent hues
+    # are the first thing to stop reading in a crowd.
+    "bone":   (32,  0.18, 1.12),   # Husk - drained, the palest thing out there
+    "rust":   (14,  0.86, 0.80),   # Devourer - dark, heavy, eats your zoning
+    "umber":  (30,  0.62, 0.62),   # Burrower - soil, and darkest of the set
+    "indigo": (232, 0.74, 0.86),   # Knot - cold, and pairs read as one colour
 }
 
 
@@ -414,26 +880,181 @@ def recolor(src: Image.Image, hue_deg: float, sat_mul: float, val_mul: float) ->
     return out
 
 
+## Crown spike rhythm per colour: (how many spikes, every Nth one is tall).
+## Distinct at the size an elite is drawn, and nothing more than that - the
+## shape badge is what identifies the TYPE; this only stops every crown being
+## the same crown.
+CROWN_STYLE = {
+    "green": (7, 1), "blue": (5, 1), "red": (9, 2), "purple": (6, 2),
+    "yellow": (8, 1), "orange": (7, 3), "violet": (5, 2), "grey": (9, 3),
+    "teal": (6, 1), "pale": (8, 2), "bone": (5, 3), "rust": (9, 1),
+    "umber": (7, 2), "indigo": (6, 3),
+}
+
+
 def gen_enemies():
-    # Reads the slime authored above, in OUT, not the pack file in SPRITES.
-    body = Image.open(OUT / "slime_body.png")
+    # Each colour is now DRAWN with its own silhouette and then recoloured,
+    # rather than being the one base sheet through a hue rotation. The rotation
+    # still does the palette - value contrast survives it exactly as before -
+    # but the shape no longer has to.
     OUT.mkdir(parents=True, exist_ok=True)
     for name, (hue, sm, vm) in ENEMY_TINTS.items():
-        recolor(body, hue, sm, vm).save(OUT / f"enemy_{name}_body.png")
+        sheet = _build_slime_sheet(SLIME_SHAPES.get(name, SLIME_SHAPES["green"]))
+        recolor(sheet, hue, sm, vm).save(OUT / f"enemy_{name}_body.png")
 
     # elite trim: a spiky crown ring drawn over the body silhouette
     for name, (hue, sm, vm) in ENEMY_TINTS.items():
         a = Art(108, 90)
         rr, gg, bb = colorsys.hsv_to_rgb(hue / 360.0, min(1.0, 0.55 * sm), 1.0)
         col = (round(rr * 255), round(gg * 255), round(bb * 255))
-        for i in range(7):
-            x = 16 + i * 12.6
-            a.poly([(x - 6, 30), (x, 8), (x + 6, 30)], (*C.GOLD_M, 255))
-            a.poly([(x - 3, 26), (x, 14), (x + 3, 26)], (*C.GOLD_L, 255))
+        # Each colour's crown has its own spike pattern. They were all seven
+        # identical gold spikes with only the centre gem changing, which made
+        # an elite of any colour read as the same elite with a different dot.
+        #
+        # Only the HORIZONTAL rhythm varies. Every spike still rises from y=30
+        # to its tip between y=8 and y=16, and the band stays at y=26-36, so
+        # the crown sits on the dome exactly where it always has - the crown
+        # offset is measured against that apex and must not move.
+        spikes, tall_every = CROWN_STYLE.get(name, (7, 1))
+        span = 80.0
+        for i in range(spikes):
+            x = 14 + (i + 0.5) * span / spikes
+            tip = 8 if i % tall_every == 0 else 16
+            hw = min(6.0, span / spikes * 0.46)
+            a.poly([(x - hw, 30), (x, tip), (x + hw, 30)], (*C.GOLD_M, 255))
+            a.poly([(x - hw * 0.5, 26), (x, tip + 6), (x + hw * 0.5, 26)],
+                   (*C.GOLD_L, 255))
         a.rrect(12, 26, 96, 36, 5, (*C.GOLD_D, 255))
         a.rrect(12, 26, 96, 31, 3, (*C.GOLD_M, 255))
         a.circle(54, 31, 4, (*col, 255))
         a.save(f"elite_crown_{name}.png")
+
+
+# --------------------------------------------------------------------------
+# 1b. type badges - what each slime does, as a shape
+# --------------------------------------------------------------------------
+# Every enemy behaviour in the game is encoded in colour, and two of the eight
+# are red and green. For the ~8% of male players with a colour vision
+# deficiency the roster's whole readability system does not work, and the
+# Warded/Carapace pair makes that worse: telling those two apart is the
+# difference between spending a cooldown and wasting it.
+#
+# So each type also carries a shape, chosen to be separable by silhouette
+# alone at ~30 px: circle, chevron, square, diamond, triangle, burst, ring,
+# hexagon. White on a dark outline, which holds up over any body colour.
+BADGE = 34          # canvas is square; drawn centred
+
+
+def _badge() -> "Art":
+    return Art(BADGE, BADGE)
+
+
+def _badge_shape(a: "Art", draw, outline_w=3.4):
+    """Draw `draw` twice: a dark fattened pass, then the white shape on top."""
+    draw(a, (*C.INK, 235), outline_w)
+    draw(a, (255, 255, 255, 245), 0.0)
+
+
+def gen_type_badges():
+    c = BADGE / 2.0
+    r = 10.0
+
+    def circle(a, col, g):
+        a.circle(c, c, r + g, col)
+
+    def chevron(a, col, g):
+        for dx in (-4.5, 4.5):
+            a.poly([(c + dx - 5 - g, c - 8 - g), (c + dx + 4 + g, c),
+                    (c + dx - 5 - g, c + 8 + g), (c + dx - 1.5 + g, c)], col)
+
+    def square(a, col, g):
+        a.rrect(c - r - g, c - r - g, c + r + g, c + r + g, 2.5, col)
+
+    def diamond(a, col, g):
+        a.poly([(c, c - r - g - 1), (c + r + g + 1, c),
+                (c, c + r + g + 1), (c - r - g - 1, c)], col)
+
+    def triangle(a, col, g):
+        a.poly([(c, c + r + g), (c + r + g + 1, c - r * 0.72 - g),
+                (c - r - g - 1, c - r * 0.72 - g)], col)
+
+    def burst(a, col, g):
+        for i in range(8):
+            ang = math.pi * 2 * i / 8
+            a.poly([
+                (c + math.cos(ang) * (r + g + 2), c + math.sin(ang) * (r + g + 2)),
+                (c + math.cos(ang + 0.42) * (3.4 + g), c + math.sin(ang + 0.42) * (3.4 + g)),
+                (c + math.cos(ang - 0.42) * (3.4 + g), c + math.sin(ang - 0.42) * (3.4 + g)),
+            ], col)
+
+    def ring(a, col, g):
+        # Warded: a rune halo. Hollow, so it cannot be confused with the solid
+        # circle the plain chaser carries.
+        a.circle(c, c, r + g, col)
+        if g == 0.0:
+            a.circle(c, c, r - 3.6, (0, 0, 0, 0))
+
+    def hexagon(a, col, g):
+        pts = [(c + math.cos(math.pi / 6 + math.pi * 2 * i / 6) * (r + g + 1),
+                c + math.sin(math.pi / 6 + math.pi * 2 * i / 6) * (r + g + 1))
+               for i in range(6)]
+        a.poly(pts, col)
+
+    def cross(a, col, g):
+        arm = 3.6 + g
+        a.rrect(c - r - g, c - arm, c + r + g, c + arm, 1.6, col)
+        a.rrect(c - arm, c - r - g, c + arm, c + r + g, 1.6, col)
+
+    def halfdisc(a, col, g):
+        # flat-bottomed dome: the most distinct remaining silhouette at 30 px
+        a.ellipse(c, c + 3.0, r + g, r + g, col)
+        a.rrect(c - r - g - 1, c + 3.0, c + r + g + 1, c + r + g + 4, 1.0, col)
+
+    def hourglass(a, col, g):
+        # Husk: it is a timer. Down, then up again.
+        a.poly([(c - r - g, c - r - g), (c + r + g, c - r - g), (c, c)], col)
+        a.poly([(c - r - g, c + r + g), (c + r + g, c + r + g), (c, c)], col)
+        a.rrect(c - 2 - g, c - 3, c + 2 + g, c + 3, 1, col)
+
+    def crescent(a, col, g):
+        # Devourer: a bite taken out of something.
+        a.circle(c - 1.5, c, r + g, col)
+        a.circle(c + 5.5, c, r * 0.82 + g, (0, 0, 0, 0))
+
+    def arrow(a, col, g):
+        # Burrower: it goes down.
+        a.poly([(c, c + r + g + 1), (c - r - g - 1, c - 1),
+                (c - 4 - g, c - 1), (c - 4 - g, c - r - g),
+                (c + 4 + g, c - r - g), (c + 4 + g, c - 1),
+                (c + r + g + 1, c - 1)], col)
+
+    def pentagon(a, col, g):
+        # Knot: they come in twos, and this is the odd shape out.
+        pts = [(c + (r + g + 1) * math.sin(math.tau * i / 5),
+                c - (r + g + 1) * math.cos(math.tau * i / 5)) for i in range(5)]
+        a.poly(pts, col)
+
+    shapes = {
+        "green": circle, "blue": chevron, "red": square, "purple": diamond,
+        "yellow": triangle, "orange": burst, "violet": ring, "grey": hexagon,
+        "teal": cross, "pale": halfdisc,
+        "bone": hourglass, "rust": crescent, "umber": arrow, "indigo": pentagon,
+    }
+    for name, fn in shapes.items():
+        a = _badge()
+        if name == "violet":
+            # the hollow pass has to punch through both layers, so it is drawn
+            # rather than composited
+            fn(a, (*C.INK, 235), 3.4)
+            fn(a, (255, 255, 255, 245), 0.0)
+            hole = Image.new("RGBA", a.img.size, (0, 0, 0, 0))
+            ImageDraw.Draw(hole).ellipse(
+                [(c - 4.4) * SS, (c - 4.4) * SS, (c + 4.4) * SS, (c + 4.4) * SS],
+                fill=(255, 255, 255, 255))
+            a.img.paste((0, 0, 0, 0), (0, 0), hole)
+        else:
+            _badge_shape(a, fn)
+        a.save(f"enemy_{name}_badge.png")
 
 
 def gen_faces():
@@ -491,7 +1112,7 @@ def gen_trees():
         canopy.light(lambda s, c: s.blob(w * 0.36, h * 0.14, 26, 16, c, wobble=0.2,
                                          seed=seed + 3), (*C.LEAF_XL, 255))
         a.img.alpha_composite(canopy.img)
-        a.save(f"tree_round_{'ab'[idx]}.png")
+        a.save(f"tree_round_{'ab'[idx]}.png", rim=C.LEAF_XL, rim_alpha=118, seed=3859)
 
     # dead / bare tree
     a = Art(120, 156)
@@ -503,7 +1124,7 @@ def gen_trees():
     a.line([(60, 70), (74, 40), (70, 18)], (*C.BARK_D, 255), 6)
     a.line([(32, 52), (16, 44)], (*C.BARK_D, 255), 5)
     a.line([(92, 62), (108, 56)], (*C.BARK_D, 255), 5)
-    a.save("tree_dead.png")
+    a.save("tree_dead.png", rim=C.BARK_L, rim_alpha=120, seed=3495)
 
     # stump
     a = Art(74, 66)
@@ -512,7 +1133,7 @@ def gen_trees():
     a.ellipse(37, 24, 23, 11, (*C.BARK_L, 255))
     a.ellipse(37, 24, 15, 7, (*C.BARK_M, 255))
     a.ellipse(37, 24, 7, 3, (*C.BARK_L, 255))
-    a.save("stump.png")
+    a.save("stump.png", rim=C.BARK_L, rim_alpha=120, seed=3812)
 
 
 def gen_bushes():
@@ -536,7 +1157,7 @@ def gen_bushes():
             for _ in range(5):
                 a.circle(rng.uniform(w * 0.2, w * 0.8), rng.uniform(h * 0.4, h * 0.75),
                          3.2, (214, 74, 84, 255))
-        a.save(f"bush_{'abc'[idx]}.png")
+        a.save(f"bush_{'abc'[idx]}.png", rim=C.LEAF_XL, rim_alpha=115, seed=3873)
 
 
 def gen_rocks():
@@ -548,7 +1169,13 @@ def gen_rocks():
                seed=seed)
         a.light(lambda s, c: s.blob(w * 0.42, h * 0.32, w * 0.34, h * 0.24, c,
                                     wobble=0.3, seed=seed + 5), (*C.ROCK_L, 255))
-        a.save(f"rock_{'abc'[idx]}.png")
+        # The shaded underside, broken into an ordered dither where it meets the
+        # lit top rather than ending on a clean vector edge. Stone is the
+        # material this suits: the stipple reads as grain, where on a slime it
+        # would read as noise.
+        a.light_dither(lambda s, c: s.ellipse(w * 0.52, h * 0.86, w * 0.48,
+                                              h * 0.30, c), (*C.ROCK_D, 255), 0.55)
+        a.save(f"rock_{'abc'[idx]}.png", rim=C.ROCK_L, rim_alpha=125, seed=3198)
 
     # pebble scatter
     a = Art(54, 30)
@@ -558,7 +1185,7 @@ def gen_rocks():
         r = rng.uniform(3, 6)
         a.ellipse(cx, cy, r, r * 0.72, (*C.ROCK_M, 255))
         a.ellipse(cx - r * 0.2, cy - r * 0.25, r * 0.6, r * 0.4, (*C.ROCK_L, 255))
-    a.save("pebbles.png")
+    a.save("pebbles.png", rim=C.ROCK_L, rim_alpha=125, seed=3543)
 
 
 def gen_logs():
@@ -570,7 +1197,7 @@ def gen_logs():
     a.ellipse(16, 29, 5, 9, (*C.BARK_L, 255))
     for x in (48, 78, 104):
         a.line([(x, 20), (x + 5, 38)], (*C.BARK_D, 120), 2)
-    a.save("log_a.png")
+    a.save("log_a.png", rim=C.BARK_L, rim_alpha=120, seed=3452)
 
     # mossy log
     a = Art(120, 52)
@@ -581,7 +1208,68 @@ def gen_logs():
         a.blob(cx, 16, 15, 7, (*C.LEAF_M, 255), wobble=0.3, seed=cx)
     a.ellipse(14, 27, 8, 14, (*C.BARK_D, 255))
     a.ellipse(14, 27, 4, 8, (*C.BARK_L, 255))
-    a.save("log_b.png")
+    a.save("log_b.png", rim=C.BARK_L, rim_alpha=120, seed=3452)
+
+
+def gen_tall_grass():
+    """A clump of tall blades, for the grass that hides things.
+
+    Has to read as clearly DIFFERENT from the short ground grass, which is
+    scattered everywhere and hides nothing - otherwise the player cannot tell
+    which grass to be wary of. So it is twice the height, darker, densely
+    packed, and drawn on the y-sorted layer where it overlaps whatever stands in
+    it rather than lying flat underneath.
+
+    Green and passable, so it keeps the pack's readability rule: green things
+    do not stop you.
+    """
+    a = Art(48, 70)
+    rng = random.Random(5521)
+    for k in range(9):
+        bx = 8 + k * 4.0 + rng.uniform(-2, 2)
+        tip_x = bx + rng.uniform(-9, 9)
+        tip_y = rng.uniform(4, 18)
+        w = rng.uniform(3.2, 4.6)
+        col = (*(C.LEAF_D if k % 3 == 0 else C.LEAF_M), 255)
+        a.poly([(bx - w, 68), (tip_x, tip_y), (bx + w, 68)], col)
+    a.light(lambda s_, c: s_.ellipse(20, 26, 16, 18, c), (*C.LEAF_L, 255))
+    a.save("tall_grass.png", rim=C.LEAF_XL, rim_alpha=110, seed=3519, grain=0.06)
+
+
+def gen_deadfall():
+    """A low lattice of dead branches. Stops bullets, not bodies.
+
+    The pack's readability rule is that brown and grey things stop you and green
+    things do not, and this is the one object that breaks it - so it cannot look
+    like a log. It is drawn as a SPARSE CROSSED LATTICE with daylight between
+    the branches, pale and sun-bleached rather than wet bark, and low enough to
+    read as something you would step through rather than climb.
+
+    That gap structure is the whole tell: you can see through it, so you can
+    walk through it, and a shot cannot.
+    """
+    a = Art(96, 54)
+    ground_shadow(a, 48, 46, 40, 8)
+    pale = (176, 158, 126)
+    mid = (146, 128, 98)
+    dark = (112, 96, 72)
+    # three long branches at shallow angles, crossing
+    for (x0, y0, x1, y1, w, col) in (
+        (6, 40, 88, 30, 5.0, dark),
+        (10, 26, 84, 42, 4.5, mid),
+        (18, 44, 78, 18, 4.0, mid),
+    ):
+        a.line([(x0, y0), ((x0 + x1) / 2, (y0 + y1) / 2 - 3), (x1, y1)], (*col, 255), w)
+    # short broken stubs, so the silhouette is ragged rather than woven
+    rng = random.Random(4412)
+    for _ in range(7):
+        sx = rng.uniform(14, 82)
+        sy = rng.uniform(22, 44)
+        ang = rng.uniform(-1.0, 1.0)
+        ln = rng.uniform(7, 14)
+        a.line([(sx, sy), (sx + math.cos(ang) * ln, sy + math.sin(ang) * ln)],
+               (*pale, 255), 3.0)
+    a.save("deadfall.png", rim=pale, rim_alpha=130, seed=3411, grain=0.07)
 
 
 def gen_ground_detail():
@@ -597,7 +1285,7 @@ def gen_ground_detail():
             lean = rng.uniform(-5, 5)
             tone = C.LEAF_L if i % 2 else C.LEAF_M
             a.poly([(x - 2.4, h - 3), (x + lean, top), (x + 2.4, h - 3)], (*tone, 255))
-        a.save(f"grass_{'abc'[idx]}.png")
+        a.save(f"grass_{'abc'[idx]}.png", rim=C.LEAF_XL, rim_alpha=100, seed=3606)
 
     # fern
     a = Art(58, 50)
@@ -608,7 +1296,7 @@ def gen_ground_detail():
         for t in (0.45, 0.7, 0.9):
             px, py = 29 + (ex - 29) * t, 46 + (ey - 46) * t
             a.ellipse(px, py, 5, 3.2, (*C.LEAF_M, 255))
-    a.save("fern.png")
+    a.save("fern.png", rim=C.LEAF_XL, rim_alpha=100, seed=3601)
 
     # flowers
     for idx, petal in enumerate(((252, 220, 90), (236, 130, 190))):
@@ -618,7 +1306,7 @@ def gen_ground_detail():
             ang = math.radians(i * 60)
             a.circle(13 + math.cos(ang) * 5, 12 + math.sin(ang) * 5, 4, (*petal, 255))
         a.circle(13, 12, 3.4, (*C.GOLD_M, 255))
-        a.save(f"flower_{'ab'[idx]}.png")
+        a.save(f"flower_{'ab'[idx]}.png", rim=C.LEAF_XL, rim_alpha=95, seed=3766)
 
     # mushroom cluster
     a = Art(38, 34)
@@ -628,14 +1316,14 @@ def gen_ground_detail():
         a.ellipse(cx, cy, r, r * 0.78, (206, 78, 70, 255))
         a.ellipse(cx - r * 0.25, cy - r * 0.22, r * 0.55, r * 0.35, (232, 118, 106, 255))
         a.dot(cx + r * 0.3, cy - r * 0.1, 1.6, C.WHITE, 235)
-    a.save("mushroom.png")
+    a.save("mushroom.png", rim=C.BONE, rim_alpha=110, seed=3454)
 
     # reeds (pond edge)
     a = Art(40, 62)
     for x, top in ((10, 20), (20, 8), (30, 24)):
         a.line([(x, 58), (x + 3, top)], (*C.LEAF_D, 255), 3)
         a.rrect(x + 1, top - 8, x + 5, top + 4, 2, (*C.BARK_M, 255))
-    a.save("reeds.png")
+    a.save("reeds.png", rim=C.LEAF_XL, rim_alpha=100, seed=3243)
 
     # lily pad
     a = Art(46, 34)
@@ -643,7 +1331,7 @@ def gen_ground_detail():
     a.poly([(23, 17), (44, 12), (44, 22)], (0, 0, 0, 0))
     a.d.pieslice([2 * SS, 2 * SS, 44 * SS, 32 * SS], -18, 18, fill=(0, 0, 0, 0))
     a.ellipse(19, 13, 12, 8, (*C.LEAF_L, 255))
-    a.save("lilypad.png")
+    a.save("lilypad.png", rim=C.LEAF_L, rim_alpha=100, seed=3163)
 
 
 def gen_shop_props():
@@ -656,7 +1344,7 @@ def gen_shop_props():
     a.poly([(24, 38), (48, 38), (42, 22), (30, 22)], (255, 226, 140, 255))
     a.circle(36, 30, 6, (255, 248, 208, 255))
     a.poly([(18, 20), (54, 20), (36, 6)], (*C.ROCK_D, 255))
-    a.save("shop_lantern.png")
+    a.save("shop_lantern.png", rim=C.GOLD_L, rim_alpha=120, seed=3152)
 
     # campfire (rest phase)
     a = Art(70, 58)
@@ -666,12 +1354,112 @@ def gen_shop_props():
     a.poly([(35, 6), (46, 30), (24, 30)], (250, 148, 44, 255))
     a.poly([(35, 14), (43, 32), (27, 32)], (255, 200, 60, 255))
     a.poly([(35, 22), (40, 33), (30, 33)], (255, 244, 176, 255))
-    a.save("campfire.png")
+    a.save("campfire.png", rim=C.BARK_L, rim_alpha=115, seed=3764)
 
 
 # --------------------------------------------------------------------------
 # 3. bosses - unique silhouettes, each with a separate eye layer to animate
 # --------------------------------------------------------------------------
+# Boss poses: idle | wind-up | strike, as squash-and-stretch about the ground
+# line. Anticipation is a wide crouch, the strike is tall and narrow - the two
+# oldest readable poses in animation, and the two that boss.gd already stops
+# and waits at.
+#
+# NEITHER value exceeds 1.0 vertically, on purpose. The frame is anchored at
+# the feet, so a value above 1.0 would crop the top of the sprite, and the
+# amount of headroom differs per boss.
+BOSS_POSES = (
+    (1.00, 1.00),   # idle
+    (0.88, 1.08),   # wind-up: sinks and spreads
+    (1.00, 0.90),   # strike: snaps upright and narrow
+    # Flinch, held ~0.12s on a hit. Pulls IN, which matters more than it looks:
+    # a flinch that sank and spread would be a shallow wind-up, and the boss
+    # would appear to telegraph an attack every time it took damage. Teaching
+    # the player to dodge nothing is worse than no hit reaction at all.
+    (0.96, 0.92),
+)
+
+
+## Per-pose colour. Mirrors the POSE_* indices in actors/bosses/boss.gd.
+POSE_WINDUP_INDEX = 1
+POSE_STRIKE_INDEX = 2
+POSE_FLINCH_INDEX = 3
+
+
+def _pose_treatment(frame: Image.Image, pose: int) -> Image.Image:
+    """Give each boss pose its own colour, not just its own proportions.
+
+    Every pose used to be the same drawing resized - the wind-up a squash, the
+    strike a stretch. Proportion reads fine when you are looking straight at the
+    boss and not at all out of the corner of your eye, which is where a boss
+    usually is at wave 40 with forty slimes on screen. The wind-up is the
+    telegraph the whole fight is read from, so it is the one that most needs to
+    be readable peripherally, and colour is.
+
+    Tonal rather than redrawn, deliberately. An authored pose that moved the
+    body would move the eye socket with it, and Boss.set_pose positions the eyes
+    - a separate sprite - assuming a uniform resize; the Ancient Oak would end
+    up looking at its own shoulder. Treating the resized frame leaves every
+    silhouette exactly where BOSS_POSES put it, so the eye arithmetic, the feet
+    anchor and the hurtbox are all untouched. Alpha is saved and restored for
+    the same reason as everywhere else in this file.
+    """
+    if pose not in (POSE_WINDUP_INDEX, POSE_STRIKE_INDEX, POSE_FLINCH_INDEX):
+        return frame
+    keep = frame.getchannel("A").copy()
+    r, g, b, _a = frame.split()
+    if pose == POSE_WINDUP_INDEX:
+        # Charging: pulled toward the warm orange the slam telegraph is drawn
+        # in, so the body and the ground marker say the same thing at once.
+        r = r.point(lambda v: min(255, int(v * 1.22 + 26)))
+        g = g.point(lambda v: min(255, int(v * 1.04 + 8)))
+        b = b.point(lambda v: int(v * 0.78))
+    elif pose == POSE_STRIKE_INDEX:
+        # The release: a hard lift in value for the frame the hit lands.
+        r = r.point(lambda v: min(255, int(v * 1.12 + 18)))
+        g = g.point(lambda v: min(255, int(v * 1.12 + 18)))
+        b = b.point(lambda v: min(255, int(v * 1.12 + 18)))
+    else:
+        # Flinch: a slight pale wash. Kept subtle, because boss.gd's flash
+        # shader also fires on a hit and the two stack.
+        r = r.point(lambda v: min(255, int(v * 0.92 + 30)))
+        g = g.point(lambda v: min(255, int(v * 0.92 + 30)))
+        b = b.point(lambda v: min(255, int(v * 0.92 + 34)))
+    return Image.merge("RGBA", (r, g, b, keep))
+
+
+def save_posed(a: "Art", name: str) -> None:
+    """Save `a` as a horizontal pose strip, one frame per BOSS_POSES entry.
+
+    HORIZONTAL, like the slime walk cycle and for the same reason: the actors
+    size their hit shapes from texture height, and a vertical strip would
+    silently resize every one of them.
+    """
+    # Rim every boss from one place rather than in five generators. Bosses are
+    # the largest sprites in the game - the Oak is 340x332 - so a flat fill
+    # reads as flat at a size where nothing else does, and they are also the
+    # thing the player spends the longest looking at.
+    #
+    # Applied before finish(), so it is part of the drawing rather than a
+    # post-process on the downsample, and alpha-preserving like every other
+    # pass here: BOSS_POSES resizes this image per pose and pastes it anchored
+    # at the feet, so a silhouette that grew by even a pixel would shift every
+    # pose's footing.
+    a.speckle(9137, 0.05)
+    a.rim(C.BONE, dx=-2.5, dy=-3.5, alpha=95)
+    img = a.finish()
+    w, h = img.size
+    sheet = Image.new("RGBA", (w * len(BOSS_POSES), h), (0, 0, 0, 0))
+    for i, (sq, xs) in enumerate(BOSS_POSES):
+        nw, nh = max(1, round(w * xs)), max(1, round(h * sq))
+        scaled = img.resize((nw, nh), Image.LANCZOS)
+        frame = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        frame.paste(scaled, ((w - nw) // 2, h - nh))   # anchored at the feet
+        sheet.paste(_pose_treatment(frame, i), (i * w, 0))
+    OUT.mkdir(parents=True, exist_ok=True)
+    sheet.save(OUT / name)
+
+
 def gen_boss_bramble():
     """Mini-boss 1: Bramble Warden - thorny root creature."""
     w, h = 208, 196
@@ -697,7 +1485,7 @@ def gen_boss_bramble():
         a.line([(w / 2 - 54, h * yy), (w / 2 - 18, h * (yy + 0.04)),
                 (w / 2 + 20, h * (yy - 0.02)), (w / 2 + 54, h * (yy + 0.03))],
                (*C.LEAF_M, 255), 7)
-    a.save("boss_bramble_body.png")
+    save_posed(a, "boss_bramble_body.png")
 
     a = Art(96, 40)
     a.ellipse(24, 20, 15, 13, (30, 24, 18, 255))
@@ -707,6 +1495,69 @@ def gen_boss_bramble():
     a.dot(21, 16, 3)
     a.dot(69, 16, 3)
     a.save("boss_bramble_eyes.png")
+
+
+def gen_boss_gardener():
+    """Mini-boss 4: The Gardener - a topiary figure that grows the hedge.
+
+    Deliberately the most UPRIGHT boss in the set. Bramble is a squat root mass,
+    the Toadfather is wide and low, the Wisp is a floating disc and the Oak is a
+    tree - so this one is tall and narrow with long arms, and reads as a figure
+    rather than as a growth. Its whole attack is reshaping the room, and a
+    silhouette that looks like it is reaching lands that better than another
+    lump.
+    """
+    w, h = 236, 244
+    a = Art(w, h)
+    ground_shadow(a, w / 2, h - 14, 58, 14)
+
+    # a narrow trunk, planted
+    a.poly([(w / 2 - 22, h - 16), (w / 2 - 15, h * 0.42),
+            (w / 2 + 15, h * 0.42), (w / 2 + 22, h - 16)], (*C.BARK_D, 255))
+    for sx in (-1, 1):
+        a.line([(w / 2 + sx * 14, h - 30), (w / 2 + sx * 40, h - 20),
+                (w / 2 + sx * 52, h - 14)], (*C.BARK_D, 255), 10)
+
+    # long reaching arms, drawn before the hedge body so they emerge from it
+    for sx in (-1, 1):
+        a.line([(w / 2 + sx * 30, h * 0.44), (w / 2 + sx * 76, h * 0.50),
+                (w / 2 + sx * 92, h * 0.72)], (*C.BARK_M, 255), 11)
+        # three splayed fingers - the thing that plants the walls
+        for k in (-0.34, 0.0, 0.34):
+            a.line([(w / 2 + sx * 92, h * 0.72),
+                    (w / 2 + sx * (92 + math.cos(k) * 22),
+                     h * 0.72 + 26 + math.sin(k) * 16)], (*C.BARK_M, 255), 5)
+
+    # the hedge itself: overlapping clumps, so the edge is foliage not a blob
+    for (cx, cy, rx, ry, sd) in ((0.50, 0.30, 62, 52, 21), (0.34, 0.36, 40, 34, 22),
+                                 (0.66, 0.36, 40, 34, 23), (0.50, 0.44, 54, 34, 24)):
+        a.blob(w * cx, h * cy, rx, ry, (*C.LEAF_M, 255), wobble=0.20, seed=sd)
+    a.light(lambda s, c: s.blob(w * 0.42, h * 0.22, 52, 34, c, wobble=0.22, seed=25),
+            (*C.LEAF_L, 255))
+    a.light(lambda s, c: s.blob(w * 0.38, h * 0.16, 32, 20, c, wobble=0.24, seed=26),
+            (*C.LEAF_XL, 255))
+
+    # clipped flat across the top. A hedge is a thing someone has cut.
+    # Clipped flat across the top - a hedge is a thing someone has cut. Seated
+    # INTO the foliage rather than floating above it: drawn clear of the crown
+    # it reads as a plank balanced on a bush.
+    a.light(lambda s_, c: s_.poly(
+        [(w * 0.16, h * 0.20), (w * 0.84, h * 0.20),
+         (w * 0.84, h * 0.13), (w * 0.16, h * 0.13)], c), (*C.LEAF_D, 255))
+
+    # shears, slung at its side, closed
+    a.line([(w / 2 + 62, h * 0.52), (w / 2 + 96, h * 0.34)], (*C.ROCK_L, 255), 5)
+    a.line([(w / 2 + 62, h * 0.52), (w / 2 + 92, h * 0.28)], (*C.ROCK_M, 255), 5)
+
+    save_posed(a, "boss_gardener_body.png")
+
+    a = Art(112, 44)
+    for ex in (26, 86):
+        a.ellipse(ex, 22, 16, 14, (26, 30, 22, 255))
+        a.ellipse(ex, 21, 8, 9, (226, 236, 168, 255))
+        a.ellipse(ex, 21, 3.5, 6, (26, 30, 22, 255))
+        a.dot(ex - 4, 16, 3)
+    a.save("boss_gardener_eyes.png")
 
 
 def gen_boss_toad():
@@ -736,7 +1587,7 @@ def gen_boss_toad():
     for sx in (-1, 1):
         a.ellipse(w / 2 + sx * 38, h * 0.26, 30, 26, (*C.LEAF_M, 255))
         a.ellipse(w / 2 + sx * 38 - 4, h * 0.22, 22, 16, (*C.LEAF_L, 255))
-    a.save("boss_toad_body.png")
+    save_posed(a, "boss_toad_body.png")
 
     a = Art(160, 56)
     for cx in (34, 126):
@@ -766,7 +1617,7 @@ def gen_boss_wisp():
         a.circle(w / 2 + math.cos(ang) * 68, h / 2 + math.sin(ang) * 68, 13,
                  (*C.ESSENCE_L, 235))
     a.dot(w * 0.36, h * 0.32, 9, C.WHITE, 190)
-    a.save("boss_wisp_body.png")
+    save_posed(a, "boss_wisp_body.png")
 
     a = Art(96, 40)
     for cx in (26, 70):
@@ -812,7 +1663,7 @@ def gen_boss_oak():
     can.light(lambda s, c: s.blob(w * 0.36, h * 0.09, 56, 26, c, wobble=0.18, seed=37),
               (*C.LEAF_L, 255))
     a.img.alpha_composite(can.img)
-    a.save("boss_oak_body.png")
+    save_posed(a, "boss_oak_body.png")
 
     a = Art(200, 80)
     for cx in (52, 148):
@@ -858,7 +1709,7 @@ def gen_boss_sovereign():
     a.rrect(w / 2 - 100, cy - 4, w / 2 + 100, cy + 9, 6, (*C.GOLD_M, 255))
     for gx in (-64, -22, 22, 64):
         a.circle(w / 2 + gx, cy + 9, 8, (86, 196, 236, 255))
-    a.save("boss_sovereign_body.png")
+    save_posed(a, "boss_sovereign_body.png")
 
     a = Art(220, 90)
     for cx in (58, 162):
@@ -1135,7 +1986,9 @@ def gen_icons():
     store page and in a taskbar.
     """
     sizes = [16, 32, 48, 64, 128, 256, 512, 1024]
-    body = Image.open(OUT / "slime_body.png").convert("RGBA")
+    # Frame 0 only. slime_body.png is a 4-frame walk strip, and resizing the
+    # whole thing would put four flattened slimes on the app icon.
+    body = Image.open(OUT / "slime_body.png").convert("RGBA").crop((0, 0, 108, 90))
     face = Image.open(OUT / "slime_face.png").convert("RGBA")
 
     master = Art(1024, 1024)
@@ -1211,6 +2064,41 @@ def gen_ground_tiles():
         "ground_clearing": ((72, 106, 60), (84, 120, 68), (97, 134, 77)),
         "ground_path": ((104, 86, 60), (120, 100, 70), (134, 114, 82)),
         "ground_water": ((36, 108, 156), (46, 128, 178), (62, 152, 202)),
+
+        # --- biome floors -------------------------------------------------
+        # APPEND ONLY, never insert. The noise seed below is `1000 + idx`,
+        # indexed by position in this dict, so inserting an entry renumbers
+        # every tile after it and silently rewrites ground art that has
+        # already shipped. (Adding one sound in the middle of gen_sfx.py
+        # rewrote 25 existing .wav files exactly this way.)
+        #
+        # Each biome keeps the same four roles - floor, clearing, path, water -
+        # so the forest reads the same way in every one of them: the lighter
+        # tone is where you fight, the brown-ish one is where you walk.
+
+        # Fenland: waterlogged, the green going grey at the edges
+        "ground_fen": ((42, 62, 50), (50, 74, 58), (58, 86, 66)),
+        "ground_fen_clearing": ((62, 86, 62), (74, 98, 70), (86, 110, 80)),
+        "ground_fen_path": ((78, 76, 58), (92, 88, 66), (106, 102, 78)),
+
+        # Ashfall: burnt out. Even the water is grey here.
+        "ground_ash": ((46, 42, 40), (56, 51, 48), (68, 61, 57)),
+        "ground_ash_clearing": ((72, 64, 58), (86, 76, 68), (100, 89, 79)),
+        "ground_ash_path": ((88, 72, 58), (102, 84, 66), (116, 96, 76)),
+        "ground_ash_water": ((70, 66, 72), (84, 79, 86), (98, 92, 100)),
+
+        # The Hollow: cold and dark. The floor is nearly out of value range,
+        # which is the point - the vignette does the rest.
+        "ground_hollow": ((28, 34, 46), (34, 42, 56), (41, 50, 66)),
+        "ground_hollow_clearing": ((42, 52, 68), (50, 62, 80), (59, 72, 92)),
+        "ground_hollow_path": ((58, 56, 66), (68, 66, 78), (80, 77, 90)),
+        "ground_hollow_water": ((24, 54, 80), (30, 66, 96), (38, 80, 114)),
+
+        # Heartwood: old, and violet where the Sovereign's colour bleeds in
+        "ground_heart": ((40, 52, 58), (48, 62, 68), (57, 73, 80)),
+        "ground_heart_clearing": ((66, 78, 80), (78, 90, 92), (90, 104, 106)),
+        "ground_heart_path": ((92, 80, 88), (106, 94, 102), (120, 108, 116)),
+        "ground_heart_water": ((48, 52, 96), (58, 64, 114), (72, 80, 136)),
     }
     for idx, (name, tones) in enumerate(specs.items()):
         n = _seamless_noise(size, [(9, 1.0), (4, 0.5), (2, 0.25)], 1000 + idx)
@@ -1243,14 +2131,21 @@ def main():
         ("ground tiles", gen_ground_tiles),
         ("app icons", gen_icons),
         ("enemy recolours", gen_enemies),
+        ("player classes", gen_player_classes),
+        ("class skins", gen_class_skins),
+        ("turret", gen_turret),
+        ("type badges", gen_type_badges),
         ("faces", gen_faces),
         ("trees", gen_trees),
         ("bushes", gen_bushes),
         ("rocks", gen_rocks),
         ("logs", gen_logs),
         ("ground detail", gen_ground_detail),
+        ("deadfall", gen_deadfall),
+        ("tall grass", gen_tall_grass),
         ("shop props", gen_shop_props),
         ("boss: bramble", gen_boss_bramble),
+        ("boss: gardener", gen_boss_gardener),
         ("boss: toad", gen_boss_toad),
         ("boss: wisp", gen_boss_wisp),
         ("boss: oak", gen_boss_oak),
@@ -1259,6 +2154,9 @@ def main():
         ("pickups", gen_pickups),
         ("ui icons", gen_ui_icons),
         ("particles", gen_particles),
+        # The typeface. Last, and counted separately below: it lands in
+        # assets/fonts/gen/, not assets/sprites/gen/, so it is not a sprite.
+        ("typeface", font_tool.main),
     ]
     for label, fn in steps:
         fn()

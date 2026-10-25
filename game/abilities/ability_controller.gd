@@ -15,6 +15,7 @@ const ORBITAL := preload("res://abilities/orbital_orbs.tscn")
 const DECOY := preload("res://abilities/decoy.tscn")
 const GRENADE := preload("res://abilities/grenade.tscn")
 const THORNWALL := preload("res://abilities/thornwall.tscn")
+const TURRET := preload("res://abilities/turret.gd")
 const CINDERS := preload("res://abilities/cinders.tscn")
 
 signal slot_changed(slot: int)
@@ -50,6 +51,48 @@ func setup(p: Player, container: Node) -> void:
 		if not AbilitiesDB.fits_slot(id, i):
 			id = AbilitiesDB.fallback_for_slot(i)
 		equip(i, id)
+	if not Events.upgrade_purchased.is_connected(_on_upgrade_purchased):
+		Events.upgrade_purchased.connect(_on_upgrade_purchased)
+
+
+func _on_upgrade_purchased(_id: String) -> void:
+	refresh_upgrades()
+
+
+## Re-read every slot's cooldown and charge cap from the run's current upgrades.
+##
+## equip() was the only place these were ever worked out, and after setup() the
+## only thing that called it again was the ability picker - which went away when
+## in-run swapping did. From that point Quickened and Doubled changed a stored
+## number that nothing read again, and so did Focused Mind and Deep Reserves:
+## four upgrades, 210 to 330 coins each, that could only be bought mid-run and
+## could only take effect before one started.
+func refresh_upgrades() -> void:
+	if Game.run == null:
+		return
+	for i in slots.size():
+		var s: Dictionary = slots[i]
+		if s.is_empty():
+			continue
+		var id := String(s["id"])
+		var def := AbilitiesDB.get_def(id)
+
+		var was_max := int(s["max_charges"])
+		var now_max := int(def["charges"]) + Game.run.ability_extra_charges \
+			+ int(Game.run.ability_bonus(id, "charges"))
+		s["max_charges"] = now_max
+		# A charge you have just paid for should be in your hand, not queued up
+		# behind the cooldown that happens to be running.
+		if now_max > was_max:
+			s["charges"] = int(s["charges"]) + (now_max - was_max)
+		s["charges"] = clampi(int(s["charges"]), 0, now_max)
+
+		var cd := _cooldown_for(id, def)
+		s["cooldown"] = cd
+		# ...and a shortened cooldown shortens the one already in flight, so
+		# the upgrade is felt on the next cast rather than the one after.
+		s["cooldown_left"] = minf(float(s["cooldown_left"]), cd)
+		slot_changed.emit(i)
 
 
 func equip(slot: int, id: String) -> void:
@@ -57,12 +100,15 @@ func equip(slot: int, id: String) -> void:
 		return
 	var def := AbilitiesDB.get_def(id)
 	var extra := Game.run.ability_extra_charges if Game.run != null else 0
-	var max_charges := int(def["charges"]) + extra
+	var bonus := 0
+	if Game.run != null:
+		bonus = int(Game.run.ability_bonus(id, "charges"))
+	var max_charges := int(def["charges"]) + extra + bonus
 	slots[slot] = {
 		"id": id,
 		"charges": max_charges,
 		"max_charges": max_charges,
-		"cooldown": _cooldown_for(def),
+		"cooldown": _cooldown_for(id, def),
 		"cooldown_left": 0.0,
 	}
 	if Game.run != null and slot < Game.run.abilities.size():
@@ -71,9 +117,38 @@ func equip(slot: int, id: String) -> void:
 	Events.ability_equipped.emit(slot, id)
 
 
-func _cooldown_for(def: Dictionary) -> float:
+func _cooldown_for(id: String, def: Dictionary) -> float:
 	var cdr := Game.run.ability_cdr if Game.run != null else 0.0
-	return float(def["cooldown"]) * (1.0 - cdr)
+	var per_ability := 1.0
+	if Game.run != null:
+		per_ability = Game.run.ability_bonus(id, "cooldown")
+	return float(def["cooldown"]) * (1.0 - cdr) * per_ability
+
+
+## An ability's numbers with its shop upgrades folded in.
+##
+## Every _do_* handler reads its values out of a def dictionary, so upgrades are
+## applied by handing them an adjusted copy rather than by touching fourteen
+## call sites. `power` scales damage, `area` scales anything spatial or timed.
+##
+## The key lists come from AbilitiesDB so the shop can ask the same question
+## before it offers an upgrade. Keeping a second copy here is what let
+## "+30% damage" go on sale for an ability that has no damage.
+func _upgraded(id: String, def: Dictionary) -> Dictionary:
+	if Game.run == null:
+		return def
+	var power := Game.run.ability_bonus(id, "power")
+	var area := Game.run.ability_bonus(id, "area")
+	if is_equal_approx(power, 1.0) and is_equal_approx(area, 1.0):
+		return def
+	var out := def.duplicate(true)
+	for key: String in AbilitiesDB.POWER_KEYS:
+		if out.has(key):
+			out[key] = float(out[key]) * power
+	for key: String in AbilitiesDB.area_keys(id):
+		if out.has(key):
+			out[key] = float(out[key]) * area
+	return out
 
 
 func _process(delta: float) -> void:
@@ -90,6 +165,57 @@ func _process(delta: float) -> void:
 			Audio.play("ui_hover", -18.0, 0.0)
 			Events.ability_ready.emit(i, s["id"])
 			slot_changed.emit(i)
+	_tick_turrets(delta)
+
+
+# ---------------------------------------------------------------------------
+# the Engineer's turrets
+# ---------------------------------------------------------------------------
+## Seconds between deployments, and how many may stand at once.
+const TURRET_INTERVAL := 9.0
+const TURRET_CAP := 2
+
+var _turret_timer := 0.0
+
+
+func _tick_turrets(delta: float) -> void:
+	if Game.run == null or player == null or not player.alive:
+		return
+	if not bool(ClassesDB.get_def(Game.run.class_id).get("deploys_turrets", false)):
+		return
+	_turret_timer -= delta
+	if _turret_timer > 0.0:
+		return
+	_turret_timer = TURRET_INTERVAL
+	_deploy_turret()
+
+
+func live_turrets() -> Array[Node]:
+	var out: Array[Node] = []
+	if not is_inside_tree():
+		return out
+	for n: Node in get_tree().get_nodes_in_group("turret"):
+		if is_instance_valid(n):
+			out.append(n)
+	return out
+
+
+func _deploy_turret() -> void:
+	var live := live_turrets()
+	if live.size() >= TURRET_CAP:
+		# Replace the oldest rather than refusing: a turret you cannot place
+		# because two are stranded across the map is a passive that stops
+		# working exactly when you have moved on from where it fired.
+		var oldest: Node = live[0]
+		if oldest.has_method("_expire"):
+			oldest.call("_expire")
+	var at := player.global_position
+	var layout := _layout()
+	if layout != null and not layout.is_open(at):
+		at = layout.nearest_open(at)
+	var t := TURRET.new() as Node2D
+	_container().add_child(t)
+	t.call("setup", player, at)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -101,6 +227,162 @@ func _unhandled_input(event: InputEvent) -> void:
 		use(1)
 	elif event.is_action_pressed("ability_2"):
 		use(2)
+	elif event.is_action_pressed("ultimate"):
+		use_ultimate()
+
+
+# ---------------------------------------------------------------------------
+# ultimates
+# ---------------------------------------------------------------------------
+## Fire this run's class ultimate, if it is charged.
+##
+## Every ClassesDB ultimate id must appear as a match arm below. The logic suite
+## reads the arms out of this file, so a class naming an ultimate nothing
+## implements fails the build rather than shipping a button that does nothing.
+func use_ultimate() -> bool:
+	if Game.run == null or player == null or not player.alive:
+		return false
+	if not Game.run.ultimate_ready():
+		Audio.play_ui("ui_deny", -10.0)
+		return false
+	if not Game.run.spend_ultimate():
+		return false
+
+	var class_id: String = Game.run.class_id
+	var def := ClassesDB.get_def(class_id)
+	var ult := String(def["ultimate"])
+
+	_ultimate_flourish(def)
+	match ult:
+		"recall_the_wood": _ult_recall_the_wood()
+		"last_stand": _ult_last_stand()
+		"crimson_hour": _ult_crimson_hour()
+		"overclock": _ult_overclock()
+		"bloom": _ult_bloom()
+	Events.ultimate_fired.emit(class_id, ult)
+	return true
+
+
+## Combat punctuation, not a cutscene.
+##
+## Deliberately short and made entirely of things that already exist - hit
+## stop, shake, a ring, a name card. Players will see this hundreds of times in
+## a game whose whole appeal is continuous pressure, so anything longer than
+## about a second stops being a payoff and starts being an interruption.
+func _ultimate_flourish(def: Dictionary) -> void:
+	var tint: Color = def["tint"]
+	Events.hit_stop.emit(0.18)
+	Game.shake(9.0, 0.45)
+	FX.ring(player.global_position, 520.0, tint, 0.55, 0.06)
+	FX.burst(player.global_position, tint, 40, 2.4)
+	FX.floating_text(player.global_position + Vector2(0, -120),
+		String(def["ultimate_name"]).to_upper(), tint)
+	Audio.play("boss_phase", 1.0)
+
+
+## WARDEN. The forest remembers you - roots erupt in rings outward, the same
+## shape the Ancient Oak's Rootquake uses, because you were one of them.
+func _ult_recall_the_wood() -> void:
+	var origin := player.global_position
+	var damage := 46.0
+	for step in 5:
+		var t := create_tween()
+		t.tween_interval(0.11 * step)
+		t.tween_callback(func() -> void:
+			if not is_instance_valid(player):
+				return
+			var radius := 150.0 + 165.0 * step
+			for i in 10 + step * 3:
+				var at := origin + Vector2.RIGHT.rotated(
+					TAU * i / float(10 + step * 3)) * radius
+				FX.explosion(at, 110.0, Color(0.45, 0.75, 0.4))
+				Combat.explode(at, 110.0, damage, 240.0, true,
+					Combat.SOURCE_ABILITY)
+			Game.shake(4.0, 0.2))
+
+
+## WARRIOR. What hits you comes back out. The one ultimate you want to be hit
+## during, which is the class in one mechanic.
+const LAST_STAND_DURATION := 6.0
+const LAST_STAND_REDUCTION := 0.45
+
+
+func _ult_last_stand() -> void:
+	# Scaled by ultimate_power, which is what "Stubborn" sells. That upgrade is
+	# locked to the Warrior and is its only class-specific shop item, and it
+	# bought nothing: ultimate_power was read by exactly one ultimate in the
+	# game, and it belonged to the Engineer.
+	var duration := LAST_STAND_DURATION
+	if Game.run != null:
+		duration *= Game.run.ultimate_power
+	player.begin_retaliation(duration, LAST_STAND_REDUCTION)
+
+
+## VAMPIRE. Full lifesteal, and a kill spreads to whatever is beside it.
+func _ult_crimson_hour() -> void:
+	player.lifesteal_bonus += 0.85
+	player.contagion_until = Time.get_ticks_msec() / 1000.0 + 8.0
+	var t := create_tween()
+	t.tween_interval(8.0)
+	t.tween_callback(func() -> void:
+		if is_instance_valid(player):
+			player.lifesteal_bonus = maxf(0.0, player.lifesteal_bonus - 0.85))
+
+
+## ENGINEER. Overclock the turrets - your own thing, amplified.
+##
+## This used to re-fire everyone else's abilities, which made the Engineer's
+## ultimate a louder version of whatever you happened to be carrying rather
+## than something the class owned. Now it does the one thing only the Engineer
+## has: for its duration the turrets fire three times as fast, reach much
+## further, and cannot expire.
+##
+## It also deploys the full set immediately, so the ultimate is never wasted on
+## an empty field waiting for the passive's timer.
+func _ult_overclock() -> void:
+	var duration := 9.0
+	if Game.run != null:
+		duration *= Game.run.ultimate_power
+
+	while live_turrets().size() < TURRET_CAP:
+		_deploy_turret()
+	_turret_timer = TURRET_INTERVAL
+
+	var until := Time.get_ticks_msec() / 1000.0 + duration
+	for t: Node in live_turrets():
+		t.set("overclocked_until", until)
+		FX.ring(t.global_position, 120.0, Color(1.0, 0.85, 0.35), 0.4, 0.2)
+
+	# Anything deployed *during* the ultimate joins it, or replacing a turret
+	# mid-Overclock would quietly hand you a slow one.
+	var pulse := create_tween()
+	pulse.set_loops(int(duration / 0.5))
+	pulse.tween_interval(0.5)
+	pulse.tween_callback(func() -> void:
+		for t: Node in live_turrets():
+			t.set("overclocked_until", until))
+
+
+## HERBALIST. The ground turns on them - a wide, lasting burn centred on you.
+func _ult_bloom() -> void:
+	var at := player.global_position
+	FX.ring(at, 620.0, Color(0.5, 0.9, 0.6), 0.8, 0.1)
+	# The Herbalist is sold "Deep Roots" - ultimate lasts 35% longer - and this
+	# hardcoded its tick count, so that upgrade was as dead as the Warrior's.
+	var ticks := 12
+	if Game.run != null:
+		ticks = int(round(ticks * Game.run.ultimate_power))
+	for tick in ticks:
+		var t := create_tween()
+		t.tween_interval(0.28 * tick)
+		t.tween_callback(func() -> void:
+			if not is_instance_valid(player):
+				return
+			var hit := Combat.explode(at, 620.0, 22.0, 0.0, false,
+				Combat.SOURCE_ABILITY)
+			if hit > 0:
+				FX.burst(at, Color(0.55, 0.9, 0.6), 8, 1.4)
+				player.on_damage_dealt(22.0 * hit))
 
 
 func use(slot: int) -> bool:
@@ -196,7 +478,8 @@ func charge_fraction(slot: int) -> float:
 # ---------------------------------------------------------------------------
 # effects
 # ---------------------------------------------------------------------------
-func _execute(id: String, def: Dictionary) -> void:
+func _execute(id: String, raw: Dictionary) -> void:
+	var def := _upgraded(id, raw)
 	match id:
 		"dash": _do_dash(def)
 		"surge": _do_surge(def)
@@ -212,7 +495,20 @@ func _execute(id: String, def: Dictionary) -> void:
 		"rapidfire": _do_rapidfire(def)
 		"orbital": _do_orbital(def)
 		"decoy": _do_decoy(def)
-		"lifesteal": _do_lifesteal(def)
+
+
+## The run's forest layout, for abilities that move the player across it.
+##
+## Read off the wave controller rather than the run node: it already carries the
+## layout, it is already in a group, and it is already re-pointed at the new one
+## when the forest regenerates at a biome boundary.
+func _layout() -> ForestGenerator:
+	if not is_inside_tree():
+		return null
+	var waves := get_tree().get_first_node_in_group("wave_controller")
+	if waves == null:
+		return null
+	return waves.get("layout") as ForestGenerator
 
 
 func _container() -> Node:
@@ -250,10 +546,9 @@ func _do_dash(def: Dictionary) -> void:
 			return
 		player.dashing = false
 		player.velocity = dir * player.max_speed() * 0.6
-		# a short grace window after the dash ends, so dashing through a
-		# crowd doesn't immediately eat a contact hit on the far side
-		player.invulnerable_until = maxf(player.invulnerable_until,
-			Time.get_ticks_msec() / 1000.0 + 0.12))
+		# a grace window after the dash ends, so dashing through a crowd does
+		# not immediately eat a contact hit on the far side
+		player.grant_landing_grace())
 
 
 ## Surge trades Dash's invulnerability for duration. It is the answer to the
@@ -261,9 +556,17 @@ func _do_dash(def: Dictionary) -> void:
 ## shockwave, the spiral - and the loadout that proves the bosses are beatable
 ## without a blink at all.
 func _do_surge(def: Dictionary) -> void:
-	player.apply_speed_boost(float(def["multiplier"]), float(def["duration"]))
+	var duration := float(def["duration"])
+	player.apply_speed_boost(float(def["multiplier"]), duration)
 	FX.ring(player.global_position, 90.0, Color(0.6, 1.0, 0.7), 0.35, 0.15)
 	FX.burst(player.global_position, Color(0.7, 1.0, 0.75), 14, 1.2)
+
+	# Flat damage reduction, NOT invulnerability. Dash and the Vault both got a
+	# much wider landing grace this pass; without something in return Surge
+	# becomes the strictly worse pick and the bug the movement slot exists to
+	# prevent comes straight back. Reduction keeps "Surge has no i-frames"
+	# literally true, so the sim's Dash-free guard still means something.
+	player.apply_damage_reduction(Balance.SURGE_DAMAGE_REDUCTION, duration)
 
 	# A trail for as long as the boost lasts, so the state is readable.
 	var left := float(def["duration"])
@@ -285,10 +588,14 @@ func _do_vault(def: Dictionary) -> void:
 	var radius := float(def["radius"])
 	var damage := float(def["damage"])
 
-	player.dashing = true
+	# A real leap, not a dash with a marker. begin_leap lifts the sprite off its
+	# own shadow, shrinks the shadow toward the apex so the landing reads before
+	# it lands, and drops the collision mask so the arc carries over trees.
+	player.begin_leap(duration)
 	player.velocity = dir * (distance / duration)
 	FX.telegraph(player.global_position + dir * distance, radius, duration,
 		Color(0.75, 0.95, 1.0))
+	Audio.play("dash", -6.0)
 	Game.shake(2.0, 0.12)
 
 	var end := create_tween()
@@ -296,17 +603,22 @@ func _do_vault(def: Dictionary) -> void:
 	end.tween_callback(func() -> void:
 		if not is_instance_valid(player):
 			return
-		player.dashing = false
+		player.end_leap()
+		# Airborne means the arc passed over blockers, so the landing has to be
+		# pushed to open ground or the player comes down inside a trunk.
+		var layout := _layout()
+		if layout != null and not layout.is_open(player.global_position):
+			player.global_position = layout.nearest_open(player.global_position)
 		player.velocity = dir * player.max_speed() * 0.5
-		# Same grace window Dash gets, for the same reason: landing in a crowd
-		# should not immediately cost a contact hit.
-		player.invulnerable_until = maxf(player.invulnerable_until,
-			Time.get_ticks_msec() / 1000.0 + 0.12)
+		player.grant_landing_grace()
 		var at := player.global_position
 		FX.explosion(at, radius, Color(0.8, 0.95, 1.0))
+		FX.ring(at, radius * 0.7, Color(0.85, 0.95, 1.0), 0.3, 0.15)
 		Audio.play("explosion", -7.0)
-		Game.shake(Balance.SHAKE_EXPLOSION, 0.3)
-		var hit := Combat.explode(at, radius, damage, float(def["knockback"]))
+		# A landing should land. Heavier than the take-off on purpose.
+		Game.shake(Balance.SHAKE_EXPLOSION * 1.15, 0.32)
+		var hit := Combat.explode(at, radius, damage, float(def["knockback"]),
+			true, Combat.SOURCE_ABILITY)
 		player.on_damage_dealt(damage * hit))
 
 
@@ -334,13 +646,8 @@ func _do_grenade(def: Dictionary) -> void:
 
 
 func _do_shield(def: Dictionary) -> void:
-	player.shield_absorb = float(def["absorb"])
+	player.apply_shield(float(def["absorb"]), float(def["duration"]))
 	FX.ring(player.global_position, 120.0, Color(0.45, 0.8, 1.0), 0.5, 0.2)
-	var t := create_tween()
-	t.tween_interval(float(def["duration"]))
-	t.tween_callback(func() -> void:
-		if is_instance_valid(player):
-			player.shield_absorb = 0.0)
 
 
 func _do_timeslow(def: Dictionary) -> void:
@@ -353,7 +660,7 @@ func _do_nova(def: Dictionary) -> void:
 	FX.ring(player.global_position, radius, Color(1.0, 0.85, 0.45), 0.45, 0.1)
 	FX.burst(player.global_position, Color(1.0, 0.9, 0.6), 26, 1.8)
 	var hit := Combat.explode(player.global_position, radius,
-		float(def["damage"]), float(def["knockback"]))
+		float(def["damage"]), float(def["knockback"]), true, Combat.SOURCE_ABILITY)
 	player.on_damage_dealt(float(def["damage"]) * hit)
 	Game.shake(Balance.SHAKE_EXPLOSION, 0.35)
 
@@ -380,7 +687,7 @@ func _do_lightning(def: Dictionary) -> void:
 		hit.append(target)
 		_draw_bolt(from, target.global_position)
 		if target.has_method("take_damage"):
-			target.call("take_damage", damage, false, from, 90.0)
+			target.call("take_damage", damage, false, from, 90.0, Combat.SOURCE_ABILITY)
 			total += damage
 		FX.burst(target.global_position, Color(0.75, 0.9, 1.0), 8, 0.9)
 		from = target.global_position
@@ -416,16 +723,9 @@ func _draw_bolt(a: Vector2, b: Vector2) -> void:
 
 
 func _do_rapidfire(def: Dictionary) -> void:
-	player.gun.fire_rate_multiplier = float(def["multiplier"])
-	player.gun.free_reloads = true
+	player.gun.begin_frenzy(float(def["multiplier"]), float(def["duration"]))
 	player.gun.refill()
 	FX.ring(player.global_position, 110.0, Color(1.0, 0.7, 0.3), 0.4, 0.3)
-	var t := create_tween()
-	t.tween_interval(float(def["duration"]))
-	t.tween_callback(func() -> void:
-		if is_instance_valid(player):
-			player.gun.fire_rate_multiplier = 1.0
-			player.gun.free_reloads = false)
 
 
 func _do_orbital(def: Dictionary) -> void:
@@ -438,13 +738,3 @@ func _do_decoy(def: Dictionary) -> void:
 	var d := DECOY.instantiate()
 	_container().add_child(d)
 	d.call("setup", player.global_position, def)
-
-
-func _do_lifesteal(def: Dictionary) -> void:
-	player.lifesteal_bonus = float(def["fraction"])
-	FX.ring(player.global_position, 120.0, Color(0.85, 0.25, 0.35), 0.5, 0.25)
-	var t := create_tween()
-	t.tween_interval(float(def["duration"]))
-	t.tween_callback(func() -> void:
-		if is_instance_valid(player):
-			player.lifesteal_bonus = 0.0)

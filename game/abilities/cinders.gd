@@ -16,6 +16,9 @@ var _flames: Node2D = null
 
 
 func setup(at: Vector2, def: Dictionary) -> void:
+	# The Devourer eats these. One group rather than two type checks,
+	# so a third zoning ability later is one line.
+	add_to_group("zoning")
 	global_position = at
 	_life = float(def["duration"])
 	_radius = float(def["radius"])
@@ -57,7 +60,8 @@ func _process(delta: float) -> void:
 		_tick = _interval
 		# No knockback: shoving enemies out of the fire would fight the whole
 		# point of a zone that punishes standing in it.
-		var hit := Combat.explode(global_position, _radius, _damage, 0.0, false)
+		var hit := Combat.explode(global_position, _radius, _damage, 0.0, false,
+			Combat.SOURCE_ABILITY)
 		if hit > 0:
 			var p := Combat.player()
 			if p != null and p.has_method("on_damage_dealt"):

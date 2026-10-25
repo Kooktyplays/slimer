@@ -19,6 +19,10 @@ var _ability_prompt_at := 22.0
 
 func _ready() -> void:
 	Events.enemy_spawned.connect(_on_enemy_spawned)
+	# A Mimic's hint has to wait for the reveal. Firing it on spawn would print
+	# "that was not a coin" while the thing is still pretending to be one,
+	# several hundred pixels off screen, and give the trap away for free.
+	Events.enemy_revealed.connect(_on_enemy_spawned)
 	Events.pickup_collected.connect(_on_pickup)
 	Events.reload_started.connect(_on_reload)
 	Events.shop_opened.connect(func() -> void: _hint("shop",
@@ -29,6 +33,7 @@ func _ready() -> void:
 				% name_text)
 		else:
 			_hint("mini_boss", "A mini-boss. Keep moving and read the wind-ups."))
+	Events.biome_changed.connect(_on_biome_changed)
 	Events.wave_started.connect(_on_wave_started)
 	Events.gun_upgraded.connect(func(_stat: String, _v: float) -> void:
 		_hint("upgrade", "Your gun keeps the upgrade for the rest of this run."))
@@ -39,7 +44,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_timer += delta
 	if _timer > 0.0 and not _shown_this_run.has("move"):
-		_hint("move", "WASD to move.  Mouse to aim.  Left click to shoot.")
+		_hint("move", InputBinds.OPENING_CONTROLS)
 	if _timer > _ability_prompt_at and not _shown_this_run.has("ability"):
 		# Read the keys from the bindings rather than naming them, so a rebind
 		# cannot turn this hint into a lie.
@@ -53,6 +58,27 @@ func _process(delta: float) -> void:
 
 ## Show a hint once ever. `id` is namespaced in the save so a later hint added
 ## to the game does not collide with an old one.
+## One line the first time a biome with a hazard is entered.
+##
+## The hazard zones are painted in the biome's own water texture, so they are
+## visible before they are felt - but "visible" and "understood" are not the
+## same thing, and the first ember pool should not have to be learned by
+## standing in it.
+const BIOME_HINTS := {
+	BiomeDB.FENLAND: "The Fenland is waterlogged. Standing water slows you down.",
+	BiomeDB.ASHFALL: "Ashfall still burns. The glowing pools will hurt you.",
+	BiomeDB.HOLLOW: "Little light reaches The Hollow. You will not see them coming as early.",
+	BiomeDB.HEARTWOOD: "Heartwood sap is poison. Stay out of the violet pools.",
+}
+
+
+func _on_biome_changed(id: String, display_name: String) -> void:
+	if BIOME_HINTS.has(id):
+		_hint("biome_" + id, String(BIOME_HINTS[id]))
+	else:
+		_hint("biome_" + id, "%s. The forest has changed around you." % display_name)
+
+
 func _hint(id: String, text: String) -> void:
 	if _shown_this_run.has(id):
 		return
@@ -82,6 +108,10 @@ func _on_enemy_spawned(enemy: Node2D) -> void:
 	var id := String(enemy.get("type_id"))
 	if id.is_empty():
 		return
+	# ...and the same reason in the other direction: say nothing while it is
+	# still disguised. enemy_revealed brings it back here the moment it is not.
+	if bool(enemy.get("_disguised")):
+		return
 	var def := EnemyTypes.get_def(id)
 	_hint("enemy_" + id, String(def["hint"]))
 
@@ -99,4 +129,6 @@ func _on_pickup(kind: String, _at: Vector2) -> void:
 
 
 func _on_reload(_duration: float) -> void:
-	_hint("reload", "Out of ammo - you reload automatically, or press R early.")
+	_hint("reload", ("Out of ammo. It reloads itself, or press %s and get ahead of it."
+		% InputBinds.label_for_action(Save.keybinds, "reload",
+			Game.input_device).to_upper()))

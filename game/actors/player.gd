@@ -51,6 +51,26 @@ var poison_dps := 0.0
 var _poison_tick := 0.0
 var shield_absorb := 0.0
 var lifesteal_bonus := 0.0
+
+## Warrior's Last Stand: while this is in the future, damage taken is thrown
+## back out around you. Stored as a timestamp rather than a bool so it expires
+## on its own and cannot be left stuck on by a tween that outlived the run.
+## What counts as "surrounded" for the Warrior's charge.
+const BRAWL_RADIUS := 290.0
+const BRAWL_ENEMIES := 3
+
+var retaliating_until := 0.0
+## Vampire's Crimson Hour: while this is in the future, a kill near you spreads
+## to whatever is beside it.
+var contagion_until := 0.0
+
+
+func is_retaliating() -> bool:
+	return Time.get_ticks_msec() / 1000.0 < retaliating_until
+
+
+func is_contagious() -> bool:
+	return Time.get_ticks_msec() / 1000.0 < contagion_until
 var dashing := false
 
 var _bob := 0.0
@@ -68,6 +88,13 @@ func _ready() -> void:
 	hurtbox.collision_mask = 0
 	collision_mask = Layers.WORLD
 	_shadow.texture = SHADOW_TEXTURE
+	# Who you were before you died. Falls back to the scene's own texture if
+	# there is no run, so the player still draws in the editor and in tests.
+	if Game.run != null:
+		var path := ClassesDB.sprite_path(Game.run.class_id,
+			Save.skin_of(Game.run.class_id))
+		if ResourceLoader.exists(path):
+			_body.texture = load(path)
 	_shadow.modulate = Color(0, 0, 0, 0.28)
 	# pure white: the player is the only white thing in a green forest full of
 	# saturated slimes, and that is the whole readability strategy
@@ -80,7 +107,10 @@ func _physics_process(delta: float) -> void:
 	if not alive:
 		return
 	_tick_speed_boost(delta)
+	_tick_damage_reduction(delta)
+	_tick_shield(delta)
 	_tick_poison(delta)
+	_tick_terrain_damage(delta)
 	_move(delta)
 	_aim()
 	_handle_shooting()
@@ -103,6 +133,49 @@ func _move(delta: float) -> void:
 		velocity = velocity.move_toward(target, Balance.PLAYER_ACCEL * delta)
 	move_and_slide()
 	_hold_in_bounds()
+
+
+## Lift the drawn character off its own shadow for the length of a leap.
+##
+## This is the whole difference between a jump and a dash, and it is cheap
+## because Shadow and Visual are siblings in player.tscn: raising one and not
+## the other IS the jump. The shadow shrinks and fades toward the apex, which
+## is what makes the landing point readable before the landing happens.
+##
+## The collision mask is dropped for the flight so the leap passes over trees.
+## A leap that stops at a trunk is not a leap - but it does mean the landing has
+## to be pushed to open ground, or you come down inside one.
+const LEAP_HEIGHT := 78.0
+
+
+func begin_leap(duration: float) -> void:
+	airborne = true
+	dashing = true
+	collision_mask = 0
+	var t := create_tween()
+	t.set_parallel(true)
+	# a parabola, not a slide: up fast, hang, down fast
+	t.tween_method(func(v: float) -> void:
+		if is_instance_valid(_visual):
+			_visual.position.y = -LEAP_HEIGHT * sin(v * PI),
+		0.0, 1.0, duration)
+	t.tween_method(func(v: float) -> void:
+		if is_instance_valid(_shadow):
+			var shrink := 1.0 - 0.45 * sin(v * PI)
+			_shadow.scale = Vector2.ONE * shrink
+			_shadow.modulate.a = 0.28 * shrink,
+		0.0, 1.0, duration)
+
+
+func end_leap() -> void:
+	airborne = false
+	dashing = false
+	collision_mask = Layers.WORLD
+	if is_instance_valid(_visual):
+		_visual.position.y = 0.0
+	if is_instance_valid(_shadow):
+		_shadow.scale = Vector2.ONE
+		_shadow.modulate.a = 0.28
 
 
 ## Offset from the physics origin - the feet, where the shadow is drawn - to the
@@ -132,9 +205,30 @@ func _hold_in_bounds() -> void:
 		clampf(global_position.y, limit, size.y - limit))
 
 
+## Set by the run each frame from whatever the player is standing in. Kept
+## separate from speed_multiplier so terrain and a Swift potion can both apply
+## without either one clobbering the other's bookkeeping.
+## True while a leap is in the air. Distinct from `dashing`, which only means
+## "moving under an ability's own velocity": airborne additionally means the
+## player is ABOVE the forest and passes over blockers.
+var airborne := false
+
+var terrain_speed_mul := 1.0
+
+## Damage per second from whatever the player is standing in, set by the run
+## each frame. Flat, and deliberately NOT routed through apply_poison: that
+## adds a stack per call and multiplies dps by the stack count, which is right
+## for contact poison - where the pressure is meant to scale with how many
+## slimes reached you - and badly wrong for standing in a pool, where six
+## re-applications turned a 7 dps hazard into 42 and killed the player in
+## about two seconds. Standing in fire should be a steady, readable rate.
+var terrain_dps := 0.0
+var _terrain_damage_tick := 0.0
+
+
 func max_speed() -> float:
 	var run_mul := Game.run.move_speed_mul if Game.run != null else 1.0
-	return Balance.PLAYER_SPEED * run_mul * speed_multiplier
+	return Balance.PLAYER_SPEED * run_mul * speed_multiplier * terrain_speed_mul
 
 
 # ---------------------------------------------------------------------------
@@ -230,16 +324,71 @@ func _animate(delta: float) -> void:
 # ---------------------------------------------------------------------------
 # damage
 # ---------------------------------------------------------------------------
+## Brief mercy after an ability puts you down somewhere new. Shared by Dash and
+## the Vault so the two can never drift apart.
+func grant_landing_grace() -> void:
+	invulnerable_until = maxf(invulnerable_until,
+		Time.get_ticks_msec() / 1000.0 + Balance.LANDING_GRACE)
+
+
+## Extra damage reduction from a temporary source - Surge, which trades
+## invulnerability for a smaller constant cushion, and the Warrior's Last Stand.
+##
+## Both used to set this and restore it to 0.0 on a naked tween of their own.
+## Whichever finished first cancelled the other, so Surging during Last Stand
+## silently dropped 45% mitigation with seconds still on the clock. That is the
+## Swift Potion bug again - a tween that assumes it is still the owner - so
+## this uses the shape that fixed the potion: refresh, tick down, and restore
+## the default only when it has actually run out.
+var bonus_damage_reduction := 0.0
+var damage_reduction_left := 0.0
+
+
+func apply_damage_reduction(amount: float, duration: float) -> void:
+	if damage_reduction_left <= 0.0:
+		bonus_damage_reduction = amount
+	else:
+		bonus_damage_reduction = maxf(bonus_damage_reduction, amount)
+	damage_reduction_left = maxf(damage_reduction_left, duration)
+
+
+func _tick_damage_reduction(delta: float) -> void:
+	if damage_reduction_left <= 0.0:
+		return
+	damage_reduction_left = maxf(0.0, damage_reduction_left - delta)
+	if damage_reduction_left <= 0.0:
+		bonus_damage_reduction = 0.0
+
+
+## Bulwark. Same treatment as the reduction above: a second cast used to leave
+## the first cast's tween running, and it would zero the new shield early.
+var shield_left := 0.0
+
+
+func apply_shield(absorb: float, duration: float) -> void:
+	shield_absorb = maxf(shield_absorb, absorb)
+	shield_left = maxf(shield_left, duration)
+
+
+func _tick_shield(delta: float) -> void:
+	if shield_left <= 0.0:
+		return
+	shield_left = maxf(0.0, shield_left - delta)
+	if shield_left <= 0.0:
+		shield_absorb = 0.0
+
+
 func is_invulnerable() -> bool:
 	return dashing or Time.get_ticks_msec() / 1000.0 < invulnerable_until
 
 
 func take_damage(amount: float, _crit: bool = false, from: Vector2 = Vector2.ZERO,
-		_knockback: float = 0.0) -> void:
+		_knockback: float = 0.0, _source: String = Combat.SOURCE_OTHER) -> void:
 	if not alive or is_invulnerable() or Game.run == null:
 		return
 
-	var incoming := amount * (1.0 - Game.run.damage_reduction)
+	var incoming := amount * (1.0 - Game.run.damage_reduction) \
+		* (1.0 - bonus_damage_reduction)
 
 	# a shield eats damage before health does, and reports what it absorbed
 	if shield_absorb > 0.0:
@@ -256,6 +405,10 @@ func take_damage(amount: float, _crit: bool = false, from: Vector2 = Vector2.ZER
 	Game.run.hp = maxf(0.0, Game.run.hp - incoming)
 	invulnerable_until = Time.get_ticks_msec() / 1000.0 + Balance.PLAYER_IFRAMES
 	_hurt_flash = 1.0
+	Game.run.break_combo()
+
+	# Last Stand, off the RAW hit rather than what got through.
+	_retaliate(amount)
 
 	Audio.play("player_hurt", -3.0)
 	Game.shake(Balance.SHAKE_HIT, 0.22)
@@ -266,6 +419,44 @@ func take_damage(amount: float, _crit: bool = false, from: Vector2 = Vector2.ZER
 
 	if Game.run.hp <= 0.0:
 		_die()
+
+
+## Last Stand throws what hit you back out.
+##
+## Off the **raw** incoming amount, and that is the fix rather than a detail.
+## It used to be computed from the post-mitigation number - after both
+## damage_reduction and the 45% cushion the ultimate itself had just granted -
+## so the defensive half of Last Stand cut its own offensive half by nearly
+## half, and the tankier the build the less the ultimate did.
+const RETALIATE_MULTIPLIER := 3.0
+const RETALIATE_RADIUS := 300.0
+## Poison ticks four times a second and would otherwise fire a 300px explosion
+## on every one of them. Hits from take_damage are already spaced further apart
+## than this by the i-frames, so it only ever throttles the poison path.
+const RETALIATE_INTERVAL := 0.4
+var _retaliate_ready_at := 0.0
+
+
+func _retaliate(raw: float) -> void:
+	if raw <= 0.0 or not is_retaliating():
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now < _retaliate_ready_at:
+		return
+	_retaliate_ready_at = now + RETALIATE_INTERVAL
+	var out := raw * RETALIATE_MULTIPLIER
+	FX.ring(global_position, RETALIATE_RADIUS, Color(0.95, 0.55, 0.4), 0.35, 0.2)
+	Combat.explode(global_position, RETALIATE_RADIUS, out, 280.0, false,
+		Combat.SOURCE_ABILITY)
+	on_damage_dealt(out)
+
+
+## Start the Warrior's Last Stand. Refreshes rather than stacking, like every
+## other timed effect on this actor.
+func begin_retaliation(duration: float, reduction: float) -> void:
+	retaliating_until = maxf(retaliating_until,
+		Time.get_ticks_msec() / 1000.0 + duration)
+	apply_damage_reduction(reduction, duration)
 
 
 ## Add a stack of slime poison, or refresh the ones already running.
@@ -310,10 +501,29 @@ func _tick_poison(delta: float) -> void:
 		poison_dps = 0.0
 
 
+## Terrain damage, on the same cadence as poison and through the same
+## application - it must not grant i-frames either, or wading through an ember
+## pool would make the player briefly invulnerable to everything else.
+func _tick_terrain_damage(delta: float) -> void:
+	if terrain_dps <= 0.0 or not alive:
+		_terrain_damage_tick = 0.0
+		return
+	_terrain_damage_tick -= delta
+	if _terrain_damage_tick <= 0.0:
+		_terrain_damage_tick = Balance.CONTACT_POISON_INTERVAL
+		_take_poison_damage(terrain_dps * Balance.CONTACT_POISON_INTERVAL)
+
+
 ## Poison damage. Reduced by armour and eaten by a shield like anything else,
 ## but it grants no i-frames, does not shake the camera and does not hit-stop -
 ## four of these a second doing any of that would read as the game stuttering.
 func _take_poison_damage(amount: float) -> void:
+	# Last Stand has to answer this too. Poison deliberately bypasses
+	# take_damage - routing it through there would grant i-frames and either do
+	# nothing or leave the player permanently invulnerable - and the side
+	# effect was that the damage which actually kills you in a crowd was the
+	# one thing the Warrior's ultimate could not throw back.
+	_retaliate(amount)
 	if not alive or Game.run == null or amount <= 0.0:
 		return
 	var incoming := amount * (1.0 - Game.run.damage_reduction)
@@ -350,6 +560,13 @@ func on_damage_dealt(amount: float) -> void:
 	if Game.run == null:
 		return
 	Game.run.damage_dealt += amount
+	Game.run.add_ultimate_charge(ClassesDB.CHARGE_DEALT, amount)
+
+	# The Warrior charges from swinging while surrounded - doing the job, not
+	# surviving a beating. Only counted when the crowd is real, so kiting one
+	# straggler does not fill the meter.
+	if Combat.enemies_in_radius(global_position, BRAWL_RADIUS).size() >= BRAWL_ENEMIES:
+		Game.run.add_ultimate_charge(ClassesDB.CHARGE_BRAWL, amount)
 	var fraction := Game.run.lifesteal + lifesteal_bonus
 	if fraction > 0.0:
 		heal(amount * fraction)

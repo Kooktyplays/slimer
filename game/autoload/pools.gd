@@ -169,6 +169,16 @@ func stats() -> Dictionary:
 ## world node and silently shrinking every pool.
 func release_all() -> void:
 	for key: String in _active.keys():
-		for node: Node in (_active[key] as Array).duplicate():
-			release(node, true)
+		# Untyped loop variable, for exactly the reason _park's parameters are
+		# untyped: this runs while the world node is being torn down, so the
+		# active list can hold nodes that have already been freed along with
+		# it. A typed `Node` loop variable rejects a freed-object Variant with
+		# "Trying to assign invalid previously freed instance" *before* the
+		# body gets a chance to check is_instance_valid, and the rest of that
+		# pool is then never parked.
+		for node_variant: Variant in (_active[key] as Array).duplicate():
+			if typeof(node_variant) != TYPE_OBJECT \
+					or not is_instance_valid(node_variant):
+				continue
+			release(node_variant, true)
 		_active[key] = []

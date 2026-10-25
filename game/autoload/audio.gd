@@ -13,7 +13,34 @@ extends Node
 const MUSIC_DIR := "res://assets/music/"
 const SFX_DIR := "res://assets/sfx/"
 const SFX_VOICES := 24
+## Positional voices, for sounds that happen somewhere rather than to you.
+##
+## Fewer than the flat ring on purpose: these are world events - a slime dying
+## across the clearing, a boss landing a slam - and a wave never has two dozen
+## of them audible at once. Anything closer than SFX_VOICES would just be
+## reserving nodes that never speak.
+const SFX_2D_VOICES := 12
+## Past this the sound is inaudible and the voice is better spent.
+const SFX_2D_MAX_DISTANCE := 1600.0
+const SFX_2D_ATTENUATION := 1.4
 const CROSSFADE := 1.4
+
+## Reverb per biome: room size, damping.
+##
+## The forest is the only room in the game, and it is a different room five
+## times. Greenwood is open canopy; the Hollow is the one the design calls
+## "where the light stops", so it is the long dark tail; Ashfall is burnt out
+## and dead, which is a short reverb, not a long one - fire strips a place of
+## the soft surfaces that ring. Fenland is damp and close. Heartwood is inside
+## something.
+const SPACES := {
+	"greenwood": {"room": 0.55, "damp": 0.42},
+	"fenland":   {"room": 0.46, "damp": 0.62},
+	"ashfall":   {"room": 0.34, "damp": 0.30},
+	"hollow":    {"room": 0.78, "damp": 0.28},
+	"heartwood": {"room": 0.66, "damp": 0.50},
+}
+const SPACE_FADE := 2.5
 const DUCKED_CUTOFF := 760.0
 const OPEN_CUTOFF := 20500.0
 
@@ -40,6 +67,10 @@ var _active_deck := 0
 var _layer_player: AudioStreamPlayer
 var _sfx_voices: Array[AudioStreamPlayer] = []
 var _sfx_next := 0
+var _sfx_2d_voices: Array[AudioStreamPlayer2D] = []
+var _sfx_2d_next := 0
+var _reverb: AudioEffectReverb = null
+var _space_tween: Tween
 var _music_cache: Dictionary = {}
 var _sfx_cache: Dictionary = {}
 var _fade_tween: Tween
@@ -54,6 +85,8 @@ func _exit_tree() -> void:
 	# is what produces the "resources still in use at exit" warning.
 	if _fade_tween != null and _fade_tween.is_valid():
 		_fade_tween.kill()
+	if _space_tween != null and _space_tween.is_valid():
+		_space_tween.kill()
 	# stop() before clearing: a playing stream is still referenced by its
 	# active playback, so nulling it while it plays releases nothing
 	for deck: AudioStreamPlayer in _decks:
@@ -64,6 +97,9 @@ func _exit_tree() -> void:
 	for voice: AudioStreamPlayer in _sfx_voices:
 		voice.stop()
 		voice.stream = null
+	for voice2: AudioStreamPlayer2D in _sfx_2d_voices:
+		voice2.stop()
+		voice2.stream = null
 	_music_cache.clear()
 	_sfx_cache.clear()
 
@@ -92,7 +128,61 @@ func _ready() -> void:
 		add_child(p)
 		_sfx_voices.append(p)
 
+	# Positional ring. These live on this autoload rather than being parented to
+	# whatever made the sound, deliberately: an enemy that dies is released to
+	# the pool on the same frame, and a voice parented to it would be cut off
+	# mid-death-squelch or, worse, follow the node when it was handed out again.
+	for i in SFX_2D_VOICES:
+		var p2 := AudioStreamPlayer2D.new()
+		p2.bus = "SFX"
+		p2.max_distance = SFX_2D_MAX_DISTANCE
+		p2.attenuation = SFX_2D_ATTENUATION
+		p2.process_mode = Node.PROCESS_MODE_ALWAYS
+		add_child(p2)
+		_sfx_2d_voices.append(p2)
+
+	_grab_reverb()
+	Events.biome_changed.connect(_on_biome_changed)
+
 	apply_settings()
+
+
+## Hold the live AudioEffectReverb instance off the SFX bus.
+##
+## Fetched once and cached: AudioServer.get_bus_effect returns the actual
+## resource the mix is using, so tweening its properties changes the sound
+## without rebuilding the bus. A null here is not fatal - set_space just
+## becomes a no-op and the dry mix plays - so the game never depends on the
+## bus layout having been saved with the effect attached.
+func _grab_reverb() -> void:
+	var idx := AudioServer.get_bus_index("SFX")
+	if idx < 0:
+		return
+	for i in AudioServer.get_bus_effect_count(idx):
+		var fx := AudioServer.get_bus_effect(idx, i)
+		if fx is AudioEffectReverb:
+			_reverb = fx as AudioEffectReverb
+			return
+
+
+func _on_biome_changed(biome_id: String, _display_name: String) -> void:
+	set_space(biome_id)
+
+
+## Move the room to match the biome, over SPACE_FADE seconds.
+##
+## Tweened rather than set, because the biome boundary is a shop closing and the
+## forest rebuilding around you - a reverb that snapped would be the one thing
+## in that transition that announced itself as a setting being changed.
+func set_space(biome_id: String) -> void:
+	if _reverb == null:
+		return
+	var spec: Dictionary = SPACES.get(biome_id, SPACES["greenwood"])
+	if _space_tween != null and _space_tween.is_valid():
+		_space_tween.kill()
+	_space_tween = create_tween().set_parallel(true)
+	_space_tween.tween_property(_reverb, "room_size", float(spec["room"]), SPACE_FADE)
+	_space_tween.tween_property(_reverb, "damping", float(spec["damp"]), SPACE_FADE)
 
 
 # --------------------------------------------------------------------------
@@ -253,7 +343,17 @@ func _set_layer_volume(db: float) -> void:
 # --------------------------------------------------------------------------
 ## Play a one-shot. `pitch_jitter` keeps repeated sounds (gunfire, hits) from
 ## turning into a machine-gun of identical samples.
-func play(sfx_name: String, volume_db: float = 0.0, pitch_jitter: float = 0.06,
+## Loudness variance, in dB, applied alongside pitch jitter.
+##
+## Gated on pitch_jitter > 0 rather than on a parameter of its own. A caller
+## passing 0.0 jitter is saying "this sound must be identical every time" - that
+## is what play_ui does for menu clicks, where a wandering level would read as a
+## fault. Everything else is a world sound heard hundreds of times a run, and a
+## fixed level is a large part of why repetition registers as a loop.
+const VOLUME_JITTER_DB := 1.5
+
+
+func play(sfx_name: String, volume_db: float = 0.0, pitch_jitter: float = 0.10,
 		bus: String = "SFX") -> void:
 	var stream := _load_sfx(sfx_name)
 	if stream == null:
@@ -261,9 +361,46 @@ func play(sfx_name: String, volume_db: float = 0.0, pitch_jitter: float = 0.06,
 	var voice := _next_voice()
 	voice.stream = stream
 	voice.bus = bus
-	voice.volume_db = volume_db
+	voice.volume_db = volume_db + _volume_jitter(pitch_jitter)
 	voice.pitch_scale = 1.0 + randf_range(-pitch_jitter, pitch_jitter)
 	voice.play()
+
+
+func _volume_jitter(pitch_jitter: float) -> float:
+	if pitch_jitter <= 0.0:
+		return 0.0
+	return randf_range(-VOLUME_JITTER_DB, VOLUME_JITTER_DB)
+
+
+## Play `sfx_name` at a world position, so it arrives from somewhere.
+##
+## The flat ring makes a Spitter's shot at 1800 px exactly as loud and as centred
+## as the one at 40 px, in a world 4800x3700 across. Anything that happens TO the
+## player - their own gun, taking a hit, a pickup - stays on the flat ring on
+## purpose: those are not events at a distance, and panning them would put the
+## player's own weapon off to one side of their head.
+func play_at(sfx_name: String, at: Vector2, volume_db: float = 0.0,
+		pitch_jitter: float = 0.10) -> void:
+	var stream := _load_sfx(sfx_name)
+	if stream == null:
+		return
+	var voice := _next_2d_voice()
+	voice.global_position = at
+	voice.stream = stream
+	voice.volume_db = volume_db + _volume_jitter(pitch_jitter)
+	voice.pitch_scale = 1.0 + randf_range(-pitch_jitter, pitch_jitter)
+	voice.play()
+
+
+## As play_throttled, but positional. Shares the same throttle table, so a
+## sound cannot dodge its own rate limit by being played through the other ring.
+func play_at_throttled(sfx_name: String, at: Vector2, min_interval: float,
+		volume_db: float = 0.0, pitch_jitter: float = 0.10) -> void:
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - float(_last_played.get(sfx_name, -999.0)) < min_interval:
+		return
+	_last_played[sfx_name] = now
+	play_at(sfx_name, at, volume_db, pitch_jitter)
 
 
 ## Play, but never more often than `min_interval` seconds for this sound.
@@ -275,7 +412,7 @@ func play(sfx_name: String, volume_db: float = 0.0, pitch_jitter: float = 0.06,
 ## reading as feedback and starts reading as a buzz. Dropping the duplicates
 ## costs nothing, because they were inaudible as distinct events anyway.
 func play_throttled(sfx_name: String, min_interval: float,
-		volume_db: float = 0.0, pitch_jitter: float = 0.06) -> void:
+		volume_db: float = 0.0, pitch_jitter: float = 0.10) -> void:
 	var now := Time.get_ticks_msec() / 1000.0
 	if now - float(_last_played.get(sfx_name, -999.0)) < min_interval:
 		return
@@ -285,6 +422,17 @@ func play_throttled(sfx_name: String, min_interval: float,
 
 func play_ui(sfx_name: String, volume_db: float = 0.0) -> void:
 	play(sfx_name, volume_db, 0.0, "UI")
+
+
+func _next_2d_voice() -> AudioStreamPlayer2D:
+	for i in SFX_2D_VOICES:
+		var idx := (_sfx_2d_next + i) % SFX_2D_VOICES
+		if not _sfx_2d_voices[idx].playing:
+			_sfx_2d_next = (idx + 1) % SFX_2D_VOICES
+			return _sfx_2d_voices[idx]
+	var v2 := _sfx_2d_voices[_sfx_2d_next]
+	_sfx_2d_next = (_sfx_2d_next + 1) % SFX_2D_VOICES
+	return v2
 
 
 ## Round-robin, but prefer a voice that has finished so we don't cut a long

@@ -20,6 +20,9 @@ build/
 /Slimer.exe
 /Slimer.console.exe
 /Slimer.pck
+# ...and the unpacked export tree beside them. 9 MB of .gdc/.remap that a
+# `git add -A` will happily sweep into a commit.
+/Slimer/
 /Slimer-macos.zip
 /Slimer.zip
 /slimer.html
@@ -42,3 +45,9 @@ build/
 # nested inside the tree. Leading **/ because a pattern with a slash in it is
 # anchored to this file's directory, and these appear under subdirectories too.
 **/.claude/worktrees/
+
+# iconutil scratch. gen_icons builds the .icns from this and leaves it behind.
+game/assets/sprites/gen/*.iconset/
+
+# Python bytecode from the asset generators.
+game/tools/__pycache__/

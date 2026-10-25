@@ -105,10 +105,12 @@ func go_to_credits() -> void:
 
 ## Begin a fresh run. Everything temporary is discarded here - this single
 ## line is the whole of "death resets the run".
-func start_run(seed_value: int = 0, nightmare: bool = false) -> void:
+func start_run(seed_value: int = 0, nightmare: bool = false,
+		character: String = "") -> void:
 	var s := seed_value if seed_value != 0 else int(Time.get_unix_time_from_system() * 1000) ^ randi()
 	rng.seed = s
-	run = RunState.create(s, Save.unlocks, Save.loadout.duplicate(), nightmare)
+	var pick := character if not character.is_empty() else String(Save.character)
+	run = RunState.create(s, Save.unlocks, Save.loadout.duplicate(), nightmare, pick)
 	run.wave = 0
 	_was_low_health = false
 	set_paused(false)
@@ -134,16 +136,29 @@ func is_nightmare() -> bool:
 func depth() -> int:
 	if run == null:
 		return 1
-	return int(ceil(maxi(run.wave, 1) / float(Balance.WAVES_PER_DEPTH)))
+	return depth_for_wave(run.wave)
+
+
+## Depth of an arbitrary wave. Split out because the run has to know the depth
+## of the wave it is *about* to start, not the one it just finished - that is
+## what decides whether the forest regenerates into a new biome.
+static func depth_for_wave(wave: int) -> int:
+	return int(ceil(maxi(wave, 1) / float(Balance.WAVES_PER_DEPTH)))
 
 
 static func is_mini_boss_wave(wave: int) -> bool:
 	return wave > 0 and wave % Balance.MINI_BOSS_EVERY == 0 \
-		and wave % Balance.MAJOR_BOSS_EVERY != 0
+		and not is_major_boss_wave(wave)
 
 
 static func is_major_boss_wave(wave: int) -> bool:
-	return wave > 0 and wave % Balance.MAJOR_BOSS_EVERY == 0
+	return wave > 0 and (wave % Balance.MAJOR_BOSS_EVERY == 0
+		or wave == Balance.FINALE_WAVE)
+
+
+## The one wave the run is built towards.
+static func is_finale_wave(wave: int) -> bool:
+	return wave == Balance.FINALE_WAVE
 
 
 static func is_boss_wave(wave: int) -> bool:
