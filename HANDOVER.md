@@ -227,6 +227,9 @@ $G --path . --resolution 1600x900 -- visual                # screenshots + asser
 
 # regenerate assets (deterministic)
 python3 tools/copy_assets.py && python3 tools/gen_art.py && python3 tools/gen_sfx.py
+# pixel-art remake (PixelLab) - runs after gen_art.py and overwrites its output;
+# cached in tools/pixellab/raw/, so only uncached sprites cost API credits
+PIXELLAB_API_KEY=... python3 tools/gen_pixellab.py --sheet /tmp/compare.png
 
 # build
 ./tools/build.sh              # all four platforms
