@@ -35,6 +35,7 @@ func _run() -> void:
 	_test_concealment()
 	_test_grass_placement()
 	_test_sfx_stability()
+	_test_music_tracks()
 	_test_font()
 	_test_boss_phases()
 	_test_boss_phase_bar()
@@ -1281,6 +1282,64 @@ func _test_font() -> void:
 		var w := font.get_string_size("Wave 12", HORIZONTAL_ALIGNMENT_LEFT, -1,
 			size).x
 		_check(w > 0.0, "the typeface renders nothing at %d px" % size)
+
+
+func _test_music_tracks() -> void:
+	# The licensed directory is gitignored, so a clone has none of it. Every
+	# cue must still resolve to the original track there - the licensed files
+	# are an override, never a dependency.
+	for cue: int in Audio.CUES:
+		var track: String = Audio.CUES[cue]["track"]
+		_check(Audio.music_path(track) != "",
+			"cue %d plays %s, which resolves to no file at all" % [cue, track])
+	_check(Audio.music_path("no_such_track") == "",
+		"music_path invents a path for a track that does not exist")
+
+	# A boss theme replaces the derived boss treatment outright: the layer was
+	# tempo-matched to normal_music and the rate shift would detune it.
+	for cue: int in [Audio.Cue.MINI_BOSS, Audio.Cue.MAJOR_BOSS]:
+		var spec := Audio.cue_spec(cue, "boss_oak")
+		_check(spec["track"] == "boss_oak" and float(spec["rate"]) == 1.0
+				and float(spec["drive"]) == 0.0 and spec["layer"] == "",
+			"boss cue %d does not play the boss theme as written: %s" % [cue, spec])
+		_check(Audio.cue_spec(cue, "") == Audio.CUES[cue],
+			"boss cue %d without a theme lost its derived treatment" % cue)
+	_check(Audio.cue_spec(Audio.Cue.COMBAT, "boss_oak") == Audio.CUES[Audio.Cue.COMBAT],
+		"a boss theme leaked into an ordinary wave")
+
+	# Driven through the real signal handler: a boss whose theme is not on disk
+	# must leave boss_track empty, or the fight would cut to silence.
+	var fake := GDScript.new()
+	fake.source_code = "extends Node2D\nvar id := \"\"\n"
+	fake.reload()
+	var saved := Audio.boss_track
+	for id: String in BossDB.DEFS:
+		var boss: Node2D = fake.new()
+		boss.set("id", id)
+		var theme := Audio.BOSS_TRACK_PREFIX + id
+		Audio._on_boss_spawned(boss, id, false)
+		var expected := theme if Audio.music_path(theme) != "" else ""
+		_check(Audio.boss_track == expected,
+			"boss %s set boss_track to '%s', expected '%s'" % [id, Audio.boss_track, expected])
+		Audio._on_boss_defeated(boss)
+		_check(Audio.boss_track == "", "defeating %s left its theme playing" % id)
+		boss.free()
+	Audio.boss_track = saved
+
+	# Every boss has a manifest entry, so a new boss cannot ship silently
+	# without the same treatment the others got.
+	var raw := _read_source("res://tools/licensed_audio.json")
+	var parsed: Variant = JSON.parse_string(raw)
+	_check(parsed is Dictionary, "licensed_audio.json is not a JSON object")
+	if not (parsed is Dictionary):
+		return
+	var tracks: Dictionary = (parsed as Dictionary).get("tracks", {})
+	for id: String in BossDB.DEFS:
+		_check(tracks.has(Audio.BOSS_TRACK_PREFIX + id),
+			"boss %s has no theme in licensed_audio.json" % id)
+	for cue: int in Audio.CUES:
+		_check(tracks.has(Audio.CUES[cue]["track"]),
+			"%s is not in licensed_audio.json" % Audio.CUES[cue]["track"])
 
 
 func _test_sfx_stability() -> void:

@@ -1,7 +1,8 @@
 # Third-party asset licences
 
-**Slimer's art, sound and music are entirely original work.** No third-party
-assets remain in the game.
+**Slimer's art and sound effects are original work. Its shipped music is
+licensed from Epidemic Sound** (see *Music* below); the repository itself holds
+only original material.
 
 This file used to document thirteen sprites taken from GDQuest's *Your First 2D
 Game With Godot 4* starter pack, which are licensed CC BY-NC-SA 4.0. Those
@@ -27,7 +28,23 @@ under.
 
 ## Music
 
-The four `.mp3` tracks are by Tanav Yedlapalli.
+The four `.mp3` tracks in `assets/music/` are by Tanav Yedlapalli. They are
+the fallback, and what a build made from a fresh clone plays.
+
+Release builds play ten tracks licensed from **Epidemic Sound** instead: the
+menu, combat, low-health and ending themes, and one theme per boss. They live in
+`assets/music_licensed/`, which is **gitignored on purpose** — the repository is
+public, and the licence covers shipping the music inside the game, not
+publishing the audio files. `tools/licensed_audio.json` lists every track by
+Epidemic recording ID, title and artist, with the edit length and loudness it
+was processed to, so the directory can be rebuilt. The game uses those files
+whenever they are present (`Audio.music_path`), and the credits screen names
+Epidemic Sound only when they are.
+
+Epidemic's own plan comparison lists apps and games only under its Business
+Plus and Enterprise plans. Keep the subscription that covers games active
+while the game is sold, and confirm the terms with Epidemic in writing before
+release.
 
 ## Pack code — MIT
 

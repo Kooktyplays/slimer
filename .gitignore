@@ -51,3 +51,11 @@ game/assets/sprites/gen/*.iconset/
 
 # Python bytecode from the asset generators.
 game/tools/__pycache__/
+
+# Licensed music from Epidemic Sound. The licence covers shipping it inside the
+# game, not publishing the raw files, and this repository is public. What
+# belongs here is recorded in game/tools/licensed_audio.json so it can be
+# fetched again; without it the game falls back to the original tracks.
+game/assets/music_licensed/
+# Untouched downloads the licensed files are processed from.
+.audio_staging/

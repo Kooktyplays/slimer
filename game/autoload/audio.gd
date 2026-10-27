@@ -11,6 +11,19 @@ extends Node
 ## AudioStreamPlayer nodes.
 
 const MUSIC_DIR := "res://assets/music/"
+## Licensed tracks (Epidemic Sound) that override the ones in MUSIC_DIR, plus
+## one theme per boss, named BOSS_TRACK_PREFIX + the boss id.
+##
+## This directory is gitignored: the repository is public, and a stock-audio
+## licence covers shipping the music inside the game, not handing out the raw
+## files. tools/licensed_audio.json records what belongs here so it can be
+## fetched again. A clone without it falls back to MUSIC_DIR and plays the
+## original tracks, so nothing about the game depends on it being present.
+##
+## WAV rather than MP3: Godot compresses it with QOA on import, and a WAV loop
+## is sample-exact where MP3's encoder padding leaves a gap at the seam.
+const LICENSED_MUSIC_DIR := "res://assets/music_licensed/"
+const BOSS_TRACK_PREFIX := "boss_"
 const SFX_DIR := "res://assets/sfx/"
 const SFX_VOICES := 24
 ## Positional voices, for sounds that happen somewhere rather than to you.
@@ -60,6 +73,9 @@ const CUES := {
 }
 
 var current_cue: int = Cue.NONE
+## The boss fight in progress has its own theme; "" means use the CUES entry.
+var boss_track := ""
+var _current_track := ""
 
 var _decks: Array[AudioStreamPlayer] = []
 var _deck_buses := ["MusicA", "MusicB"]
@@ -143,6 +159,8 @@ func _ready() -> void:
 
 	_grab_reverb()
 	Events.biome_changed.connect(_on_biome_changed)
+	Events.boss_spawned.connect(_on_boss_spawned)
+	Events.boss_defeated.connect(_on_boss_defeated)
 
 	apply_settings()
 
@@ -215,7 +233,12 @@ func play_cue(cue: int, force_restart: bool = false) -> void:
 		stop_music()
 		return
 
-	var spec: Dictionary = CUES[cue]
+	# Leaving the run drops the theme, so a run that ended mid-fight cannot
+	# carry it into the next one's first boss wave. LOW_HEALTH keeps it: the
+	# fight resumes its theme when the player recovers.
+	if cue == Cue.MENU or cue == Cue.DEATH or cue == Cue.RESULTS:
+		boss_track = ""
+	var spec := cue_spec(cue, boss_track)
 	var stream := _load_music(spec["track"])
 	if stream == null:
 		return
@@ -230,8 +253,7 @@ func play_cue(cue: int, force_restart: bool = false) -> void:
 	var carry_position := 0.0
 	var same_track: bool = (
 		current_cue != Cue.NONE
-		and CUES.has(current_cue)
-		and CUES[current_cue]["track"] == spec["track"]
+		and _current_track == spec["track"]
 		and from_deck.playing
 	)
 	if same_track:
@@ -254,10 +276,35 @@ func play_cue(cue: int, force_restart: bool = false) -> void:
 		_fade_tween.chain().tween_callback(from_deck.stop)
 
 	current_cue = cue
+	_current_track = spec["track"]
+
+
+## What a cue plays: its CUES entry, unless it is a boss cue and the fight has
+## a theme of its own. A dedicated theme plays as written - no rate shift, no
+## drive, and no percussion layer, which was tempo-matched to Normal Music and
+## would drift against anything else.
+static func cue_spec(cue: int, theme: String) -> Dictionary:
+	if theme != "" and (cue == Cue.MINI_BOSS or cue == Cue.MAJOR_BOSS):
+		return {"track": theme, "rate": 1.0, "drive": 0.0, "layer": ""}
+	return CUES[cue]
+
+
+## A boss with a theme on disk takes the music over as it lands; one without
+## keeps the derived boss treatment of Normal Music.
+func _on_boss_spawned(boss: Node2D, _display_name: String, _is_major: bool) -> void:
+	var theme := BOSS_TRACK_PREFIX + String(boss.get("id"))
+	boss_track = theme if music_path(theme) != "" else ""
+	if boss_track != "" and (current_cue == Cue.MINI_BOSS or current_cue == Cue.MAJOR_BOSS):
+		play_cue(current_cue, true)
+
+
+func _on_boss_defeated(_boss: Node2D) -> void:
+	boss_track = ""
 
 
 func stop_music(fade: float = 0.6) -> void:
 	current_cue = Cue.NONE
+	_current_track = ""
 	if _fade_tween != null and _fade_tween.is_valid():
 		_fade_tween.kill()
 	_fade_tween = create_tween().set_parallel(true)
@@ -454,15 +501,32 @@ func _next_voice() -> AudioStreamPlayer:
 func _load_music(track: String) -> AudioStream:
 	if _music_cache.has(track):
 		return _music_cache[track]
-	var path := MUSIC_DIR + track + ".mp3"
-	if not ResourceLoader.exists(path):
-		push_warning("Slimer: missing music track %s" % path)
+	var path := music_path(track)
+	if path == "":
+		push_warning("Slimer: missing music track %s" % track)
 		return null
 	var stream: AudioStream = load(path)
 	if stream is AudioStreamMP3:
 		(stream as AudioStreamMP3).loop = true
+	elif stream is AudioStreamWAV:
+		var wav := stream as AudioStreamWAV
+		wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		wav.loop_begin = 0
+		# From the length, not data.size(): under QOA import data is the
+		# compressed byte count, which is how the music layers came to loop
+		# only their first second.
+		wav.loop_end = int(wav.get_length() * wav.mix_rate)
 	_music_cache[track] = stream
 	return stream
+
+
+## Where a track is loaded from: the licensed WAV if it is present, otherwise
+## the original MP3, otherwise "".
+static func music_path(track: String) -> String:
+	for path in [LICENSED_MUSIC_DIR + track + ".wav", MUSIC_DIR + track + ".mp3"]:
+		if ResourceLoader.exists(path):
+			return path
+	return ""
 
 
 func _load_sfx(sfx_name: String) -> AudioStream:
