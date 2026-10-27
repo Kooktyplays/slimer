@@ -22,6 +22,20 @@ const ENTRIES: Array[Dictionary] = [
 ]
 
 
+## The credit for whoever's music is actually playing. The licensed Epidemic
+## Sound tracks are gitignored, so a build made from a clone plays the original
+## tracks and must not credit music it does not contain.
+static func entries() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var licensed := Audio.music_path("normal_music").begins_with(Audio.LICENSED_MUSIC_DIR)
+	for entry: Dictionary in ENTRIES:
+		if entry["role"] == "Music" and licensed:
+			out.append({"role": "Music", "name": "Epidemic Sound"})
+		else:
+			out.append(entry)
+	return out
+
+
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_build()
@@ -57,7 +71,7 @@ func _build() -> void:
 	col.add_child(UITheme.title("a forest that does not end", 18, UITheme.TEXT_DIM))
 	col.add_child(UITheme.spacer(16))
 
-	for entry: Dictionary in ENTRIES:
+	for entry: Dictionary in entries():
 		var row := HBoxContainer.new()
 		col.add_child(row)
 		var role := UITheme.label(String(entry["role"]), 19, UITheme.TEXT_DIM, 4)

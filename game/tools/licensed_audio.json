@@ -1,0 +1,16 @@
+{
+	"_comment": "The licensed music in assets/music_licensed/, which is gitignored: the repository is public and the Epidemic Sound licence covers shipping the audio inside the game, not publishing the files. Each entry is enough to fetch the track again: open the recording on Epidemic Sound, make a loopable edit of edit_ms, download it as WAV, and run it through the loudness pass at lufs (integrated, true peak held under -1 dBFS, 20 ms tail-into-head crossfade so the loop cannot click). Boss themes are named boss_<BossDB id>; a boss without one plays the derived boss treatment of normal_music.",
+	"source": "Epidemic Sound",
+	"tracks": {
+		"normal_music": {"recording_id": "790d6174-62d6-335a-87af-558e771b0a8a", "title": "Last Words", "artist": "Jon Björk", "edit_ms": 120000, "lufs": -14.2},
+		"lobby_music": {"recording_id": "5879ab51-10c8-4345-bb75-352bc2d6c380", "title": "Starfall", "artist": "Roots and Recognition", "edit_ms": 120000, "lufs": -14.6},
+		"low_health_music": {"recording_id": "19e9bff1-1b22-3209-92a1-2024ee1e8ec9", "title": "Night Hunter", "artist": "Robert Ruth", "edit_ms": 60000, "lufs": -14.1},
+		"happy_ending": {"recording_id": "ed61cb17-39e4-31f7-9508-1cc27e870d1a", "title": "Stay with Us", "artist": "Sleeping Vines", "edit_ms": 60000, "lufs": -14.0},
+		"boss_bramble": {"recording_id": "91a61b97-f492-3ebd-8bbd-e3e5513a8821", "title": "Extinction Path", "artist": "Jon Sumner", "edit_ms": 120000, "lufs": -14.2},
+		"boss_toad": {"recording_id": "80547f7b-d7ff-3f94-9179-522cbf2921a1", "title": "Thriller Mind Games", "artist": "Adam Friesendorff", "edit_ms": 120000, "lufs": -14.2},
+		"boss_wisp": {"recording_id": "335e7f8a-5bbe-46c5-82ca-43377a833703", "title": "Hecatomb", "artist": "Jo Wandrini", "edit_ms": 120000, "lufs": -14.2},
+		"boss_gardener": {"recording_id": "9c75761a-12b6-30cf-a046-17adaa291759", "title": "Hypogeal", "artist": "Reynard Seidel", "edit_ms": 120000, "lufs": -14.2},
+		"boss_oak": {"recording_id": "29e734ba-3d4b-454c-895c-1a2e3a3d2b43", "title": "Halls of Titans", "artist": "Hampus Naeselius", "edit_ms": 120000, "lufs": -14.2},
+		"boss_sovereign": {"recording_id": "eb16033f-a25d-4331-b8de-8fe0e795ab51", "title": "Medusa", "artist": "Jo Wandrini", "edit_ms": 120000, "lufs": -14.2}
+	}
+}
