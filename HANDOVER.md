@@ -227,9 +227,14 @@ $G --path . --resolution 1600x900 -- visual                # screenshots + asser
 
 # regenerate assets (deterministic)
 python3 tools/copy_assets.py && python3 tools/gen_art.py && python3 tools/gen_sfx.py
-# pixel-art remake (PixelLab) - runs after gen_art.py and overwrites its output;
-# cached in tools/pixellab/raw/, so only uncached sprites cost API credits
-PIXELLAB_API_KEY=... python3 tools/gen_pixellab.py --sheet /tmp/compare.png
+# pixel-art remake - the sprites in git are its output. Runs after gen_art.py
+# and overwrites it. Needs pixel-plugin (claude plugin marketplace add
+# willibrandon/pixel-plugin; claude plugin install pixel-plugin) and an
+# Aseprite binary named in ~/.config/pixel-mcp/config.json. Sources come from
+# tools/art_ref/ (the pre-remake sprites), so reruns are stable. ~15 s.
+python3 tools/gen_pixelart.py
+# alternative AI route, not used for the current art (needs a PixelLab key):
+# PIXELLAB_API_KEY=... python3 tools/gen_pixellab.py --sheet /tmp/compare.png
 
 # build
 ./tools/build.sh              # all four platforms

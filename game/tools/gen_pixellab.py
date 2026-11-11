@@ -11,7 +11,7 @@ blown up with NEAREST, so one art pixel is PX game pixels everywhere.
     python3 tools/gen_pixellab.py --only slime_body boss_toad_body --force
 
 Layout (tools/pixellab/ has a .gdignore so Godot never imports it):
-    ref/   the sprites as they were before the remake. Snapshotted on the first
+    ../art_ref/  the sprites as they were before the remake. Snapshotted on the first
            run; used for canvas size, footprint and as the init image.
     raw/   PixelLab's output, exactly as returned. Committed - it is the source
            of truth, so re-running only re-does post-processing and costs
@@ -46,7 +46,7 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parent.parent
 SPRITES = ROOT / "assets" / "sprites"
 WORK = Path(__file__).resolve().parent / "pixellab"
-REF = WORK / "ref"
+REF = Path(__file__).resolve().parent / "art_ref"   # shared with gen_pixelart.py
 RAW = WORK / "raw"
 
 API_URL = os.environ.get("PIXELLAB_API_URL", "https://api.pixellab.ai/v1")
