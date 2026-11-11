@@ -227,6 +227,18 @@ $G --path . --resolution 1600x900 -- visual                # screenshots + asser
 
 # regenerate assets (deterministic)
 python3 tools/copy_assets.py && python3 tools/gen_art.py && python3 tools/gen_sfx.py
+# pixel-art remake - the sprites in git are its output. Runs after gen_art.py
+# and overwrites it. Sources are tools/art_ref/ (the pre-remake sprites), so
+# after changing gen_art.py delete the matching art_ref files first. Needs
+# pixel-plugin (claude plugin marketplace add willibrandon/pixel-plugin;
+# claude plugin install pixel-plugin) and an Aseprite binary named in
+# ~/.config/pixel-mcp/config.json. About a minute.
+python3 tools/gen_pixelart.py
+
+# ability / ultimate preview clips (assets/previews/*.ogv). Needs ffmpeg with
+# libtheora and a display (wraps itself in xvfb-run). Re-record a clip when its
+# ability changes how it looks. ~10 s per clip.
+GODOT=$G python3 tools/record_previews.py              # or: ... nova ult:vampire
 
 # build
 ./tools/build.sh              # all four platforms
