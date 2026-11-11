@@ -53,7 +53,24 @@ func _run() -> void:
 			picker.call("_step", 1)
 			await _settle(0.5)
 			await _shot("class_select_next")
-			picker.call("_confirm")
+			# both arrows stay visible and clickable after switching
+			var prev_btn := _find_button(picker, "<")
+			var card: Control = picker.get("_card")
+			_expect(prev_btn != null and card != null
+				and not card.get_global_rect().has_point(prev_btn.get_global_rect().get_center()),
+				"the class card covers the previous-class arrow after switching")
+			# Esc must leave without choosing - browsing classes may never
+			# force a pick (or a purchase) to get back to the loadout.
+			var before := String(Save.character)
+			var esc := InputEventAction.new()
+			esc.action = "pause"
+			esc.pressed = true
+			Input.parse_input_event(esc)
+			await _settle(0.4)
+			_expect(loadout.get("_class_panel") == null,
+				"Esc did not close the class screen")
+			_expect(String(Save.character) == before,
+				"leaving the class screen with Esc changed the character")
 		await _settle(0.4)
 
 	# --- 3. meta / permanent upgrades --------------------------------------
@@ -555,6 +572,18 @@ func _find_script_node(path: String) -> Node:
 		var n: Node = stack.pop_back()
 		var sc: Variant = n.get_script()
 		if sc != null and String(sc.resource_path) == path:
+			return n
+		for c: Node in n.get_children():
+			stack.append(c)
+	return null
+
+
+## Find a Button under `root` by its exact text.
+func _find_button(root: Node, text: String) -> Button:
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is Button and (n as Button).text == text:
 			return n
 		for c: Node in n.get_children():
 			stack.append(c)

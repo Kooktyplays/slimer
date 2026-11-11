@@ -24,7 +24,7 @@ func _ready() -> void:
 	_build_class_picker()
 	_build_difficulty()
 
-	var back := UITheme.button("BACK", 22)
+	var back := UITheme.button("\u2190  BACK", 22)
 	back.custom_minimum_size = Vector2(160, 46)
 	back.position = Vector2(40, 40)
 	back.size = Vector2(160, 46)
@@ -114,6 +114,16 @@ func _refresh_difficulty() -> void:
 		+ " and much harder hits. Pays %.1fx Essence."
 			% Balance.NIGHTMARE_ESSENCE_MULTIPLIER) if _nightmare else \
 		"The standard run. Enemy types unlock as you go."
+
+
+## Esc backs out of the loadout the same way the BACK button does. The class
+## screen sits on top and handles Esc first, so this only fires when it is shut.
+func _unhandled_input(event: InputEvent) -> void:
+	if _class_panel != null:
+		return
+	if event.is_action_pressed("pause") or event.is_action_pressed("ui_cancel"):
+		get_viewport().set_input_as_handled()
+		Game.go_to_main_menu()
 
 
 func _start() -> void:

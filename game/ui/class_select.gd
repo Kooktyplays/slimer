@@ -136,6 +136,16 @@ func _build() -> void:
 	_confirm_button.pressed.connect(_confirm)
 	footer.add_child(_confirm_button)
 
+	# A way out that is not a decision. Opening this screen to read the
+	# classes must never force you to pick (or buy) one to get back.
+	var back := UITheme.button("\u2190  BACK", 22)
+	back.custom_minimum_size = Vector2(160, 46)
+	back.position = Vector2(40, 40)
+	back.size = Vector2(160, 46)
+	back.tooltip_text = "Leave without changing character (Esc)"
+	back.pressed.connect(_back)
+	add_child(back)
+
 
 func _wrapped(parent: Node, size: int, colour: Color) -> Label:
 	var l := UITheme.label("", size, colour, 4)
@@ -177,6 +187,12 @@ func _cycle_skin() -> void:
 	Save.skin_for_class[cls] = want
 	Save.save_game()
 	_refresh(true)
+
+
+## Close without choosing: the character you had stays selected.
+func _back() -> void:
+	Audio.play_ui("ui_click", -8.0)
+	closed.emit()
 
 
 ## Choose this character, or buy it if it is not owned yet.
@@ -255,14 +271,20 @@ func _refresh(animate: bool) -> void:
 	_essence_label.text = "%d ✦ essence" % Save.essence
 
 	if animate:
-		# Slide-and-settle on every change, not only on open: switching is when
+		# Pop-and-settle on every change, not only on open: switching is when
 		# you are comparing, so that is the moment worth punctuating.
+		#
+		# Scale, not position. The card lives in an HBoxContainer, which only
+		# lays children out when it re-sorts - a tween on position left the
+		# card parked at x = 0, on top of the "<" button, hiding it and eating
+		# its clicks after the first switch.
 		_card.modulate.a = 0.0
-		_card.position.x = 26.0
+		_card.pivot_offset = _card.size * 0.5
+		_card.scale = Vector2(0.94, 0.94)
 		var t := create_tween()
 		t.set_parallel(true)
 		t.tween_property(_card, "modulate:a", 1.0, 0.16)
-		t.tween_property(_card, "position:x", 0.0, 0.22) \
+		t.tween_property(_card, "scale", Vector2.ONE, 0.22) \
 			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
@@ -283,4 +305,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") or event.is_action_pressed("ui_accept"):
 		_confirm()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("pause") or event.is_action_pressed("ui_cancel"):
+		_back()
 		get_viewport().set_input_as_handled()
