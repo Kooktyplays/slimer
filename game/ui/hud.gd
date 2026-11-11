@@ -641,6 +641,12 @@ func _on_health_changed(hp: float, max_hp: float) -> void:
 
 
 func _on_ammo_changed(current: int, magazine: int) -> void:
+	# A melee weapon has no magazine; show what you are holding instead.
+	if magazine <= 0:
+		_ammo_label.text = WeaponsDB.display_name(
+			Game.run.weapon if Game.run != null else "").to_upper()
+		_ammo_label.modulate = UITheme.TEXT
+		return
 	_ammo_label.text = "%d / %d" % [current, magazine]
 	_ammo_label.modulate = UITheme.RED if current == 0 else UITheme.TEXT
 

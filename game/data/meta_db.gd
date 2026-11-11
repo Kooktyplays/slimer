@@ -8,6 +8,7 @@ extends RefCounted
 ## player more capable, not make wave 20 trivial.
 
 const KIND_CLASS := "class"
+const KIND_WEAPON := "weapon"
 const KIND_ABILITY := "ability"
 const KIND_UPGRADE := "upgrade"
 const KIND_PASSIVE := "passive"
@@ -27,6 +28,19 @@ const DEFS := {
 	"cls_vampire":   {"kind": KIND_CLASS, "ref": "vampire",   "cost": 450},
 	"cls_engineer":  {"kind": KIND_CLASS, "ref": "engineer",  "cost": 550},
 	"cls_herbalist": {"kind": KIND_CLASS, "ref": "herbalist", "cost": 650},
+
+	# ---- weapons -----------------------------------------------------------
+	#
+	# Bought on the weapon screen, like characters on theirs. The Pistol and
+	# the Wildblade are free so a first run already has both a gun and a melee
+	# weapon to choose between. `cost` mirrors WeaponsDB so the two cannot
+	# disagree about a price - the logic suite checks it.
+	"wpn_scattergun": {"kind": KIND_WEAPON, "ref": "scattergun", "cost": 180},
+	"wpn_repeater":   {"kind": KIND_WEAPON, "ref": "repeater",   "cost": 200},
+	"wpn_spear":      {"kind": KIND_WEAPON, "ref": "spear",      "cost": 200},
+	"wpn_maul":       {"kind": KIND_WEAPON, "ref": "maul",       "cost": 220},
+	"wpn_longshot":   {"kind": KIND_WEAPON, "ref": "longshot",   "cost": 240},
+	"wpn_launcher":   {"kind": KIND_WEAPON, "ref": "launcher",   "cost": 280},
 
 	# ---- new abilities (cost mirrors AbilitiesDB.essence) -------------------
 	"ab_surge":     {"kind": KIND_ABILITY, "ref": "surge",     "cost": 170},
@@ -103,6 +117,8 @@ const ORDER: Array[String] = [
 	"ab_shield", "ab_heal", "ab_thornwall", "ab_decoy",
 	"ab_timeslow", "ab_lightning", "ab_cinders", "ab_rapidfire",
 	"cls_warden", "cls_vampire", "cls_engineer", "cls_herbalist",
+	"wpn_scattergun", "wpn_repeater", "wpn_spear", "wpn_maul",
+	"wpn_longshot", "wpn_launcher",
 	"ab_orbital",
 	"upg_heavy_slugs", "upg_runaway_sear", "upg_split_barrel",
 	"upg_thirsting_grip", "upg_deep_reserves",
@@ -125,6 +141,8 @@ static func display_name(id: String) -> String:
 			return AbilitiesDB.get_def(def["ref"])["name"]
 		KIND_CLASS:
 			return ClassesDB.display_name(def["ref"])
+		KIND_WEAPON:
+			return WeaponsDB.display_name(def["ref"])
 	return def["name"]
 
 
@@ -136,6 +154,8 @@ static func description(id: String) -> String:
 		KIND_CLASS:
 			var cls := ClassesDB.get_def(def["ref"])
 			return "%s  %s" % [cls["passive_text"], cls["charge_text"]]
+		KIND_WEAPON:
+			return String(WeaponsDB.get_def(def["ref"])["desc"])
 	return def["desc"]
 
 
@@ -146,6 +166,8 @@ static func icon_path(id: String) -> String:
 	if def["kind"] == KIND_CLASS:
 		# the character's own sprite, so the row shows who you are buying
 		return ClassesDB.sprite_path(def["ref"])
+	if def["kind"] == KIND_WEAPON:
+		return WeaponsDB.sprite_path(def["ref"])
 	if def["kind"] == KIND_UPGRADE:
 		return "res://assets/sprites/gen/icon_ammo.png"
 	return "res://assets/sprites/gen/icon_heart.png"

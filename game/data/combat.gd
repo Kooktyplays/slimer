@@ -20,6 +20,9 @@ extends RefCounted
 const SOURCE_OTHER := "other"
 const SOURCE_BULLET := "bullet"
 const SOURCE_ABILITY := "ability"
+## Melee hits. Nothing is immune to it, which is what a melee weapon is for:
+## a Carapace slime that shrugs off bullets does not shrug off a blade.
+const SOURCE_MELEE := "melee"
 
 static var enemy_time_scale: float = 1.0
 static var _slow_left: float = 0.0

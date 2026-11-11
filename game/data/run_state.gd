@@ -14,6 +14,8 @@ var nightmare: bool = false
 ## Which character this run is. Sanitised on creation, so a save from before
 ## classes existed loads as the default rather than erroring.
 var class_id: String = "warden"
+## WeaponsDB id. A lens over `gun`, applied when a shot is made.
+var weapon: String = WeaponsDB.DEFAULT
 
 ## Ultimate charge, 0..1. Earned by doing what this class used to do - see the
 ## charge conditions in ClassesDB. Clamped at both ends: the HUD reads it as a
@@ -92,11 +94,13 @@ func _init() -> void:
 
 ## Build a run from the player's permanent unlocks.
 static func create(seed_v: int, save_unlocks: Array, loadout: Array[String],
-		nightmare_mode: bool = false, character: String = "") -> RunState:
+		nightmare_mode: bool = false, character: String = "",
+		weapon_id: String = "") -> RunState:
 	var rs := RunState.new()
 	rs.seed_value = seed_v
 	rs.nightmare = nightmare_mode
 	rs.class_id = ClassesDB.sanitise(character)
+	rs.weapon = WeaponsDB.sanitise(weapon_id)
 	rs.abilities = loadout.duplicate()
 	var essence_mul := 0.0
 	for id: String in save_unlocks:

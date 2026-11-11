@@ -73,6 +73,19 @@ func _run() -> void:
 				"leaving the class screen with Esc changed the character")
 		await _settle(0.4)
 
+	# --- 2b. weapon screen ---------------------------------------------------
+	if loadout != null:
+		loadout.call("_open_weapon_select")
+		await _settle(0.6)
+		_expect(loadout.get("_weapon_panel") != null, "the weapon screen did not open")
+		await _shot("weapon_select")
+		var esc_w := InputEventAction.new()
+		esc_w.action = "pause"
+		esc_w.pressed = true
+		Input.parse_input_event(esc_w)
+		await _settle(0.4)
+		_expect(loadout.get("_weapon_panel") == null, "Esc did not close the weapon screen")
+
 	# --- 3. meta / permanent upgrades --------------------------------------
 	Save.essence = 900
 	Game.go_to_meta()
@@ -145,6 +158,7 @@ func _run() -> void:
 		await get_tree().process_frame
 	await _shot("combat")
 
+
 	# --- 7. abilities -------------------------------------------------------
 	# Slot 0 is the movement slot, so it takes a movement ability - equipping a
 	# general one here would put Nova on the dash key.
@@ -196,6 +210,23 @@ func _run() -> void:
 	await _settle(0.6)
 	_expect(not _sample_enemy().is_equal_approx(enemy_before),
 		"enemies stayed frozen after resuming")
+
+	# --- 6b. weapons: a gun burst, then a melee swing into a crowd ----------
+	# Each weapon swaps in on the same gun node the player always carries, so
+	# this is the real switch, not a mock.
+	for w: String in ["launcher", "maul"]:
+		Game.run.weapon = w
+		player.gun.configure()
+		player.gun.refill()
+		_expect(player.gun.weapon_id() == w, "the gun did not become the %s" % w)
+		for frame in 24:
+			player.gun.call("set", "_cooldown", 0.0)
+			player.gun.try_fire(Vector2.RIGHT.rotated(sin(frame * 0.5) * 0.6))
+			await get_tree().process_frame
+		await _shot("weapon_%s" % w)
+	Game.run.weapon = WeaponsDB.DEFAULT
+	player.gun.configure()
+	player.gun.refill()
 
 	# Stop the spawner for the deterministic checks that follow.
 	#

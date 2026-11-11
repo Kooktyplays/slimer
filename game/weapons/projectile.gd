@@ -36,6 +36,9 @@ var from_player := true
 ## *bodies* while their bullets kept full speed, and the ability's own
 ## description ("slow every enemy and enemy bullet") was simply false.
 var slow_factor := 1.0
+## Ember Launcher shells: burst on contact (or at full range) instead of
+## piercing. 0 for an ordinary bullet.
+var explode_radius := 0.0
 
 var _travelled := 0.0
 var _hit: Array[RID] = []
@@ -68,6 +71,7 @@ func launch(at: Vector2, dir: Vector2, cfg: Dictionary) -> void:
 	from_player = bool(cfg.get("from_player", true))
 	velocity = dir.normalized() * float(cfg.get("speed", 900.0))
 	slow_factor = 1.0
+	explode_radius = float(cfg.get("explode_radius", 0.0))
 
 	rotation = velocity.angle()
 	_travelled = 0.0
@@ -116,7 +120,10 @@ func _physics_process(delta: float) -> void:
 	global_position = to
 	_travelled += step.length()
 	if _travelled >= max_range:
-		_expire()
+		if explode_radius > 0.0:
+			_burst(global_position)
+		else:
+			_expire()
 
 
 ## Walk the bullet's circle along `from` -> `to`, resolving the first thing it
@@ -150,6 +157,9 @@ func _resolve(collider: Object, rid: RID, at: Vector2) -> bool:
 		body = (collider as Area2D).get_parent()
 		if body == null:
 			return false
+	if explode_radius > 0.0 and (body is StaticBody2D or body.has_method("take_damage")):
+		_burst(at)
+		return true
 	if body is StaticBody2D:
 		FX.impact(at, Color(0.85, 0.85, 0.8, 0.8), 0.7)
 		Audio.play_throttled("hit", 0.05, -16.0, 0.12)
@@ -180,6 +190,16 @@ func _resolve(collider: Object, rid: RID, at: Vector2) -> bool:
 	return false
 
 
+## A shell landing: area damage tagged as a bullet, so Carapace still shrugs
+## it off - the launcher is a bigger gun, not a way round the gun's limits.
+func _burst(at: Vector2) -> void:
+	Combat.explode(at, explode_radius, damage, knockback, true, Combat.SOURCE_BULLET)
+	FX.explosion(at, explode_radius)
+	Audio.play_throttled("explosion", 0.06, -10.0, 0.15)
+	Game.shake(Balance.SHAKE_SHOOT * 3.0, 0.18)
+	_expire()
+
+
 func _expire() -> void:
 	if not _alive:
 		return
@@ -190,6 +210,7 @@ func _expire() -> void:
 
 func _pool_reset() -> void:
 	_alive = false
+	explode_radius = 0.0
 	velocity = Vector2.ZERO
 	_hit.clear()
 	set_physics_process(false)

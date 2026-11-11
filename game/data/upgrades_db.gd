@@ -326,7 +326,7 @@ static func price(id: String, times_bought: int) -> int:
 
 ## Ids that may appear in the shop given the player's permanent unlocks.
 static func available_ids(unlocked: Array, class_id: String = "",
-		equipped: Array = []) -> Array[String]:
+		equipped: Array = [], weapon: String = "") -> Array[String]:
 	var out: Array[String] = []
 	var ids: Array = DEFS.keys()
 	ids.append_array(CLASS_UPGRADES.keys())
@@ -338,6 +338,11 @@ static func available_ids(unlocked: Array, class_id: String = "",
 		# empty class_id (tests, tooling) sees the unrestricted pool.
 		var for_class: Variant = CLASS_LOCKED.get(id)
 		if for_class != null and not class_id.is_empty() and for_class != class_id:
+			continue
+		# Magazine and reload upgrades do nothing for a blade. An empty weapon
+		# (tests, tooling) sees the unrestricted pool.
+		if not weapon.is_empty() and not WeaponsDB.upgrade_applies(weapon,
+				String(get_def(id).get("stat", ""))):
 			continue
 		out.append(id)
 

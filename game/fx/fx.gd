@@ -14,6 +14,7 @@ static var _container: Node = null
 
 const IMPACT := preload("res://fx/impact.tscn")
 const MUZZLE := preload("res://fx/muzzle_flash.tscn")
+const SLASH := preload("res://fx/slash.gd")
 const DAMAGE_NUMBER := preload("res://fx/damage_number.tscn")
 const BURST := preload("res://fx/burst.tscn")
 const RING := preload("res://fx/ring_pulse.tscn")
@@ -87,6 +88,17 @@ static func telegraph(at: Vector2, radius: float, duration: float,
 		return
 	var n := Pools.acquire(RING, _container) as Node2D
 	n.call("play_telegraph", at, radius, color, duration)
+
+
+## The arc of a melee swing (or the streak of a thrust).
+static func slash(at: Vector2, angle: float, arc: float, reach: float,
+		color: Color = Color(1, 1, 1), thrust: bool = false) -> void:
+	if not _ok():
+		return
+	var n := Node2D.new()
+	n.set_script(SLASH)
+	_container.add_child(n)
+	n.call("play", at, angle, arc, reach, color, thrust)
 
 
 static func explosion(at: Vector2, radius: float, color: Color = Color(1.0, 0.62, 0.22)) -> void:

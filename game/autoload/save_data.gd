@@ -46,6 +46,8 @@ var loadout: Array[String] = ["dash", "grenade", "nova"]
 ## Last character picked. Sanitised on load, so a save from before classes
 ## existed comes back as the default rather than an empty string.
 var character: String = "warrior"
+## Last weapon picked (WeaponsDB id). Sanitised on load like `character`.
+var weapon: String = WeaponsDB.DEFAULT
 ## Cosmetic skins bought with Essence: "class:skin" ids.
 var skins_unlocked: Array[String] = []
 ## Which skin each class is wearing. Absent means the default.
@@ -114,6 +116,7 @@ func to_dict() -> Dictionary:
 		"unlocks": unlocks,
 		"loadout": loadout,
 		"character": character,
+		"weapon": weapon,
 		"refunded_removed_ability": refunded_removed_ability,
 		"refunded_locked_skins": refunded_locked_skins,
 		"skins_unlocked": skins_unlocked,
@@ -129,6 +132,7 @@ func to_dict() -> Dictionary:
 func from_dict(d: Dictionary) -> void:
 	essence = int(d.get("essence", 0))
 	character = ClassesDB.sanitise(String(d.get("character", "")))
+	weapon = WeaponsDB.sanitise(String(d.get("weapon", "")))
 	skins_unlocked = _to_string_array(d.get("skins_unlocked", []))
 	# Sanitised per class, so a save naming a skin that was renamed or removed
 	# comes back wearing the default rather than a texture that cannot load.
@@ -230,6 +234,15 @@ func owns_class(class_id: String) -> bool:
 	if ClassesDB.is_free(class_id):
 		return true
 	return unlocks.has(ClassesDB.unlock_id(class_id))
+
+
+## Whether the player has this weapon. Same shape as owns_class().
+func owns_weapon(weapon_id: String) -> bool:
+	if not WeaponsDB.DEFS.has(weapon_id):
+		return false
+	if WeaponsDB.is_free(weapon_id):
+		return true
+	return unlocks.has(WeaponsDB.unlock_id(weapon_id))
 
 
 ## Every character the player can actually pick.

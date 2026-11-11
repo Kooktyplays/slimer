@@ -49,6 +49,7 @@ func _run() -> void:
 	_test_timed_effects()
 	_test_leap()
 	_test_gun_upgrades()
+	_test_weapons()
 	_test_upgrade_pricing()
 	_test_economy()
 	_test_potions()
@@ -2387,6 +2388,140 @@ func _test_gun_upgrades() -> void:
 		built.apply_upgrade("fire_rate")
 	_check(built.effective_dps() > fresh.effective_dps() * 2.5,
 		"eight damage and eight fire-rate upgrades barely moved DPS")
+
+
+
+# ---------------------------------------------------------------------------
+# weapons
+# ---------------------------------------------------------------------------
+func _test_weapons() -> void:
+	# --- the table is whole --------------------------------------------------
+	_check(WeaponsDB.ORDER.size() == WeaponsDB.DEFS.size(),
+		"WeaponsDB.ORDER and DEFS list different weapons")
+	var guns := 0
+	var melee := 0
+	for id: String in WeaponsDB.ORDER:
+		_check(WeaponsDB.DEFS.has(id), "weapon '%s' is ordered but not defined" % id)
+		_check(ResourceLoader.exists(WeaponsDB.sprite_path(id)),
+			"weapon '%s' has no sprite at %s" % [id, WeaponsDB.sprite_path(id)])
+		if WeaponsDB.is_melee(id):
+			melee += 1
+			_check(float(WeaponsDB.get_def(id).get("reach", 0.0)) > 0.0,
+				"melee weapon '%s' has no reach" % id)
+		else:
+			guns += 1
+		# every bought weapon is sold in exactly one place, at one price
+		var key := WeaponsDB.unlock_id(id)
+		if WeaponsDB.is_free(id):
+			_check(key.is_empty(), "free weapon '%s' has an unlock id" % id)
+		else:
+			_check(MetaDB.DEFS.has(key), "weapon '%s' cannot be bought - no %s" % [id, key])
+			if MetaDB.DEFS.has(key):
+				_check(int(MetaDB.DEFS[key]["cost"]) == WeaponsDB.cost(id),
+					"%s costs %d in MetaDB but %d in WeaponsDB" % [
+						key, int(MetaDB.DEFS[key]["cost"]), WeaponsDB.cost(id)])
+				_check(MetaDB.ORDER.has(key), "%s is missing from MetaDB.ORDER" % key)
+	_check(guns >= 5 and melee >= 3, "expected at least 5 guns and 3 melee weapons")
+	var free_melee := WeaponsDB.ORDER.filter(func(w: String) -> bool:
+		return WeaponsDB.is_free(w) and WeaponsDB.is_melee(w))
+	_check(not free_melee.is_empty(), "no melee weapon is free - a first run has no melee")
+
+	# --- the pistol is the gun as it always was ------------------------------
+	var pistol := WeaponsDB.apply(Balance.GUN_BASE, WeaponsDB.PISTOL)
+	for stat: String in Balance.GUN_BASE:
+		_close(float(pistol[stat]), float(Balance.GUN_BASE[stat]),
+			"the pistol changes gun.%s" % stat)
+
+	# --- a lens can never break a cap ----------------------------------------
+	var maxed := Balance.GUN_BASE.duplicate()
+	for stat: String in Balance.GUN_CAPS:
+		maxed[stat] = float(Balance.GUN_CAPS[stat])
+	for id: String in WeaponsDB.ORDER:
+		var s := WeaponsDB.apply(maxed, id)
+		for stat: String in Balance.GUN_CAPS:
+			var cap := float(Balance.GUN_CAPS[stat])
+			if stat == "reload_time" or stat == "spread":
+				_check(float(s[stat]) >= cap - 0.0001,
+					"%s takes gun.%s below its floor" % [id, stat])
+			else:
+				_check(float(s[stat]) <= cap + 0.0001,
+					"%s takes gun.%s past its cap" % [id, stat])
+
+	# --- the shop only offers what the weapon can use ------------------------
+	var with_gun := UpgradesDB.available_ids(Save.unlocks, "", [], WeaponsDB.PISTOL)
+	var with_blade := UpgradesDB.available_ids(Save.unlocks, "", [], "blade")
+	for id: String in with_blade:
+		var stat := String(UpgradesDB.get_def(id).get("stat", ""))
+		_check(not (stat.begins_with("gun.")
+				and WeaponsDB.MELEE_IGNORES.has(stat.substr(4))),
+			"the shop offers '%s' (%s) to a blade, which it cannot use" % [id, stat])
+	_check(with_blade.size() < with_gun.size(),
+		"carrying a blade did not remove any gun-only upgrades from the shop")
+
+	# --- saves keep the weapon, and refuse one that does not exist -----------
+	var keep := Save.to_dict()
+	var d := keep.duplicate(true)
+	d["weapon"] = "spear"
+	Save.from_dict(d)
+	_check(Save.weapon == "spear", "the save did not keep the chosen weapon")
+	d["weapon"] = "rocket_lawnmower"
+	Save.from_dict(d)
+	_check(Save.weapon == WeaponsDB.DEFAULT, "an unknown weapon survived loading")
+	Save.from_dict(keep)
+
+	# --- a swing hits what is in front, and only that -------------------------
+	var had_run := Game.run != null
+	if not had_run:
+		Game.start_run(5150)
+	_check(Game.run != null, "could not start a run to test melee against")
+	if Game.run == null:
+		return
+	var prior_weapon := Game.run.weapon
+	Game.run.weapon = "blade"
+
+	var gun: Node2D = load("res://weapons/gun.tscn").instantiate()
+	add_child(gun)
+	gun.global_position = Vector2(-4000, -4000)
+	gun.call("configure")
+	_check(bool(gun.call("is_melee")), "a gun carrying the blade does not think it is melee")
+	_check(int(gun.call("magazine_size")) == 0, "a blade reports a magazine")
+
+	var scene: PackedScene = load("res://actors/enemy.tscn")
+	var front: Enemy = scene.instantiate()
+	var behind: Enemy = scene.instantiate()
+	# Carapace: shell up, immune to bullets - melee is the answer to it
+	var shelled: Enemy = scene.instantiate()
+	for e: Enemy in [front, behind, shelled]:
+		add_child(e)
+	front.configure(EnemyTypes.GREEN, 1)
+	behind.configure(EnemyTypes.GREEN, 1)
+	shelled.configure(EnemyTypes.GREY, 1)
+	# far from anything else, and placed by hit centre so the sprite offset
+	# cannot push one out of reach
+	front.global_position = gun.global_position + Vector2(90, 0) \
+		- (Combat.hit_center(front) - front.global_position)
+	behind.global_position = gun.global_position + Vector2(-90, 0) \
+		- (Combat.hit_center(behind) - behind.global_position)
+	shelled.global_position = gun.global_position + Vector2(70, 50) \
+		- (Combat.hit_center(shelled) - shelled.global_position)
+	var hp_front := front.hp
+	var hp_behind := behind.hp
+	var hp_shelled := shelled.hp
+	_check(bool(gun.call("try_fire", Vector2.RIGHT)), "the blade refused to swing")
+	_check(front.hp < hp_front, "a swing missed the slime right in front of it")
+	_check(is_equal_approx(behind.hp, hp_behind), "a swing hit a slime behind the player")
+	_check(shelled.hp < hp_shelled,
+		"a blade bounced off a shelled Carapace - melee should go through shells")
+	_check(not bool(gun.call("try_fire", Vector2.RIGHT)),
+		"the blade swung again with no cooldown")
+
+	for e: Enemy in [front, behind, shelled]:
+		e.die(false)
+		e.queue_free()
+	gun.queue_free()
+	Game.run.weapon = prior_weapon
+	if not had_run:
+		Game.abandon_run()
 
 
 func _test_upgrade_pricing() -> void:

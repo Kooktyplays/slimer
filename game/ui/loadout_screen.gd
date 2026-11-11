@@ -21,6 +21,7 @@ func _ready() -> void:
 		+ "upgrades what you bring, it does not replace it.", false)
 	_picker.connect("closed", _start)
 
+	_build_weapon_picker()
 	_build_class_picker()
 	_build_difficulty()
 
@@ -60,7 +61,7 @@ var _class_panel: Control = null
 
 
 func _open_class_select() -> void:
-	if _class_panel != null:
+	if _class_panel != null or _weapon_panel != null:
 		return
 	Audio.play_ui("ui_click", -8.0)
 	_class_panel = preload("res://ui/class_select.gd").new()
@@ -87,6 +88,46 @@ func _refresh_class() -> void:
 		String(def["ultimate_name"]),
 		String(def["ultimate_text"]),
 	]
+
+
+## What you carry in. Same shape as the class button: it opens its own
+## screen, because eight weapons are compared on numbers side by side.
+var _weapon_button: Button = null
+var _weapon_panel: Control = null
+
+
+func _build_weapon_picker() -> void:
+	_weapon_button = UITheme.button("", 22)
+	_weapon_button.custom_minimum_size = Vector2(360, 52)
+	_weapon_button.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_weapon_button.position = Vector2(-180, -230)
+	_weapon_button.size = Vector2(360, 52)
+	_weapon_button.pressed.connect(_open_weapon_select)
+	add_child(_weapon_button)
+	_refresh_weapon()
+
+
+func _open_weapon_select() -> void:
+	if _weapon_panel != null:
+		return
+	Audio.play_ui("ui_click", -8.0)
+	_weapon_panel = preload("res://ui/weapon_select.gd").new()
+	add_child(_weapon_panel)
+	_weapon_panel.connect("closed", func() -> void:
+		if _weapon_panel != null:
+			_weapon_panel.queue_free()
+		_weapon_panel = null
+		_refresh_weapon())
+
+
+func _refresh_weapon() -> void:
+	if _weapon_button == null:
+		return
+	var id := WeaponsDB.sanitise(String(Save.weapon))
+	_weapon_button.text = "WEAPON:  %s  \u25b8" % WeaponsDB.display_name(id).to_upper()
+	_weapon_button.add_theme_color_override("font_color",
+		UITheme.RED if WeaponsDB.is_melee(id) else UITheme.TEXT)
+	_weapon_button.tooltip_text = String(WeaponsDB.get_def(id)["desc"])
 
 
 func _build_difficulty() -> void:
@@ -128,4 +169,5 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _start() -> void:
 	Audio.play_ui("ui_confirm")
-	Game.start_run(0, _nightmare, ClassesDB.sanitise(String(Save.character)))
+	Game.start_run(0, _nightmare, ClassesDB.sanitise(String(Save.character)),
+		WeaponsDB.sanitise(String(Save.weapon)))

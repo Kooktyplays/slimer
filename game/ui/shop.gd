@@ -48,7 +48,8 @@ func _roll_offers() -> void:
 	# the locked loadout worth committing to.
 	var pool := UpgradesDB.available_ids(Save.unlocks,
 		Game.run.class_id if Game.run != null else "",
-		Game.run.abilities if Game.run != null else [])
+		Game.run.abilities if Game.run != null else [],
+		Game.run.weapon if Game.run != null else "")
 	var weighted: Array[String] = []
 	for id: String in pool:
 		var def := UpgradesDB.get_def(id)
