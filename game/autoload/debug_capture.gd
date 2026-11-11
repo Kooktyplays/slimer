@@ -34,6 +34,9 @@ func _ready() -> void:
 	# `-- perf` stress-tests a full-size wave and reports frame timing.
 	if OS.get_cmdline_user_args().has("perf"):
 		_attach("res://tests/perf_test.gd", "PerfTest")
+	# `-- reel <id>` stages one ability or ultimate for its preview clip.
+	if OS.get_cmdline_user_args().has("reel"):
+		_attach("res://tests/ability_reel.gd", "AbilityReel")
 
 
 func _attach(script_path: String, node_name: String) -> void:

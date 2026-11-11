@@ -303,6 +303,11 @@ static func icon_path(id: String) -> String:
 	return "res://assets/sprites/gen/%s.png" % get_def(id)["icon"]
 
 
+## The looping clip of this ability in action (tools/record_previews.py).
+static func preview_path(id: String) -> String:
+	return "res://assets/previews/%s.ogv" % id
+
+
 static func default_unlocked() -> Array[String]:
 	var out: Array[String] = []
 	for id: String in ORDER:

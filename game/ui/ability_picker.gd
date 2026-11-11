@@ -13,6 +13,9 @@ var _selected_slot := 0
 var _live := false            ## true when opened mid-run, so equip applies now
 var _grid: GridContainer
 var _slot_buttons: Array[Button] = []
+## What the hovered ability does, played beside the grid. Falls back to the
+## ability in the selected slot when nothing is hovered.
+var _preview: PreviewClip = null
 
 
 func setup(title_text: String, subtitle: String, live: bool) -> void:
@@ -29,9 +32,17 @@ func _build(title_text: String, subtitle: String) -> void:
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(center)
 
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 18)
+	center.add_child(row)
+
 	var panel := UITheme.panel()
 	panel.custom_minimum_size = Vector2(980, 0)
-	center.add_child(panel)
+	row.add_child(panel)
+
+	_preview = PreviewClip.new()
+	_preview.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(_preview)
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 12)
@@ -92,6 +103,20 @@ func _refresh() -> void:
 	# rejecting the click would be a worse way to teach the same rule.
 	for id: String in Save.unlocked_for_slot(_selected_slot):
 		_grid.add_child(_ability_card(id))
+	_preview_slot()
+
+
+func _preview_ability(id: String) -> void:
+	if _preview == null or id.is_empty():
+		return
+	var def := AbilitiesDB.get_def(id)
+	_preview.show_clip(AbilitiesDB.preview_path(id), String(def["name"]).to_upper(),
+		String(def["desc"]))
+
+
+func _preview_slot() -> void:
+	if _selected_slot < Save.loadout.size():
+		_preview_ability(Save.loadout[_selected_slot])
 
 
 func _ability_card(id: String) -> Control:
@@ -112,6 +137,9 @@ func _ability_card(id: String) -> Control:
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	UITheme.wire_sounds(b)
 	b.pressed.connect(_on_pick.bind(id))
+	b.mouse_entered.connect(_preview_ability.bind(id))
+	b.focus_entered.connect(_preview_ability.bind(id))
+	b.mouse_exited.connect(_preview_slot)
 
 	var v := VBoxContainer.new()
 	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

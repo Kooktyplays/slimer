@@ -228,6 +228,12 @@ static func sanitise_skin(class_id: String, skin: String) -> String:
 	return skin if skins_for(class_id).has(skin) else SKIN_DEFAULT
 
 
+## The looping clip of this class's ultimate, cutscene included
+## (tools/record_previews.py).
+static func ultimate_preview_path(id: String) -> String:
+	return "res://assets/previews/ult_%s.ogv" % sanitise(id)
+
+
 static func sprite_path(id: String, skin: String = SKIN_DEFAULT) -> String:
 	var cls := sanitise(id)
 	var s := sanitise_skin(cls, skin)

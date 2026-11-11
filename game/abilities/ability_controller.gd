@@ -252,7 +252,58 @@ func use_ultimate() -> bool:
 	var def := ClassesDB.get_def(class_id)
 	var ult := String(def["ultimate"])
 
-	_ultimate_flourish(def)
+	if _wants_cinematic():
+		_play_cinematic(class_id, def, ult)
+	else:
+		_fire_ultimate(class_id, def, ult, true)
+	return true
+
+
+## Whether an ultimate gets its cutscene. Off when the player switched it off,
+## and off headless - the logic suite and the bot fire ultimates and read the
+## result on the same frame, and a headless run has no frame to freeze.
+static var cinematics_enabled := true
+
+
+func _wants_cinematic() -> bool:
+	return cinematics_enabled and DisplayServer.get_name() != "headless" \
+		and bool(Save.settings.get("ultimate_cinematics", true))
+
+
+## Freeze the world, play the class's cutscene, then let the ultimate land.
+##
+## The tree is paused for the whole cutscene, so nothing can hit the player
+## while they watch; the charge was already spent in use_ultimate(), so
+## skipping cannot be used to fire one twice.
+func _play_cinematic(class_id: String, def: Dictionary, ult: String) -> void:
+	var tree := get_tree()
+	tree.paused = true
+	# Hide the HUD for the freeze frame, or the push-in zooms the health bar.
+	var hud := tree.current_scene.find_child("HUDLayer", true, false) \
+		if tree.current_scene != null else null
+	if hud is CanvasLayer:
+		(hud as CanvasLayer).visible = false
+	await RenderingServer.frame_post_draw
+	var snapshot := ImageTexture.create_from_image(get_viewport().get_texture().get_image())
+	var focus := player.get_global_transform_with_canvas().origin \
+		if is_instance_valid(player) else get_viewport().get_visible_rect().size * 0.5
+	var cut := preload("res://ui/ultimate_cutscene.gd").new()
+	tree.root.add_child(cut)
+	cut.setup(class_id, snapshot, focus)
+	Audio.play("boss_phase", 1.0)
+	await cut.finished
+	if is_instance_valid(hud) and hud is CanvasLayer:
+		(hud as CanvasLayer).visible = true
+	# the pause menu may have been open underneath; it owns the pause then
+	if not Game.paused:
+		tree.paused = false
+	if is_instance_valid(player) and player.alive and Game.run != null:
+		_fire_ultimate(class_id, def, ult, false)
+
+
+func _fire_ultimate(class_id: String, def: Dictionary, ult: String,
+		with_card: bool) -> void:
+	_ultimate_flourish(def, with_card)
 	match ult:
 		"recall_the_wood": _ult_recall_the_wood()
 		"last_stand": _ult_last_stand()
@@ -260,7 +311,6 @@ func use_ultimate() -> bool:
 		"overclock": _ult_overclock()
 		"bloom": _ult_bloom()
 	Events.ultimate_fired.emit(class_id, ult)
-	return true
 
 
 ## Combat punctuation, not a cutscene.
@@ -269,15 +319,19 @@ func use_ultimate() -> bool:
 ## stop, shake, a ring, a name card. Players will see this hundreds of times in
 ## a game whose whole appeal is continuous pressure, so anything longer than
 ## about a second stops being a payoff and starts being an interruption.
-func _ultimate_flourish(def: Dictionary) -> void:
+##
+## After a cutscene the name card and sting are skipped - the cutscene already
+## said the name - and what is left is the impact the cutscene cuts to.
+func _ultimate_flourish(def: Dictionary, with_card: bool = true) -> void:
 	var tint: Color = def["tint"]
 	Events.hit_stop.emit(0.18)
 	Game.shake(9.0, 0.45)
 	FX.ring(player.global_position, 520.0, tint, 0.55, 0.06)
 	FX.burst(player.global_position, tint, 40, 2.4)
-	FX.floating_text(player.global_position + Vector2(0, -120),
-		String(def["ultimate_name"]).to_upper(), tint)
-	Audio.play("boss_phase", 1.0)
+	if with_card:
+		FX.floating_text(player.global_position + Vector2(0, -120),
+			String(def["ultimate_name"]).to_upper(), tint)
+		Audio.play("boss_phase", 1.0)
 
 
 ## WARDEN. The forest remembers you - roots erupt in rings outward, the same

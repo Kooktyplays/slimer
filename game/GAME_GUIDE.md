@@ -365,9 +365,51 @@ that never fills, and an ultimate id with no arm in `AbilityController` is a
 button that does nothing. The suite reads both sets of `match` arms out of the
 source.
 
-The ultimate flourish is **combat punctuation, not a cutscene** — hit-stop,
-shake, a ring and a name card, all under a second. Players see it hundreds of
-times in a game whose appeal is continuous pressure.
+Each ultimate opens with a **cinematic cutscene** (`ui/ultimate_cutscene.gd`),
+about 2.3 s: the world freezes on the frame the button was pressed, the frame
+pushes in on the player, letterbox bars close, and the character steps in front
+of their own motif — roots for the Warden, speed lines and a cut for the
+Warrior, a blood moon for the Vampire, gears for the Engineer, petals for the
+Herbalist — with the ultimate's name. A white flash, and the ultimate lands.
+The tree is paused throughout, so nothing hits you while you watch, and the
+charge is spent before it starts, so skipping cannot fire one twice.
+
+Because players see it many times in a game about continuous pressure, **any
+key skips to the flash**, and **Settings → Ultimate cutscenes** turns it off,
+which falls back to the old sub-second flourish (hit-stop, shake, ring, name
+card). Headless runs never play it, so the logic suite and the bot read an
+ultimate's effect on the frame they fire it.
+
+Every ability and ultimate has a **preview clip** — the real game, staged by
+`tests/ability_reel.gd` and recorded with Movie Maker by
+`tools/record_previews.py` into `assets/previews/`. The loadout and shop play
+the hovered ability's clip beside the grid; the character screen plays the
+class's ultimate, cutscene included. Re-record a clip whenever its ability
+changes how it looks.
+
+### Weapons
+
+`data/weapons_db.gd`. Picked on the loadout screen (WEAPON ▸), saved between
+runs. A weapon is a **lens over `RunState.gun`**: shop upgrades still edit the
+same numbers, the weapon scales them when a shot or swing is made, and
+`Balance.GUN_CAPS` clamps the result.
+
+| Weapon | Kind | Character | Cost |
+| --- | --- | --- | --- |
+| Pistol | gun | The original: 12 rounds, quick reload | free |
+| Scattergun | gun | Six pellets in a wide cone, short range | 180 ✦ |
+| Repeater | gun | 36-round drum, fast and loose | 200 ✦ |
+| Longshot | gun | Five heavy rounds that pierce three | 240 ✦ |
+| Ember Launcher | gun | Shells burst on contact or at full range | 280 ✦ |
+| Wildblade | melee | Quick 130° cut, 135 reach | free |
+| Thornspear | melee | Long 26° thrust, 250 reach | 200 ✦ |
+| Stonemaul | melee | Slow 200° swing, huge knockback | 220 ✦ |
+
+Melee has no ammo and no reload and hits everything in the arc at once. Its
+damage is its own source (`Combat.SOURCE_MELEE`), so a shelled Carapace that
+shrugs off bullets does not shrug off a blade — that is what melee is for.
+Range upgrades add reach and Split Barrel widens the arc; magazine, reload,
+spread, pierce and bullet-speed upgrades are not offered to a melee weapon.
 
 ### Combos
 

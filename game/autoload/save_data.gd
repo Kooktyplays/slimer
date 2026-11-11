@@ -88,6 +88,9 @@ var settings := {
 	# a cooldown on the wrong one.
 	"enemy_badges": true,
 	"show_hints": true,
+	# The cutscene an ultimate plays first. Off falls back to the sub-second
+	# flourish, for players who would rather not wait.
+	"ultimate_cinematics": true,
 }
 
 ## Set by tests and the sim harness so they never touch the real save file.

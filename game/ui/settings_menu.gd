@@ -37,6 +37,7 @@ func _build() -> void:
 	_toggle(col, "Damage numbers", "damage_numbers")
 	_toggle(col, "Enemy markers", "enemy_badges")
 	_toggle(col, "Tutorial hints", "show_hints")
+	_toggle(col, "Ultimate cutscenes", "ultimate_cinematics")
 
 	col.add_child(UITheme.spacer(14))
 	var controls := UITheme.button("CONTROLS", 24)

@@ -50,6 +50,7 @@ func _run() -> void:
 	_test_leap()
 	_test_gun_upgrades()
 	_test_weapons()
+	_test_previews_and_cutscenes()
 	_test_upgrade_pricing()
 	_test_economy()
 	_test_potions()
@@ -2522,6 +2523,34 @@ func _test_weapons() -> void:
 	Game.run.weapon = prior_weapon
 	if not had_run:
 		Game.abandon_run()
+
+
+
+## Every ability and every ultimate has its clip, and every ultimate has a
+## cutscene motif. Both fail silently otherwise: a missing clip shows "no
+## preview", and an ultimate with no motif plays its cutscene on a bare frame.
+func _test_previews_and_cutscenes() -> void:
+	for id: String in AbilitiesDB.ORDER:
+		_check(ResourceLoader.exists(AbilitiesDB.preview_path(id)),
+			"ability '%s' has no preview clip - run tools/record_previews.py %s" % [id, id])
+	# the motif match arms read "<ultimate id>": _motif_<name>()
+	var motifs := {}
+	for line: String in _read_source("res://ui/ultimate_cutscene.gd").split("\n"):
+		var t := line.strip_edges()
+		if t.begins_with("\"") and t.contains("\": _motif_"):
+			motifs[t.get_slice("\"", 1)] = true
+	for cls: String in ClassesDB.ORDER:
+		_check(ResourceLoader.exists(ClassesDB.ultimate_preview_path(cls)),
+			"class '%s' has no ultimate clip - run tools/record_previews.py ult:%s"
+				% [cls, cls])
+		var ult := String(ClassesDB.get_def(cls)["ultimate"])
+		_check(motifs.has(ult), "ultimate '%s' has no cutscene motif" % ult)
+	# headless runs fire ultimates without the cutscene, or every test that
+	# reads an ultimate's effect on the same frame would see nothing
+	var ac := AbilityController.new()
+	_check(DisplayServer.get_name() != "headless" or not bool(ac.call("_wants_cinematic")),
+		"a headless run would wait on an ultimate cutscene")
+	ac.free()
 
 
 func _test_upgrade_pricing() -> void:

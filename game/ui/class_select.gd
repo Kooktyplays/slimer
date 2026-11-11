@@ -28,6 +28,8 @@ var _skin_label: Label = null
 var _essence_label: Label = null
 var _confirm_button: Button = null
 var _bob := 0.0
+## The ultimate in action - cutscene and all - beside the card.
+var _ult_clip: PreviewClip = null
 
 
 func _ready() -> void:
@@ -78,6 +80,10 @@ func _build() -> void:
 	next.custom_minimum_size = Vector2(60, CARD_SIZE.y)
 	next.pressed.connect(func() -> void: _step(1))
 	row.add_child(next)
+
+	_ult_clip = PreviewClip.new()
+	_ult_clip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(_ult_clip)
 
 	var inner := VBoxContainer.new()
 	inner.add_theme_constant_override("separation", 6)
@@ -233,6 +239,9 @@ func _refresh(animate: bool) -> void:
 	_charge_label.text = String(def["charge_text"])
 	_ult_label.text = "ULTIMATE — %s" % String(def["ultimate_name"]).to_upper()
 	_ult_desc.text = String(def["ultimate_text"])
+	if _ult_clip != null:
+		_ult_clip.show_clip(ClassesDB.ultimate_preview_path(cls),
+			String(def["ultimate_name"]).to_upper(), "What it looks like when it lands.")
 
 	var owned := Save.owns_class(cls)
 
